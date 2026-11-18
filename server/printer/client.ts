@@ -1,7 +1,31 @@
-import { Op, Status, Tag, attr, decodeIpp, encodeIpp, v, values, type IppAttribute, type IppMessage } from "./ipp-codec.ts"
+import type { CupsJobDetails } from "../../shared/api.ts"
+import { JobState, Op, Status, Tag, attr, decodeIpp, encodeIpp, v, values, type IppAttribute, type IppMessage } from "./ipp-codec.ts"
 
 /** Every request to CUPS is made as this user, so Print Buddy owns its jobs and may cancel them. */
 const user = "print-buddy"
+
+/** The IPP names of the `job-state` numbers. */
+const jobStateKeywords: Record<number, string> = {
+  [JobState.pending]: "pending",
+  [JobState.held]: "pending-held",
+  [JobState.processing]: "processing",
+  [JobState.stopped]: "processing-stopped",
+  [JobState.canceled]: "canceled",
+  [JobState.aborted]: "aborted",
+  [JobState.completed]: "completed",
+}
+
+/** Reads the job group of a Print-Job or Get-Job-Attributes answer. */
+function jobDetails(reply: IppMessage): CupsJobDetails {
+  const jobState = values(reply, Tag.job, "job-state")[0]
+  if (typeof jobState !== "number") throw new Error("ipp: answer without job-state")
+  return {
+    jobState: jobStateKeywords[jobState] ?? String(jobState),
+    jobStateReasons: values(reply, Tag.job, "job-state-reasons").map(String),
+    // CUPS leaves the message out until the job was processed once
+    printerMessage: String(values(reply, Tag.job, "job-printer-state-message")[0] ?? ""),
+  }
+}
 
 export type PrinterClient = ReturnType<typeof createPrinterClient>
 
@@ -47,15 +71,23 @@ export function createPrinterClient(printerUri: string) {
   }
 
   return {
-    /** Sends the PDF as one job and returns the job number CUPS assigned. */
-    async printJob(pdf: Uint8Array): Promise<{ cupsJobId: number }> {
+    /** Sends the PDF as one job and returns the job number CUPS assigned, with the job's first state. */
+    async printJob(pdf: Uint8Array): Promise<{ cupsJobId: number; details: CupsJobDetails }> {
       const reply = await call(Op.printJob, [
         attr("job-name", v.name("Print Buddy")),
         attr("document-format", v.mime("application/pdf")),
       ], pdf)
       const cupsJobId = values(reply, Tag.job, "job-id")[0]
       if (typeof cupsJobId !== "number") throw new Error("ipp: Print-Job answer without job-id")
-      return { cupsJobId }
+      return { cupsJobId, details: jobDetails(reply) }
+    },
+
+    /** What CUPS knows about the job right now. */
+    async getJobAttributes(cupsJobId: number): Promise<CupsJobDetails> {
+      return jobDetails(await call(Op.getJobAttributes, [
+        attr("job-id", v.int(cupsJobId)),
+        attr("requested-attributes", ...["job-id", "job-state", "job-state-reasons", "job-printer-state-message"].map(v.keyword)),
+      ]))
     },
   }
 }

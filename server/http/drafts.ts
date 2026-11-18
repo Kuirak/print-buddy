@@ -1,3 +1,4 @@
+import { PDFDocument } from "@cantoo/pdf-lib"
 import { Hono } from "hono"
 import { readFile } from "node:fs/promises"
 import type { ApiError, DraftCreated, FileFacts, JobSubmitted } from "../../shared/api.ts"
@@ -26,8 +27,11 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
     if (!files) return c.json(notFound, 404)
     const file = files[0]
     if (!file) return c.json<ApiError>({ error: "empty-draft" }, 400)
-    const { cupsJobId } = await deps.printer.printJob(await readFile(file.path))
-    const job = deps.jobs.add({ cupsJobId })
+    const pdf = await readFile(file.path)
+    // until the renderer builds the sheets, the upload goes out as it is: one sheet per page
+    const sheets = (await PDFDocument.load(pdf)).getPageCount()
+    const { cupsJobId, details } = await deps.printer.printJob(pdf)
+    const job = deps.jobs.add({ cupsJobId, sheets, details })
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
   })
 
