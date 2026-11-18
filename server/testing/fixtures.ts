@@ -1,5 +1,12 @@
-// Small files for tests. Keep them deterministic: no dates, no random ids.
+// Small files and values for tests. Keep them deterministic: no dates, no random ids.
 import { crc32, deflateSync } from "node:zlib"
+import type { PrintOptions } from "../../shared/print-options.ts"
+
+/** Valid Print Options for the one page of `samplePdf()`: what a new PDF starts with. */
+export const samplePrintOptions: PrintOptions = {
+  copies: 1, color: "mono", paper: "A4", quality: "normal",
+  printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
+}
 
 /**
  * A valid one-page A4 PDF. The second line holds bytes above 0x7f, so a test notices
