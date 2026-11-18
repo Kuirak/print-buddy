@@ -16,7 +16,7 @@ test("a picked PDF reaches the Printer unchanged as one Print Job", async t => {
   const added = await server.upload(draftId, pdf, "Rechnung.pdf", "application/pdf")
   assert.equal(added.status, 201)
 
-  const submitted = await server.post(`/api/drafts/${draftId}/submit`)
+  const submitted = await server.submit(draftId)
   assert.equal(submitted.status, 201)
   const job = await submitted.json() as { jobId: string; cupsJobId: number }
   assert.equal(typeof job.jobId, "string")
@@ -49,7 +49,7 @@ test("a draft without a file cannot be submitted", async t => {
   t.after(server.close)
   const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
 
-  const submitted = await server.post(`/api/drafts/${draftId}/submit`)
+  const submitted = await server.submit(draftId)
 
   assert.equal(submitted.status, 400)
   assert.deepEqual(await submitted.json(), { error: "empty-draft" })

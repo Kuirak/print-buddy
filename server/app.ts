@@ -7,6 +7,7 @@ import { draftRoutes } from "./http/drafts.ts"
 import { healthRoutes } from "./http/health.ts"
 import { jobRoutes } from "./http/jobs.ts"
 import { sessionRoutes } from "./http/session.ts"
+import { printerRoutes } from "./http/printer.ts"
 import { uiRoutes } from "./http/ui.ts"
 import { createIntake } from "./intake.ts"
 import { createJobStore } from "./job-store.ts"
@@ -19,17 +20,22 @@ export interface AppDeps {
   uiDir: string
 }
 
-/** Wires the modules together. One route file per resource under `http/`; mount new ones here. */
-export function createApp(deps: AppDeps) {
-  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts") })
+/**
+ * Wires the modules together. One route file per resource under `http/`; mount new ones here.
+ * Asks CUPS for the printable margins before it returns; a silent CUPS costs a few seconds, not the start.
+ */
+export async function createApp(deps: AppDeps) {
+  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
   const jobs = createJobStore({ now: deps.now })
   const printer = createPrinterClient(deps.config.printerUri)
+  await printer.loadMargins()
 
   const app = new Hono()
   app.route("/", healthRoutes())
   app.route("/", sessionRoutes())
   app.route("/", draftRoutes({ intake, jobs, printer }))
   app.route("/", jobRoutes({ jobs, printer, now: deps.now }))
+  app.route("/", printerRoutes({ printer }))
   // keep these two last: they catch what no route above answered
   app.all("/api/*", c => c.json<ApiError>({ error: "not-found" }, 404))
   app.route("/", uiRoutes({ uiDir: deps.uiDir }))

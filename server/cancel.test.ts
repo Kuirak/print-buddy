@@ -2,15 +2,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
 import { JobState, Op, Tag, values } from "./printer/ipp-codec.ts"
-import { samplePdf } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
-
-/** Sends the sample PDF as a Print Job, the way the app does. */
-async function printSample(server: TestServer) {
-  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
-  await server.upload(draftId, samplePdf(), "a.pdf", "application/pdf")
-  return await (await server.post(`/api/drafts/${draftId}/submit`)).json() as { jobId: string; cupsJobId: number }
-}
 
 const cancelRequests = (server: TestServer) => server.printer.requests.filter(request => request.code === Op.cancelJob)
 
@@ -18,7 +10,7 @@ test("cancelling a waiting Print Job sends Cancel-Job as print-buddy, and the jo
   const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
   const server = await startTestServer({ now: sentAt })
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
   server.clock.advance(12_000)
 
   const res = await server.post(`/api/jobs/${jobId}/cancel`)
@@ -42,7 +34,7 @@ test("cancelling a waiting Print Job sends Cancel-Job as print-buddy, and the jo
 test("a Print Job can no longer be cancelled once it is being printed", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
   server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "Connected to printer.")
 
   const res = await server.post(`/api/jobs/${jobId}/cancel`)
@@ -57,7 +49,7 @@ test("a Print Job can no longer be cancelled once it is being printed", async t 
 test("a Print Job that has ended can't be cancelled", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
   server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"])
 
   const res = await server.post(`/api/jobs/${jobId}/cancel`)
@@ -72,7 +64,7 @@ test("a Print Job that has ended can't be cancelled", async t => {
 test("a job the Printer has not taken yet can still be cancelled, even though CUPS calls it processing", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
   server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "The printer is not responding.")
 
   const res = await server.post(`/api/jobs/${jobId}/cancel`)
@@ -85,7 +77,7 @@ test("a job the Printer has not taken yet can still be cancelled, even though CU
 test("when CUPS refuses the Cancel-Job because the job belongs to someone else, the cancel is refused", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
   server.printer.jobs.get(cupsJobId)!.user = "someone-else"
 
   const res = await server.post(`/api/jobs/${jobId}/cancel`)

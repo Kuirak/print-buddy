@@ -1,17 +1,9 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { PDFDocument } from "@cantoo/pdf-lib"
 import type { JobStatus } from "../shared/api.ts"
 import { JobState } from "./printer/ipp-codec.ts"
-import { samplePdf } from "./testing/fixtures.ts"
+import { pdfWithPages, sampleJpeg, type PdfPageSpec } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
-
-/** Sends the sample PDF as a Print Job, the way the app does. */
-async function printSample(server: TestServer) {
-  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
-  await server.upload(draftId, samplePdf(), "a.pdf", "application/pdf")
-  return await (await server.post(`/api/drafts/${draftId}/submit`)).json() as { jobId: string; cupsJobId: number }
-}
 
 const readJob = async (server: TestServer, jobId: string) =>
   await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus
@@ -20,7 +12,7 @@ test("a Print Job that CUPS just accepted reads as Wartet, with its job number, 
   const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
   const server = await startTestServer({ now: sentAt })
   t.after(server.close)
-  const { jobId } = await printSample(server)
+  const { jobId } = await server.print()
   server.clock.advance(5_000)
 
   const res = await server.request(`/api/jobs/${jobId}`)
@@ -41,7 +33,7 @@ test("a Print Job that CUPS just accepted reads as Wartet, with its job number, 
 test("the screen state follows the CUPS job state", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
 
   const cases = [
     { cups: [JobState.pending, ["none"], ""], state: "waiting" },
@@ -64,7 +56,7 @@ test("the screen state follows the CUPS job state", async t => {
 test("a job that CUPS is processing but can't hand to the Printer yet still reads as Wartet", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
 
   // the socket backend keeps an unreachable Printer's job in `processing`; only the message tells
   for (const message of [
@@ -85,7 +77,7 @@ test("a completed job reads as Fertig, and remembers when Print Buddy saw it end
   const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
   const server = await startTestServer({ now: sentAt })
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
 
   server.clock.advance(75_000)
   server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"], "Print file sent.")
@@ -106,7 +98,7 @@ test("a job that CUPS aborted reads as Fehler", async t => {
   const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
   const server = await startTestServer({ now: sentAt })
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
 
   server.clock.advance(9_000)
   server.printer.setJob(cupsJobId, JobState.aborted, ["aborted-by-system"], "Job aborted after 5 unsuccessful attempts.")
@@ -126,7 +118,7 @@ test("a job that someone else cancelled reads as Fehler", async t => {
   const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
   const server = await startTestServer({ now: sentAt })
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
 
   // CUPS marks every cancelled job like this, whoever cancelled it
   server.clock.advance(4_000)
@@ -149,22 +141,22 @@ test("a Print Job that does not exist is a 404", async t => {
   assert.equal(server.printer.requests.length, 0)
 })
 
-test("the sheet count is the number of pages sent to the Printer", async t => {
+test("the sheet count is one sheet per page of the PDF, or per photo, for every copy", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const pdf = await PDFDocument.create()
-  for (let i = 0; i < 3; i++) pdf.addPage([595, 842])
-  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
-  await server.upload(draftId, new Uint8Array(await pdf.save()), "a.pdf", "application/pdf")
-  const { jobId } = await (await server.post(`/api/drafts/${draftId}/submit`)).json() as { jobId: string }
+  const a4: PdfPageSpec = { size: [595, 842] }
 
-  assert.equal((await readJob(server, jobId)).sheets, 3)
+  const pdf = await server.print({ copies: 2 }, [pdfWithPages([a4, a4, a4])])
+  const photos = await server.print({ copies: 3 }, [sampleJpeg(), sampleJpeg()])
+
+  assert.equal((await readJob(server, pdf.jobId)).sheets, 6)
+  assert.equal((await readJob(server, photos.jobId)).sheets, 6)
 })
 
 test("while CUPS can't be reached, a Print Job reads as it was last seen", async t => {
   const server = await startTestServer()
   t.after(server.close)
-  const { jobId, cupsJobId } = await printSample(server)
+  const { jobId, cupsJobId } = await server.print()
   server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "Connected to printer.")
   const seen = await readJob(server, jobId)
 

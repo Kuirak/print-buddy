@@ -5,7 +5,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { loadConfig } from "../config.ts"
 import { startServer } from "../server.ts"
-import { startFakeIpp } from "./fake-ipp.ts"
+import type { PrintOptions } from "../../shared/print-options.ts"
+import { startFakeIpp, type FakeIpp } from "./fake-ipp.ts"
+import { samplePdf, samplePrintOptions } from "./fixtures.ts"
 
 export interface TestServerOptions {
   /** Extra or overriding keys for the add-on options file. `printer_uri` defaults to the fake printer. */
@@ -14,6 +16,8 @@ export interface TestServerOptions {
   now?: number
   /** Files of a stand-in UI build, by relative path. */
   ui?: Record<string, string>
+  /** Runs before the server starts, to script what the printer answers to the startup read of the margins. */
+  beforeStart?: (printer: FakeIpp) => void
 }
 
 export type TestServer = Awaited<ReturnType<typeof startTestServer>>
@@ -21,6 +25,7 @@ export type TestServer = Awaited<ReturnType<typeof startTestServer>>
 export async function startTestServer(opts: TestServerOptions = {}) {
   const dir = await mkdtemp(join(tmpdir(), "print-buddy-test-"))
   const printer = await startFakeIpp()
+  opts.beforeStart?.(printer)
 
   const optionsFile = join(dir, "data", "options.json")
   await mkdir(join(dir, "data"))
@@ -45,27 +50,49 @@ export async function startTestServer(opts: TestServerOptions = {}) {
     PRINT_BUDDY_PORT: "0",
   })
   const server = await startServer(config, { now: clock.now, hostname: "127.0.0.1", uiDir })
+  // what the server asked the printer while starting is set aside, so `printer.requests` holds only what a test caused
+  const startupRequests = printer.requests.splice(0)
 
   const request = (path: string, init?: RequestInit) => fetch(server.url + path, init)
+  const post = (path: string, body?: unknown) => request(path, {
+    method: "POST",
+    ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+  })
+
+  const submit = (draftId: string, overrides: Partial<PrintOptions> = {}) => post(`/api/drafts/${draftId}/submit`, { ...samplePrintOptions, ...overrides })
+  function upload(draftId: string, bytes: Uint8Array<ArrayBuffer>, name: string, type = "application/octet-stream") {
+    const form = new FormData()
+    form.set("file", new File([bytes], name, { type }))
+    return request(`/api/drafts/${draftId}/files`, { method: "POST", body: form })
+  }
 
   return {
     url: server.url,
-    /** The fake IPP printer: `printer.requests`, `printer.jobs`, `printer.setJob(...)`, `printer.printer`. */
+    /**
+     * The fake IPP printer: `printer.requests`, `printer.jobs`, `printer.setJob(...)`, `printer.printer`.
+     * `printer.requests` starts empty: see `startupRequests`.
+     */
     printer,
+    /** The IPP requests the server made while it started (the read of the printable margins). */
+    startupRequests,
     /** Stands in for /share/print-buddy/jobs. */
     jobsDir,
     clock,
     request,
     /** POST a JSON body (or none). */
-    post: (path: string, body?: unknown) => request(path, {
-      method: "POST",
-      ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
-    }),
+    post,
+    /** Submit a draft with `samplePrintOptions`, changed by `overrides`. */
+    submit,
     /** Add one file to a draft the way the app does: multipart, field `file`. */
-    upload(draftId: string, bytes: Uint8Array<ArrayBuffer>, name: string, type = "application/octet-stream") {
-      const form = new FormData()
-      form.set("file", new File([bytes], name, { type }))
-      return request(`/api/drafts/${draftId}/files`, { method: "POST", body: form })
+    upload,
+    /**
+     * Send a Print Job the way the app does: a new draft, one upload per file, then a submit with
+     * `samplePrintOptions`, changed by `overrides`. Without `files` it is `samplePdf()`.
+     */
+    async print(overrides: Partial<PrintOptions> = {}, files: Uint8Array<ArrayBuffer>[] = [samplePdf()]) {
+      const { draftId } = await (await post("/api/drafts")).json() as { draftId: string }
+      for (const [i, file] of files.entries()) await upload(draftId, file, `file-${i + 1}`)
+      return await (await submit(draftId, overrides)).json() as { jobId: string; cupsJobId: number }
     },
     async close() {
       await server.close()
