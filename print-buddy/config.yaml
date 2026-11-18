@@ -1,0 +1,26 @@
+name: "Print Buddy"
+# The one source of the version: the server reads this line, and the release workflow
+# refuses a tag that differs from it. Format YYYY.MM.N, always quoted.
+version: "2026.11.0"
+slug: "print-buddy"
+description: "Vom Handy drucken: PDFs und Fotos an den Drucker im Haus"
+url: "https://github.com/Kuirak/print-buddy"
+image: "ghcr.io/kuirak/print-buddy"
+arch:
+  - aarch64
+startup: application
+boot: auto
+# node is PID 1 and stops on SIGTERM by itself (server/main.ts)
+init: false
+ports:
+  9217/tcp: null
+map:
+  - type: share
+    read_only: false
+options:
+  printer_uri: "ipp://172.30.32.1:631/printers/Printer"
+  upload_limit_mb: 50
+schema:
+  printer_uri: "match(^ipps?://.+$)"
+  upload_limit_mb: "int(1,100)"
+watchdog: "http://[HOST]:[PORT:9217]/health"

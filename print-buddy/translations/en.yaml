@@ -1,0 +1,9 @@
+configuration:
+  printer_uri:
+    name: "Printer address"
+    description: "IPP address of the CUPS queue. Must contain an IP address, not a hostname."
+  upload_limit_mb:
+    name: "Upload limit (MB)"
+    description: "Largest accepted file."
+network:
+  9217/tcp: "Print Buddy on the home network (no login)"

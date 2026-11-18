@@ -2,6 +2,79 @@
 
 A small web app for printing PDFs and photos from the family's Android phones on the household Printer. It runs as a Home Assistant add-on next to the CUPS add-on. The spec is in `.scratch/print-buddy/spec.md`; the vocabulary is in `GLOSSARY.md`.
 
+This repository is also the Home Assistant add-on repository: `repository.yaml` at the root, the add-on in `print-buddy/`. Home Assistant pulls a ready-made image for the Raspberry Pi 4 (aarch64) and builds nothing.
+
+## Install in Home Assistant
+
+1. The CUPS add-on must be running, with a queue that prints a test page.
+2. Settings > Apps > Install app > ⋮ > Repositories: add `https://github.com/Kuirak/print-buddy`. Always enter it exactly like this. Home Assistant derives the add-on's internal hostname from the text of this URL.
+3. Install **Print Buddy** from the store. Check the two options (`printer_uri`, `upload_limit_mb`), turn on **Watchdog** and **Start on boot**, then start it. The Documentation tab (`print-buddy/DOCS.md`) explains the options, the optional LAN port and where the job files are.
+
+## Cloudflare setup
+
+Do the steps in this order. The Access application comes first, so the hostname is never reachable without a login.
+
+### 1. Access application
+
+In Cloudflare Zero Trust, add a self-hosted Access application:
+
+- Hostname `print.example.org`, no path.
+- One Allow policy that lists the 2 family email addresses.
+- Login by one-time PIN only, with instant authentication on.
+- Session duration 1 month, for the application and for the global session.
+- No Bypass policy, and leave the cookie's SameSite setting at its default.
+
+### 2. Tunnel route with "Protect with Access"
+
+The tunnel runs in token mode, so its routes are set in the dashboard. Add a published application route:
+
+- Hostname `print.example.org`.
+- Service `http://0086bcee-print-buddy:9217`. This is the add-on's hostname inside Home Assistant. It needs no host port, so leave the port under Network empty.
+- Turn on **Protect with Access** and pick the application from step 1. cloudflared then drops every request that carries no valid Access login.
+
+`0086bcee` is derived from the repository URL as it was entered in step 2 of the install. For another URL, compute it with `printf %s "<url in lower case>" | shasum | cut -c1-8`, or read the hostname on the add-on's page.
+
+Check: `https://print.example.org` in a private window shows the Cloudflare login, and after the PIN it shows Print Buddy.
+
+### 3. Install on the phones from Chrome
+
+On each Android phone:
+
+1. Open `https://print.example.org` in Chrome and log in with the PIN.
+2. Chrome menu > "Zum Startbildschirm hinzufügen" > "Installieren".
+3. Share a PDF from another app. "Print Buddy" must be in the share sheet.
+
+### 4. Bypass fallback
+
+Only if step 3 fails, that is Chrome offers no "Installieren" or Print Buddy is missing from the share sheet:
+
+1. Add a second Access application for `print.example.org` with a Bypass policy for everyone, for exactly these paths: `/manifest.webmanifest`, `/sw.js` and the icon files the manifest names.
+2. Add a tunnel route for the same paths to the same service, with "Protect with Access" off, and move it above the main route. Without it cloudflared still drops these requests.
+3. Remove Print Buddy from the phone and repeat step 3.
+
+Nothing else may be bypassed. These files contain no personal data.
+
+## Releasing
+
+Versions are `YYYY.MM.N`: year, two-digit month, and a counter that starts at 0 each month. The one source is the `version` line in `print-buddy/config.yaml`. The server reads that file, and the release workflow refuses a tag that differs from it.
+
+1. Set the new version in `print-buddy/config.yaml` and add an entry at the top of `print-buddy/CHANGELOG.md`. `pnpm test` checks that the two agree.
+2. Commit on a branch and tag that commit `v<version>`, for example `v2026.11.0`. Push the branch and the tag. `.github/workflows/release.yaml` builds the aarch64 image and pushes it to `ghcr.io/kuirak/print-buddy:<version>`.
+3. Merge to `main` once the workflow is green. Home Assistant offers the update as soon as `main` holds the new version, so the image has to be there first.
+4. Only after the very first release: on GitHub, open the package `print-buddy` > Package settings > Change visibility > Public. GHCR creates it private, and Home Assistant pulls without a login.
+5. Update the add-on in Home Assistant, then do the smoke print below.
+
+Never push a different image under a version that already exists.
+
+### Smoke print (every release, by hand)
+
+No test reaches the real Printer, so each release gets one print against the real queue:
+
+1. Open Print Buddy on a phone through `https://print.example.org`.
+2. Pick a one-page PDF and tap "Drucken".
+3. The app shows the job number, and the page comes out of the Printer.
+4. `http://<home-assistant-address>:9217/health` (with the LAN port on) or the add-on log shows the new version.
+
 ## Development
 
 Needs Node 26 and pnpm 12. Run `pnpm install` once.
@@ -53,6 +126,9 @@ ui/                Vite root.
   src/testing/       Seam 3 helpers.
   src/*.test.tsx     Seam 3 tests.
 scripts/dev.ts     What `pnpm dev` runs.
+print-buddy/       The Home Assistant add-on folder: config.yaml, DOCS.md, CHANGELOG.md, translations.
+repository.yaml    Makes the repository an add-on repository.
+Dockerfile         The add-on image. Built by .github/workflows/release.yaml, never by Home Assistant.
 ```
 
 Rules that keep parallel work apart:
@@ -146,6 +222,9 @@ test("…", async () => {
 - **Solid 2 packages.** The DOM runtime is `@solidjs/web` and the Vite plugin is `@solidjs/vite-plugin`. `vite-plugin-solid` and `solid-js/web` are for Solid 1. Read `node_modules/solid-js/CHEATSHEET.md` before writing a component.
 - **Dependencies.** The whole library list of the spec is installed already, including the ones no code uses yet (`@cantoo/pdf-lib`, `exifr`, `pdfjs-dist`), so that tickets built in parallel don't each change the lockfile.
 - **Health path.** The health endpoint is `/health`, outside `/api`, for the HA watchdog. It never contacts CUPS.
+- **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
+- **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
+- **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on (`init: false`). Anything that must finish before the process ends belongs in the server's `close()`.
 - **What the skeleton leaves open.** The API accepts any file as a PDF and has no size limit yet (upload intake). Submit sends the upload as it is (renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed upload or submit shows nothing in the app (refusals, failures). The status screen shows only that CUPS accepted the job.
 
 ### Print Options and printer info
