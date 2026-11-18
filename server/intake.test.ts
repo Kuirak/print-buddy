@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { readdir, readFile } from "node:fs/promises"
+import { request } from "node:http"
+import { join } from "node:path"
 import { test } from "node:test"
 import { docxHeader, encryptedPdf, heicHeader, pdfWithPages, sampleJpeg, samplePdf, samplePng, withExifOrientation } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
@@ -97,4 +100,137 @@ test("a PDF that is only protected against editing opens without a password and 
 
   assert.equal(added.status, 201)
   assert.deepEqual(await added.json(), { kind: "pdf", pageCount: 1, pages: [{ width: 100, height: 100 }] })
+})
+
+test("a second PDF in a draft is refused as one-pdf-only", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const draftId = await newDraft(server)
+  await server.upload(draftId, samplePdf(), "a.pdf")
+
+  const second = await server.upload(draftId, samplePdf(), "b.pdf")
+
+  assert.equal(second.status, 409)
+  assert.deepEqual(await second.json(), { refusal: "one-pdf-only" })
+})
+
+test("a PDF added to photos, or a photo added to a PDF, is refused as mixed-types", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const photos = await newDraft(server)
+  await server.upload(photos, sampleJpeg(), "a.jpg")
+  const pdf = await newDraft(server)
+  await server.upload(pdf, samplePdf(), "a.pdf")
+
+  const pdfToPhotos = await server.upload(photos, samplePdf(), "b.pdf")
+  const photoToPdf = await server.upload(pdf, samplePng(4, 4), "b.png")
+
+  assert.equal(pdfToPhotos.status, 409)
+  assert.deepEqual(await pdfToPhotos.json(), { refusal: "mixed-types" })
+  assert.equal(photoToPdf.status, 409)
+  assert.deepEqual(await photoToPdf.json(), { refusal: "mixed-types" })
+})
+
+test("20 photos are accepted and the 21st is refused as too-many-photos", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const draftId = await newDraft(server)
+
+  for (let n = 1; n <= 20; n++) {
+    const added = await server.upload(draftId, n % 2 ? sampleJpeg() : samplePng(4, 4), `IMG_${n}`)
+    assert.equal(added.status, 201, `photo ${n}`)
+  }
+  const extra = await server.upload(draftId, sampleJpeg(), "IMG_21.jpg")
+
+  assert.equal(extra.status, 409)
+  assert.deepEqual(await extra.json(), { refusal: "too-many-photos" })
+})
+
+test("a refused file is not kept, and the accepted ones stay on disk in upload order", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const draftId = await newDraft(server)
+  const first = withExifOrientation(sampleJpeg(), 3)
+  const second = samplePng(8, 6)
+
+  await server.upload(draftId, first, "b.jpg")
+  await server.upload(draftId, samplePdf(), "refused.pdf")
+  await server.upload(draftId, heicHeader(), "refused.heic")
+  await server.upload(draftId, second, "a.png")
+
+  const dir = join(server.jobsDir, "drafts", draftId)
+  assert.deepEqual((await readdir(dir)).sort(), ["1.jpg", "2.png"])
+  assert.deepEqual(await readFile(join(dir, "1.jpg")), Buffer.from(first))
+  assert.deepEqual(await readFile(join(dir, "2.png")), Buffer.from(second))
+})
+
+/** A PDF padded with a trailing comment to exactly `size` bytes. */
+function pdfOfSize(size: number): Uint8Array<ArrayBuffer> {
+  const pdf = samplePdf()
+  const padded = new Uint8Array(size).fill(0x20)
+  padded.set(pdf)
+  padded[pdf.length] = 0x25 // "%"
+  return padded
+}
+
+test("a file of exactly upload_limit_mb is accepted and one byte more is refused as too-large", async t => {
+  const server = await startTestServer({ options: { upload_limit_mb: 1 } })
+  t.after(server.close)
+  const draftId = await newDraft(server)
+
+  const tooLarge = await server.upload(draftId, pdfOfSize(1024 * 1024 + 1), "gross.pdf")
+  const atLimit = await server.upload(draftId, pdfOfSize(1024 * 1024), "passt.pdf")
+
+  assert.equal(tooLarge.status, 413)
+  assert.deepEqual(await tooLarge.json(), { refusal: "too-large", limitMb: 1 })
+  assert.equal(atLimit.status, 201)
+})
+
+test("without upload_limit_mb the limit is 50 MB", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+
+  const tooLarge = await server.upload(await newDraft(server), pdfOfSize(50 * 1024 * 1024 + 1), "gross.pdf")
+
+  assert.equal(tooLarge.status, 413)
+  assert.deepEqual(await tooLarge.json(), { refusal: "too-large", limitMb: 50 })
+})
+
+test("a file far over the limit is refused while it is still arriving", async t => {
+  const server = await startTestServer({ options: { upload_limit_mb: 1 } })
+  t.after(server.close)
+  const draftId = await newDraft(server)
+  const total = 40 * 1024 * 1024
+  const chunk = Buffer.alloc(64 * 1024, 0x20)
+
+  // a chunked upload without Content-Length, so the server can't know the size up front
+  const answer = await new Promise<{ status: number; body: string; sent: number }>((resolve, reject) => {
+    let sent = 0
+    let answered = false
+    const req = request(`${server.url}/api/drafts/${draftId}/files`, {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=grenze" },
+    })
+    req.on("response", res => {
+      answered = true
+      let body = ""
+      res.setEncoding("utf8")
+      res.on("data", (text: string) => { body += text })
+      res.on("end", () => resolve({ status: res.statusCode!, body, sent }))
+    })
+    // the server may close the connection once it has answered
+    req.on("error", err => { if (!answered) reject(err) })
+    req.write('--grenze\r\ncontent-disposition: form-data; name="file"; filename="gross.pdf"\r\n\r\n%PDF-1.4\n')
+    const pump = () => {
+      if (answered) return
+      if (sent >= total) return void req.end("\r\n--grenze--\r\n")
+      sent += chunk.length
+      req.write(chunk, () => setImmediate(pump))
+    }
+    pump()
+  })
+
+  assert.equal(answer.status, 413)
+  assert.deepEqual(JSON.parse(answer.body), { refusal: "too-large", limitMb: 1 })
+  assert.ok(answer.sent < total, `answered after ${answer.sent} of ${total} bytes`)
 })

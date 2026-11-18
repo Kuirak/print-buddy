@@ -20,7 +20,7 @@ export interface AppDeps {
 
 /** Wires the modules together. One route file per resource under `http/`; mount new ones here. */
 export function createApp(deps: AppDeps) {
-  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts") })
+  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
   const jobs = createJobStore({ now: deps.now })
   const printer = createPrinterClient(deps.config.printerUri)
 

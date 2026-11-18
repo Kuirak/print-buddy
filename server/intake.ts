@@ -3,7 +3,7 @@ import exifr from "exifr"
 import { randomUUID } from "node:crypto"
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import type { FileFacts, PdfFacts, PhotoFacts, RefusalType } from "../shared/api.ts"
+import type { FileFacts, PdfFacts, PhotoFacts, Refusal, RefusalType } from "../shared/api.ts"
 
 export interface DraftFile {
   path: string
@@ -13,19 +13,28 @@ export interface DraftFile {
 /** What became of an uploaded file. `unknown-draft` is a caller's mistake, not a Refusal. */
 export type AddFileResult =
   | { outcome: "added"; facts: FileFacts }
-  | { outcome: "refused"; refusal: RefusalType }
+  | { outcome: "refused"; refusal: Refusal }
   | { outcome: "unknown-draft" }
 
 export type Intake = ReturnType<typeof createIntake>
+
+const maxPhotos = 20
 
 /**
  * Upload intake: collects the files of a Print Job that is not submitted yet (a draft).
  * Files are stored under generated names; the name on the phone is never kept.
  */
-export function createIntake(deps: { draftsDir: string }) {
+export function createIntake(deps: { draftsDir: string; uploadLimitMb: number }) {
   const drafts = new Map<string, DraftFile[]>()
+  const uploadLimitBytes = deps.uploadLimitMb * 1024 * 1024
+  const tooLarge: Refusal = { refusal: "too-large", limitMb: deps.uploadLimitMb }
 
   return {
+    /** Largest accepted file in bytes, for callers that can stop reading an upload early. */
+    uploadLimitBytes,
+    /** The Refusal for a file above the limit. */
+    tooLarge,
+
     async createDraft(): Promise<string> {
       const id = randomUUID()
       await mkdir(join(deps.draftsDir, id), { recursive: true })
@@ -42,17 +51,29 @@ export function createIntake(deps: { draftsDir: string }) {
     async addFile(draftId: string, bytes: Uint8Array): Promise<AddFileResult> {
       const files = drafts.get(draftId)
       if (!files) return { outcome: "unknown-draft" }
-      const refused = (refusal: RefusalType): AddFileResult => ({ outcome: "refused", refusal })
+      const refused = (refusal: Exclude<RefusalType, "too-large">): AddFileResult => ({ outcome: "refused", refusal: { refusal } })
+      if (bytes.length > uploadLimitBytes) return { outcome: "refused", refusal: tooLarge }
 
       const type = sniff(bytes)
       if (!type) return refused("unsupported-type")
       const facts = type === "pdf" ? await pdfFacts(bytes) : await photoFacts(bytes, type)
       if (!facts) return refused("unsupported-type")
 
+      // no await between these checks and the push, so two uploads at once can't both slip through
+      const held = files[0]?.facts.kind
+      if (held !== undefined && held !== facts.kind) return refused("mixed-types")
+      if (held === "pdf") return refused("one-pdf-only")
+      if (files.length >= maxPhotos) return refused("too-many-photos")
+
       const extension = facts.kind === "pdf" ? "pdf" : facts.format === "jpeg" ? "jpg" : "png"
       const file: DraftFile = { path: join(deps.draftsDir, draftId, `${files.length + 1}.${extension}`), facts }
-      await writeFile(file.path, bytes)
       files.push(file)
+      try {
+        await writeFile(file.path, bytes)
+      } catch (err) {
+        files.splice(files.indexOf(file), 1)
+        throw err
+      }
       return { outcome: "added", facts }
     },
   }
