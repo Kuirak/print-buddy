@@ -5,11 +5,11 @@ import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
 
+/** The phone keeps `file` until the person leaves the job; the server's copy of it is the draft. */
 type Screen =
   | { name: "start" }
-  /** The phone keeps `file`; `draftId` is the server's copy of it. */
   | { name: "options"; file: File; draftId: string }
-  | { name: "status"; job: JobSubmitted }
+  | { name: "status"; file: File; job: JobSubmitted }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -19,19 +19,25 @@ export function App() {
     return current.name === name ? (current as Extract<Screen, { name: N }>) : undefined
   }
 
-  async function pick(file: File) {
+  async function upload(file: File) {
     const { draftId } = await createDraft()
     await addFile(draftId, file)
-    setScreen({ name: "options", file, draftId })
+    return draftId
+  }
+
+  async function pick(file: File) {
+    setScreen({ name: "options", file, draftId: await upload(file) })
   }
 
   // a second tap while the first is on its way must not print twice
   let sending = false
-  async function print(draftId: string) {
+  /** Sends the draft as a Print Job. Without a draft ("Nochmal drucken") the phone's copy is uploaded again first. */
+  async function print(file: File, draftId?: string) {
     if (sending) return
     sending = true
     try {
-      setScreen({ name: "status", job: await submitDraft(draftId) })
+      const job = await submitDraft(draftId ?? await upload(file))
+      setScreen({ name: "status", file, job })
     } finally {
       sending = false
     }
@@ -44,9 +50,14 @@ export function App() {
           <StartScreen onPick={file => void pick(file)} />
         </Match>
         <Match when={on("options")}>
-          {options => <OptionsScreen fileName={options().file.name} onPrint={() => void print(options().draftId)} />}
+          {options => <OptionsScreen fileName={options().file.name} onPrint={() => void print(options().file, options().draftId)} />}
         </Match>
-        <Match when={on("status")}>{status => <StatusScreen job={status().job} />}</Match>
+        {/* keyed: a new Print Job gets a new status screen */}
+        <Match when={on("status")} keyed>
+          {status => (
+            <StatusScreen job={status.job} onClose={() => setScreen({ name: "start" })} onPrintAgain={() => void print(status.file)} />
+          )}
+        </Match>
       </Switch>
     </div>
   )

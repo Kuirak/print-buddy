@@ -1,14 +1,28 @@
 import { render, screen } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
+import type { JobStatus } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { json, mockApi } from "./testing/mock-api.ts"
 
-test("pick a PDF, tap Drucken, and see the CUPS job number", async () => {
+const jobStatus = (changes: Partial<JobStatus>): JobStatus => ({
+  jobId: "j1",
+  state: "waiting",
+  reason: null,
+  details: { jobState: "pending", jobStateReasons: ["none"], printerMessage: "" },
+  cupsJobId: 42,
+  sentAt: Date.UTC(2026, 10, 19, 8, 30, 0),
+  endedAt: null,
+  sheets: 1,
+  ...changes,
+})
+
+test("pick a PDF, tap Drucken, and follow the Print Job on the status screen", async () => {
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
     "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus({}),
   })
   const user = userEvent.setup()
   const pdf = new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" })
@@ -18,13 +32,13 @@ test("pick a PDF, tap Drucken, and see the CUPS job number", async () => {
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
 
   await user.click(screen.getByRole("button", { name: "Drucken" }))
-  expect(await screen.findByText("An den Drucker gesendet")).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
   expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
 
-  expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual([
-    "POST /api/drafts",
-    "POST /api/drafts/d1/files",
-    "POST /api/drafts/d1/submit",
+  expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual([
+    "/api/drafts",
+    "/api/drafts/d1/files",
+    "/api/drafts/d1/submit",
   ])
   expect((api.calls[1]!.body as FormData).get("file")).toBe(pdf)
   for (const call of api.calls) expect(call.headers.get("X-Requested-With")).toBe("XMLHttpRequest")
@@ -36,6 +50,7 @@ test("tapping Drucken twice sends one Print Job", async () => {
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
     "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
     "POST /api/drafts/d1/submit": () => new Promise<Response>(resolve => { accept = resolve }),
+    "GET /api/jobs/j1": () => jobStatus({ cupsJobId: 7 }),
   })
   const user = userEvent.setup()
   render(() => <App />)
@@ -48,4 +63,59 @@ test("tapping Drucken twice sends one Print Job", async () => {
 
   expect(await screen.findByText("Auftrag Nr. 7")).toBeInTheDocument()
   expect(api.calls.filter(call => call.path === "/api/drafts/d1/submit")).toHaveLength(1)
+})
+
+test("Schließen on Fertig leads back to Start", async () => {
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: Date.UTC(2026, 10, 19, 8, 31, 15) }),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  expect(await screen.findByRole("heading", { name: "Fertig" })).toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "Schließen" }))
+
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+  expect(screen.queryByRole("heading", { name: "Fertig" })).not.toBeInTheDocument()
+})
+
+test("Nochmal drucken on Fertig sends the same file again as a new Print Job", async () => {
+  let drafts = 0
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: Date.UTC(2026, 10, 19, 8, 31, 15) }),
+    "POST /api/drafts/d2/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d2/submit": () => json({ jobId: "j2", cupsJobId: 43 }, 201),
+    "GET /api/jobs/j2": () => jobStatus({ jobId: "j2", cupsJobId: 43 }),
+  })
+  const user = userEvent.setup()
+  const pdf = new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" })
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf)
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  expect(await screen.findByRole("heading", { name: "Fertig" })).toBeInTheDocument()
+  expect(screen.getByText("gedauert 1:15")).toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+
+  expect(await screen.findByText("Auftrag Nr. 43")).toBeInTheDocument()
+  expect(screen.getByRole("heading", { name: "Wartet" })).toBeInTheDocument()
+  expect(screen.getByText("läuft seit 0:00")).toBeInTheDocument()
+  expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual([
+    "/api/drafts",
+    "/api/drafts/d1/files",
+    "/api/drafts/d1/submit",
+    "/api/drafts",
+    "/api/drafts/d2/files",
+    "/api/drafts/d2/submit",
+  ])
+  const again = api.calls.find(call => call.path === "/api/drafts/d2/files")!
+  expect((again.body as FormData).get("file")).toBe(pdf)
 })

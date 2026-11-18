@@ -172,3 +172,45 @@ test("after 60 s in Wartet a hint asks whether the Printer is asleep or off, and
   expect(screen.getByRole("heading")).toHaveTextContent("Wird gedruckt")
   expect(screen.queryByText(hint)).not.toBeInTheDocument()
 })
+
+test("Schließen and Nochmal drucken are offered once the Print Job has ended, not before", async () => {
+  let answer = jobStatus()
+  mockApi({ "GET /api/jobs/j1": () => answer })
+  renderStatusScreen()
+
+  await vi.advanceTimersByTimeAsync(0)
+  expect(screen.queryByRole("button", { name: "Schließen" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Nochmal drucken" })).not.toBeInTheDocument()
+
+  answer = jobStatus({ state: "printing" })
+  await vi.advanceTimersByTimeAsync(2_000)
+  expect(screen.queryByRole("button", { name: "Schließen" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Nochmal drucken" })).not.toBeInTheDocument()
+
+  answer = jobStatus({ state: "cancelled", endedAt: sentAt + 4_000 })
+  await vi.advanceTimersByTimeAsync(2_000)
+  expect(screen.getByRole("heading")).toHaveTextContent("Abgebrochen")
+  expect(screen.getByRole("button", { name: "Schließen" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Nochmal drucken" })).toBeInTheDocument()
+})
+
+test("a failed Print Job shows Fehler with the German reason", async () => {
+  mockApi({
+    "GET /api/jobs/j1": () => jobStatus({ state: "error", reason: "Beim Drucken ist ein Fehler aufgetreten.", endedAt: sentAt + 9_000 }),
+  })
+  const onClose = vi.fn()
+  const onPrintAgain = vi.fn()
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  render(() => <StatusScreen job={{ jobId: "j1", cupsJobId: 42 }} onClose={onClose} onPrintAgain={onPrintAgain} />)
+
+  await vi.advanceTimersByTimeAsync(0)
+  expect(screen.getByRole("heading")).toHaveTextContent("Fehler")
+  expect(screen.getByText("Beim Drucken ist ein Fehler aufgetreten.")).toBeInTheDocument()
+  expect(screen.queryByText(/läuft seit|gedauert/)).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Abbrechen" })).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+  await user.click(screen.getByRole("button", { name: "Schließen" }))
+  expect(onPrintAgain).toHaveBeenCalledTimes(1)
+  expect(onClose).toHaveBeenCalledTimes(1)
+})

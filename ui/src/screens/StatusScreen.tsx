@@ -73,6 +73,7 @@ export function StatusScreen(props: { job: JobSubmitted; onClose: () => void; on
       <Show when={state() === "done" && status()}>
         {done => <p>gedauert {minutesSeconds(Math.round((done().endedAt! - done().sentAt) / 1000))}</p>}
       </Show>
+      <Show when={status()?.reason}>{reason => <p>{reason()}</p>}</Show>
       <p class="text-muted">Auftrag Nr. {props.job.cupsJobId}</p>
       <Show when={state() === "waiting" && elapsed() >= hintAfterSeconds}>
         <p class="rounded-lg bg-[#fff1d6] p-3 text-[#7a4b00]">Schläft der Drucker oder ist er aus? Der Auftrag wartet weiter.</p>
@@ -81,6 +82,16 @@ export function StatusScreen(props: { job: JobSubmitted; onClose: () => void; on
         <button type="button" class="btn-secondary mt-4" onClick={() => void cancel()}>
           Abbrechen
         </button>
+      </Show>
+      <Show when={!running()}>
+        <div class="mt-4 flex flex-col gap-2">
+          <button type="button" class="btn-primary" onClick={() => props.onClose()}>
+            Schließen
+          </button>
+          <button type="button" class="btn-secondary" onClick={() => props.onPrintAgain()}>
+            Nochmal drucken
+          </button>
+        </div>
       </Show>
     </main>
   )
