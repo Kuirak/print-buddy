@@ -171,3 +171,37 @@ test("Print size on each paper: an A4 page of 595 × 842 pt with the Printer's A
     })
   }
 })
+
+/** What sits where: one entry per sheet, each a list of `[ref, left, top, width, height]`. */
+const summary = (sheets: Sheet[]) =>
+  rounded(sheets).map(s => s.placements.map(p => [p.ref, p.left, p.top, p.width, p.height]))
+
+test("the selection decides which PDF pages appear and in which order, one page per sheet", () => {
+  const source = pdf([300, 400], [200, 100], [100, 150])
+  const sheets = (selection: number[]) => summary(layout({ source, options: options({ selection, position: "top-left" }), sheet, margins }))
+
+  assert.deepEqual(sheets([3, 1]), [[[3, 10, 20, 100, 150]], [[1, 10, 20, 300, 400]]])
+  assert.deepEqual(sheets([2]), [[[2, 10, 20, 200, 100]]])
+  assert.deepEqual(sheets([]), [])
+})
+
+test("manual rotation turns a PDF page clockwise in 90° steps", async t => {
+  // A 400 × 200 page at 100 % in the top-left corner of the printable area. In the matrix, y counts up from the sheet's bottom edge.
+  const cases: [PrintOptions["rotation"], size: [number, number], matrix: number[]][] = [
+    [0, [400, 200], [1, 0, 0, 1, 10, 580]],
+    [90, [200, 400], [0, -1, 1, 0, 10, 780]],
+    [180, [400, 200], [-1, 0, 0, -1, 410, 780]],
+    [270, [200, 400], [0, 1, -1, 0, 210, 380]],
+  ]
+  for (const [rotation, [width, height], matrix] of cases) {
+    await t.test(`${rotation}°`, () => {
+      const placement = only(layout({ source: pdf([400, 200]), options: options({ rotation, position: "top-left" }), sheet, margins }))
+      assert.deepEqual(placement, { ref: 1, rotation, scale: 1, left: 10, top: 20, width, height, matrix, clip: { left: 0, top: 0, width: 600, height: 800 } })
+    })
+  }
+
+  await t.test("Print size applies to the turned page", () => {
+    const turned = layout({ source: pdf([400, 200]), options: options({ rotation: 90, printSize: fit }), sheet, margins })
+    assert.deepEqual(box(turned), { scale: 1.85, left: 105, top: 20, width: 370, height: 740 })
+  })
+})

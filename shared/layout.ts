@@ -65,21 +65,20 @@ const ANCHORS: Record<PrintOptions["position"], [across: number, down: number]> 
 }
 
 export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[] {
-  const ref = options.selection[0]!
-  const natural = source.pages[ref - 1]!
   const printable = { width: sheet.width - margins.left - margins.right, height: sheet.height - margins.top - margins.bottom }
   const { printSize } = options
-  const scale =
-    printSize.kind === "fit" ? Math.min(printable.width / natural.width, printable.height / natural.height)
-    : printSize.kind === "fill" ? Math.max(sheet.width / natural.width, sheet.height / natural.height)
-    : printSize.value / 100
-  const width = natural.width * scale
-  const height = natural.height * scale
   const [alignX, alignY] = ANCHORS[options.position]
-  const left = margins.left + (printable.width - width) * alignX
-  const top = margins.top + (printable.height - height) * alignY
-  return [
-    {
+  return options.selection.map(ref => {
+    const natural = source.pages[ref - 1]!
+    const scale =
+      printSize.kind === "fit" ? Math.min(printable.width / natural.width, printable.height / natural.height)
+      : printSize.kind === "fill" ? Math.max(sheet.width / natural.width, sheet.height / natural.height)
+      : printSize.value / 100
+    const width = natural.width * scale
+    const height = natural.height * scale
+    const left = margins.left + (printable.width - width) * alignX
+    const top = margins.top + (printable.height - height) * alignY
+    return {
       placements: [
         {
           ref,
@@ -95,6 +94,6 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
       ],
       cutOff: width > printable.width + TOLERANCE || height > printable.height + TOLERANCE,
       emptySpace: width < printable.width - TOLERANCE || height < printable.height - TOLERANCE,
-    },
-  ]
+    }
+  })
 }
