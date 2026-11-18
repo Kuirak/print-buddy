@@ -1,5 +1,6 @@
 import { createSignal, Match, Switch } from "solid-js"
 import type { JobSubmitted } from "../../shared/api.ts"
+import type { PrintOptions } from "../../shared/print-options.ts"
 import { addFile, createDraft, submitDraft } from "./api.ts"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
@@ -27,11 +28,11 @@ export function App() {
 
   // a second tap while the first is on its way must not print twice
   let sending = false
-  async function print(draftId: string) {
+  async function print(draftId: string, options: PrintOptions) {
     if (sending) return
     sending = true
     try {
-      setScreen({ name: "status", job: await submitDraft(draftId) })
+      setScreen({ name: "status", job: await submitDraft(draftId, options) })
     } finally {
       sending = false
     }
@@ -44,7 +45,7 @@ export function App() {
           <StartScreen onPick={file => void pick(file)} />
         </Match>
         <Match when={on("options")}>
-          {options => <OptionsScreen fileName={options().file.name} onPrint={() => void print(options().draftId)} />}
+          {options => <OptionsScreen fileName={options().file.name} onPrint={chosen => void print(options().draftId, chosen)} />}
         </Match>
         <Match when={on("status")}>{status => <StatusScreen job={status().job} />}</Match>
       </Switch>
