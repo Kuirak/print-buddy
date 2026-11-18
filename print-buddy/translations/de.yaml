@@ -1,0 +1,9 @@
+configuration:
+  printer_uri:
+    name: "Drucker-Adresse"
+    description: "IPP-Adresse der CUPS-Warteschlange. Muss eine IP-Adresse enthalten, keinen Hostnamen."
+  upload_limit_mb:
+    name: "Upload-Limit (MB)"
+    description: "Maximale Größe einer Datei."
+network:
+  9217/tcp: "Print Buddy im Heimnetz (ohne Anmeldung)"
