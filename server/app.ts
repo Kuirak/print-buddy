@@ -24,7 +24,7 @@ export interface AppDeps {
  * Asks CUPS for the printable margins before it returns; a silent CUPS costs a few seconds, not the start.
  */
 export async function createApp(deps: AppDeps) {
-  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts") })
+  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
   const jobs = createJobStore({ now: deps.now })
   const printer = createPrinterClient(deps.config.printerUri)
   await printer.loadMargins()

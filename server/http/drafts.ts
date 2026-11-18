@@ -1,25 +1,44 @@
 import { Hono } from "hono"
+import { bodyLimit } from "hono/body-limit"
 import { readFile } from "node:fs/promises"
-import type { ApiError, DraftCreated, FileFacts, JobSubmitted } from "../../shared/api.ts"
+import type { ApiError, DraftCreated, FileFacts, JobSubmitted, Refusal, RefusalType } from "../../shared/api.ts"
 import { parsePrintOptions } from "../../shared/print-options.ts"
 import type { Intake } from "../intake.ts"
 import type { JobStore } from "../job-store.ts"
 import type { PrinterClient } from "../printer/client.ts"
 
+const refusalStatus = {
+  "too-large": 413,
+  "unsupported-type": 415,
+  "too-many-photos": 409,
+  "one-pdf-only": 409,
+  "mixed-types": 409,
+} as const satisfies Record<RefusalType, number>
+
+/** Room for the multipart boundary and part headers around the one file of an upload. */
+const multipartOverhead = 64 * 1024
+
 export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: PrinterClient }) {
   const app = new Hono()
   const notFound: ApiError = { error: "not-found" }
+  const refuse = (refusal: Refusal) => Response.json(refusal, { status: refusalStatus[refusal.refusal] })
+  // counts the bytes as they arrive and stops reading at the limit, so an oversized file is never held in memory
+  const withinUploadLimit = bodyLimit({
+    maxSize: deps.intake.uploadLimitBytes + multipartOverhead,
+    onError: () => refuse(deps.intake.tooLarge),
+  })
 
   app.post("/api/drafts", async c => {
     return c.json<DraftCreated>({ draftId: await deps.intake.createDraft() }, 201)
   })
 
-  app.post("/api/drafts/:draftId/files", async c => {
+  app.post("/api/drafts/:draftId/files", withinUploadLimit, async c => {
     const file = (await c.req.parseBody())["file"]
     if (!(file instanceof File)) return c.json<ApiError>({ error: "no-file" }, 400)
-    const facts = await deps.intake.addFile(c.req.param("draftId"), new Uint8Array(await file.arrayBuffer()))
-    if (!facts) return c.json(notFound, 404)
-    return c.json<FileFacts>(facts, 201)
+    const result = await deps.intake.addFile(c.req.param("draftId"), new Uint8Array(await file.arrayBuffer()))
+    if (result.outcome === "unknown-draft") return c.json(notFound, 404)
+    if (result.outcome === "refused") return refuse(result.refusal)
+    return c.json<FileFacts>(result.facts, 201)
   })
 
   app.post("/api/drafts/:draftId/submit", async c => {
