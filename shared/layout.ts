@@ -1,13 +1,11 @@
 // The layout module: where content sits on a sheet. The browser preview and the server renderer both
 // call `layout`, so the printout matches the preview. Keep this file free of DOM and Node imports.
 
+import type { Margins } from "./api.ts"
 import type { PrintOptions, Rotation } from "./print-options.ts"
 
 /** In points (1/72 inch). */
 export type Size = { width: number; height: number }
-
-/** Widths of the strips along the sheet's edges the Printer can't print on, in points. */
-export type Margins = { top: number; right: number; bottom: number; left: number }
 
 /** A rectangle on the sheet in points, measured from the sheet's top-left corner. */
 export type Box = { left: number; top: number; width: number; height: number }
