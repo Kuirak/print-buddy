@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { layout, SHEET_SIZES, type LayoutInput, type Sheet } from "./layout.ts"
+import { layout, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
 import type { PrintOptions } from "./print-options.ts"
 
 // A made-up sheet with round numbers: 600 × 800 pt, and a different margin on every side.
@@ -53,7 +53,8 @@ test("a PDF page at 100 % keeps its size in points and sits in the middle of the
   })
 })
 
-const box = (sheets: Sheet[]) => {
+type PlacedBox = Pick<Placement, "scale" | "left" | "top" | "width" | "height">
+const box = (sheets: Sheet[]): PlacedBox => {
   const { scale, left, top, width, height } = only(sheets)
   return { scale, left, top, width, height }
 }
@@ -63,7 +64,7 @@ const fill = { kind: "fill" } as const
 const percent = (value: number) => ({ kind: "percent", value }) as const
 
 test("Print size: Einpassen fits inside the printable area, Füllen covers the sheet, a percentage scales from the natural size", async t => {
-  const cases: [string, [number, number], PrintOptions["printSize"], ReturnType<typeof box>][] = [
+  const cases: [string, [number, number], PrintOptions["printSize"], PlacedBox][] = [
     // Einpassen: the printable area is 560 × 740.
     ["Einpassen, same shape as the printable area", [280, 370], fit, { scale: 2, left: 10, top: 20, width: 560, height: 740 }],
     ["Einpassen, wide page: the width decides", [400, 200], fit, { scale: 1.4, left: 10, top: 250, width: 560, height: 280 }],
@@ -146,7 +147,7 @@ test("the four papers have their sizes in points, portrait", () => {
 
 test("Print size on each paper: an A4 page of 595 × 842 pt with the Printer's A4 margins", async t => {
   const edge = { top: 12, right: 9, bottom: 12, left: 9 }
-  const cases: [PrintOptions["paper"], PrintOptions["printSize"], ReturnType<typeof box>][] = [
+  const cases: [PrintOptions["paper"], PrintOptions["printSize"], PlacedBox][] = [
     ["A4", fit, { scale: 0.97, left: 9, top: 12.49, width: 577.28, height: 816.92 }],
     ["A4", fill, { scale: 1, left: 0, top: -0.25, width: 595.28, height: 842.39 }],
     ["A4", percent(100), { scale: 1, left: 0.14, top: -0.06, width: 595, height: 842 }],
@@ -214,7 +215,7 @@ const photos = (...sizes: [width: number, height: number, orientation?: Orientat
 
 test("the natural size of a photo is its pixels at 300 dpi", async t => {
   // 1500 × 2100 px are 5 × 7 inches, so 360 × 504 pt.
-  const cases: [number, ReturnType<typeof box>, matrix: number[]][] = [
+  const cases: [number, PlacedBox, matrix: number[]][] = [
     [100, { scale: 1, left: 10, top: 20, width: 360, height: 504 }, [1, 0, 0, 1, 10, 276]],
     [50, { scale: 0.5, left: 10, top: 20, width: 180, height: 252 }, [0.5, 0, 0, 0.5, 10, 528]],
     [200, { scale: 2, left: 10, top: 20, width: 720, height: 1008 }, [2, 0, 0, 2, 10, -228]],
@@ -463,6 +464,22 @@ test("two pages per sheet on a portrait sheet: the halves lie side by side once 
     // Turned three times it stands upright on the portrait sheet and fills the half's width.
     assert.deepEqual(turns(270), [[[0, 10, 70, 560, 280]]])
     assert.deepEqual(turns(90), [[[180, 10, 70, 560, 280]]])
+  })
+
+  await t.test("on A4 with the Printer's margins, two A4 pages of 595 × 842 pt print at 69 %", () => {
+    const edge = { top: 12, right: 9, bottom: 12, left: 9 }
+    const sheets = layout({ source: pdf([595, 842], [595, 842]), options: options({ pagesPerSheet: 2, selection: [1, 2], printSize: fit }), sheet: SHEET_SIZES.A4, margins: edge })
+    assert.deepEqual(rounded(sheets), [
+      {
+        placements: [
+          { ref: 1, rotation: 90, scale: 0.69, left: 9, top: 12.51, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 829.38], clip: { left: 0, top: 0, width: 595.28, height: 420.94 } },
+          { ref: 2, rotation: 90, scale: 0.69, left: 9, top: 421.45, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 420.44], clip: { left: 0, top: 420.94, width: 595.28, height: 420.94 } },
+        ],
+        cutOff: false,
+        emptySpace: true,
+        sideways: true,
+      },
+    ])
   })
 
   await t.test("one page per sheet and photos are not sideways", () => {

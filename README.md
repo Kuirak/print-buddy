@@ -33,6 +33,7 @@ One package, no workspaces. Imports between folders are relative and end in `.ts
 ```
 shared/            Pure TypeScript for both sides. No DOM, no node: imports.
   print-options.ts   The Print Options type. The only definition.
+  layout.ts          The layout module: where content sits on a sheet.
   api.ts             JSON shapes of the HTTP API.
 server/            Runs as `node server/main.ts`, straight from the sources.
   main.ts            Entry point: reads the config, starts the server.
@@ -135,6 +136,33 @@ test("…", async () => {
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
 - Never import `pdfjs-dist` in a component. Wrap it in one module of ours and mock that module with `vi.mock`.
+
+### The layout module
+
+`layout()` in `shared/layout.ts` decides where every page or photo sits. The renderer and the preview both call it and add no geometry of their own.
+
+```ts
+import { layout, SHEET_SIZES } from "../shared/layout.ts"
+
+const sheets = layout({
+  source: { kind: "pdf", pages },      // page sizes in points as a reader shows them (the intake's facts)
+  // or { kind: "photos", photos }     // per photo: stored pixel width and height, EXIF orientation
+  options,                             // the Print Options
+  sheet: SHEET_SIZES[options.paper],   // portrait, envelopes too
+  margins,                             // the Printer's margins for that paper, in points
+})
+```
+
+- Everything is in points. `selection` holds PDF page numbers counted from 1, or photo indexes counted from 0. `photoRotations` is keyed by photo index.
+- The result has one entry per sheet, so its length is the sheet count for one copy. Each sheet has `placements`, `cutOff`, `emptySpace` and `sideways`.
+- `cutOff` means content lies outside the printable area, so it is true at Füllen whenever the Printer has margins. `emptySpace` means part of the printable area stays empty. A job is cut off when any sheet is.
+- A placement's `left`, `top`, `width` and `height` are its box on the sheet, measured from the sheet's top-left corner. `rotation` is the clockwise turn of the upright content. `scale` × 100 is the effective percentage.
+- **Renderer:** write `matrix` as the `cm` operator and draw the page or photo. It maps the content at its natural size, as stored, onto the sheet in PDF coordinates. EXIF orientation and every turn are already in it.
+  - An image XObject is a unit square, so scale it by `photoNaturalSize(pixels)` first.
+  - A PDF page's own `/Rotate` and CropBox are not in it: `layout()` gets the displayed page size, and the renderer adds the step from the embedded page to the displayed page.
+  - Clip each placement to its `clip` box. With two pages per sheet that is the half, and Füllen would otherwise run into the other half.
+- **Preview:** draw the upright picture (the browser applies EXIF itself, pdf.js applies `/Rotate`) into the box, turned by `rotation`, clipped to `clip`.
+- **Two pages per sheet** is laid out the way CUPS lays out `number-up=2`. The sheet is read in landscape and split into a left and a right half. On a portrait sheet (all four papers) the pages therefore lie turned 90° clockwise, page 1 in the top half, and the sheet says `sideways: true`. The preview should show such a sheet turned 90° counter-clockwise. Photos always get one sheet each.
 
 ### Notes from the first build
 
