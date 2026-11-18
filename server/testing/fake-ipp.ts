@@ -13,6 +13,8 @@ export interface FakeJob {
   state: number
   reasons: string[]
   message: string
+  /** `job-printer-state-reasons`: what the printer reports while it has the job. */
+  printerReasons: string[]
   /** The Print-Job request that created this job; `request.data` is the document. */
   request: IppMessage
 }
@@ -49,7 +51,7 @@ export async function startFakeIpp(queue = "Test_Printer") {
   const jobAttrs = (j: FakeJob, base: string): IppAttribute[] => [
     attr("job-uri", v.uri(`${base}/jobs/${j.id}`)), attr("job-id", v.int(j.id)), attr("job-state", v.enum(j.state)),
     attr("job-state-reasons", ...j.reasons.map(v.keyword)), attr("job-printer-state-message", v.text(j.message)),
-    attr("job-originating-user-name", v.name(j.user)),
+    attr("job-originating-user-name", v.name(j.user)), attr("job-printer-state-reasons", ...j.printerReasons.map(v.keyword)),
   ]
 
   const server = http.createServer((req, res) => {
@@ -70,7 +72,7 @@ export async function startFakeIpp(queue = "Test_Printer") {
       const job = jobs.get(values(msg, Tag.operation, "job-id")[0] as number)
       switch (msg.code) {
         case Op.printJob: {
-          const j: FakeJob = { id: nextJobId++, user, state: JobState.pending, reasons: ["none"], message: "", request: msg }
+          const j: FakeJob = { id: nextJobId++, user, state: JobState.pending, reasons: ["none"], message: "", printerReasons: ["none"], request: msg }
           jobs.set(j.id, j)
           return reply(Status.ok, [{ tag: Tag.job, attributes: jobAttrs(j, base).slice(0, 4) }])
         }
@@ -106,7 +108,9 @@ export async function startFakeIpp(queue = "Test_Printer") {
     requests,
     jobs,
     printer,
-    setJob(id: number, state: number, reasons: string[] = ["none"], message = "") { Object.assign(jobs.get(id)!, { state, reasons, message }) },
+    setJob(id: number, state: number, reasons: string[] = ["none"], message = "", printerReasons: string[] = ["none"]) {
+      Object.assign(jobs.get(id)!, { state, reasons, message, printerReasons })
+    },
     close: () => new Promise<void>(r => { server.closeAllConnections(); server.close(() => r()) }),
   }
 }

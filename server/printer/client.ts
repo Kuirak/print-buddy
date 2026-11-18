@@ -26,6 +26,8 @@ function jobDetails(reply: IppMessage): CupsJobDetails {
   return {
     jobState: jobStateKeywords[jobState] ?? String(jobState),
     jobStateReasons: values(reply, Tag.job, "job-state-reasons").map(String),
+    // not part of the Print-Job answer
+    printerStateReasons: values(reply, Tag.job, "job-printer-state-reasons").map(String),
     // CUPS leaves the message out until the job was processed once
     printerMessage: String(values(reply, Tag.job, "job-printer-state-message")[0] ?? ""),
   }
@@ -160,7 +162,7 @@ export function createPrinterClient(printerUri: string) {
     async getJobAttributes(cupsJobId: number): Promise<CupsJobDetails> {
       return jobDetails(await call(Op.getJobAttributes, [
         attr("job-id", v.int(cupsJobId)),
-        attr("requested-attributes", ...["job-id", "job-state", "job-state-reasons", "job-printer-state-message"].map(v.keyword)),
+        attr("requested-attributes", ...["job-id", "job-state", "job-state-reasons", "job-printer-state-message", "job-printer-state-reasons"].map(v.keyword)),
       ]))
     },
 

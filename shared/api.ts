@@ -76,6 +76,8 @@ export type CupsJobDetails = {
   jobState: string
   /** IPP `job-state-reasons`. */
   jobStateReasons: string[]
+  /** IPP `job-printer-state-reasons`: the Printer's reasons while it has the job. Empty until CUPS reports them. */
+  printerStateReasons: string[]
   /** IPP `job-printer-state-message`: the last line the CUPS backend reported. */
   printerMessage: string
 }
