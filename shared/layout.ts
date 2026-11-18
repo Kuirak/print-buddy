@@ -87,6 +87,25 @@ const TURNS: Record<PrintOptions["rotation"], Linear> = {
   270: [0, 1, -1, 0],
 }
 
+/** What brings a photo stored with each EXIF orientation upright: a turn, a mirroring, or both. */
+const ORIENTATIONS: Record<Photo["orientation"], Linear> = {
+  1: [1, 0, 0, 1],
+  2: [-1, 0, 0, 1],
+  3: [-1, 0, 0, -1],
+  4: [1, 0, 0, -1],
+  5: [0, -1, -1, 0],
+  6: [0, -1, 1, 0],
+  7: [0, 1, 1, 0],
+  8: [0, 1, -1, 0],
+}
+
+/** `second` applied after `first`. */
+function compose(second: Linear, first: Linear): Linear {
+  const [a, b, c, d] = second
+  const [p, q, r, s] = first
+  return [a * p + c * q, b * p + d * q, a * r + c * s, b * r + d * s]
+}
+
 /**
  * The matrix that turns and scales content of its natural size, then shifts it so that the lower-left
  * corner of its bounding box lands on (`x`, `y`), in PDF coordinates.
@@ -103,9 +122,12 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
   const { printSize } = options
   const [alignX, alignY] = ANCHORS[options.position]
   return options.selection.map(ref => {
-    const natural = source.kind === "pdf" ? source.pages[ref - 1]! : photoNaturalSize(source.photos[ref]!)
+    const photo = source.kind === "photos" ? source.photos[ref]! : undefined
+    const natural = source.kind === "pdf" ? source.pages[ref - 1]! : photoNaturalSize(photo!)
+    const orientation = photo?.orientation ?? 1
+    const upright = orientation <= 4 ? natural : { width: natural.height, height: natural.width }
     const { rotation } = options
-    const turned = rotation % 180 === 0 ? natural : { width: natural.height, height: natural.width }
+    const turned = rotation % 180 === 0 ? upright : { width: upright.height, height: upright.width }
     const scale =
       printSize.kind === "fit" ? Math.min(printable.width / turned.width, printable.height / turned.height)
       : printSize.kind === "fill" ? Math.max(sheet.width / turned.width, sheet.height / turned.height)
@@ -124,7 +146,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
           top,
           width,
           height,
-          matrix: matrixFor(TURNS[rotation], natural, scale, left, sheet.height - top - height),
+          matrix: matrixFor(compose(TURNS[rotation], ORIENTATIONS[orientation]), natural, scale, left, sheet.height - top - height),
           clip: { left: 0, top: 0, width: sheet.width, height: sheet.height },
         },
       ],

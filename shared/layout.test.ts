@@ -269,3 +269,40 @@ test("a photo comes out upright for each of the 8 EXIF orientations", async t =>
     })
   }
 })
+
+test("auto-rotate turns a photo that lies across the sheet, at Einpassen and Füllen only; a PDF never turns", async t => {
+  const portrait = sheet
+  const landscape = { width: 800, height: 600 } // printable area 760 × 540
+  const landscapePhoto = photos([1000, 500]) // 240 × 120 pt
+  const portraitPhoto = photos([500, 1000]) // 120 × 240 pt
+  type Expected = [rotation: number, left: number, top: number, width: number, height: number]
+  const cases: [string, LayoutInput["source"], typeof sheet, PrintOptions["printSize"], Expected][] = [
+    ["landscape photo, portrait sheet, Einpassen: turns", landscapePhoto, portrait, fit, [90, 105, 20, 370, 740]],
+    ["landscape photo, portrait sheet, Füllen: turns", landscapePhoto, portrait, fill, [90, -10, -210, 600, 1200]],
+    ["landscape photo, portrait sheet, 100 %: stays", landscapePhoto, portrait, percent(100), [0, 170, 330, 240, 120]],
+    ["landscape photo, portrait sheet, 150 %: stays", landscapePhoto, portrait, percent(150), [0, 110, 300, 360, 180]],
+    ["portrait photo, portrait sheet, Einpassen: stays", portraitPhoto, portrait, fit, [0, 105, 20, 370, 740]],
+    ["portrait photo, landscape sheet, Einpassen: turns", portraitPhoto, landscape, fit, [90, 10, 100, 760, 380]],
+    ["portrait photo, landscape sheet, Füllen: turns", portraitPhoto, landscape, fill, [90, -10, 90, 800, 400]],
+    ["landscape photo, landscape sheet, Einpassen: stays", landscapePhoto, landscape, fit, [0, 10, 100, 760, 380]],
+    ["square photo, portrait sheet, Einpassen: stays", photos([500, 500]), portrait, fit, [0, 10, 110, 560, 560]],
+    ["stored landscape but upright portrait (EXIF 6), portrait sheet: stays", photos([1000, 500, 6]), portrait, fit, [0, 105, 20, 370, 740]],
+    ["stored portrait but upright landscape (EXIF 8), portrait sheet: turns", photos([500, 1000, 8]), portrait, fit, [90, 105, 20, 370, 740]],
+    ["landscape PDF page, portrait sheet, Einpassen: stays", pdf([400, 200]), portrait, fit, [0, 10, 250, 560, 280]],
+    ["landscape PDF page, portrait sheet, Füllen: stays", pdf([400, 200]), portrait, fill, [0, -510, -10, 1600, 800]],
+    ["portrait PDF page, landscape sheet, Einpassen: stays", pdf([200, 400]), landscape, fit, [0, 255, 20, 270, 540]],
+  ]
+  for (const [name, source, size, printSize, expected] of cases) {
+    await t.test(name, () => {
+      const selection = source.kind === "pdf" ? [1] : [0]
+      const { rotation, left, top, width, height } = only(layout({ source, options: options({ selection, printSize }), sheet: size, margins }))
+      assert.deepEqual([rotation, left, top, width, height], expected)
+    })
+  }
+
+  await t.test("the turn is clockwise: the photo's top-left corner ends at the top right", () => {
+    const { matrix } = only(layout({ source: landscapePhoto, options: options({ selection: [0], printSize: fit }), sheet, margins }))
+    // 370 × 740 pt, from 105 pt from the left and 40 pt above the bottom edge. The stored top-left corner is (0, 120).
+    assert.deepEqual(matrix, [0, -3.08, 3.08, 0, 105, 780])
+  })
+})
