@@ -161,7 +161,7 @@ const sheets = layout({
   - An image XObject is a unit square, so scale it by `photoNaturalSize(pixels)` first.
   - A PDF page's own `/Rotate` and CropBox are not in it: `layout()` gets the displayed page size, and the renderer adds the step from the embedded page to the displayed page.
   - Clip each placement to its `clip` box. With two pages per sheet that is the half, and Füllen would otherwise run into the other half.
-- **Preview:** draw the upright picture (the browser applies EXIF itself, pdf.js applies `/Rotate`) into the box, turned by `rotation`, clipped to `clip`.
+- **Preview:** draw the upright picture (an `<img>` already shows a photo upright, pdf.js applies `/Rotate`) into the box, turned by `rotation`, clipped to `clip`.
 - **Two pages per sheet** is laid out the way CUPS lays out `number-up=2`. The sheet is read in landscape and split into a left and a right half. On a portrait sheet (all four papers) the pages therefore lie turned 90° clockwise, page 1 in the top half, and the sheet says `sideways: true`. The preview should show such a sheet turned 90° counter-clockwise. Photos always get one sheet each.
 
 ### Notes from the first build
