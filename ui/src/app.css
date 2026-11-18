@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #1a73e8;
+  --color-muted: #6b7480;
+}
+
+@utility btn-primary {
+  @apply block w-full cursor-pointer rounded-lg bg-brand px-4 py-3 text-center font-semibold text-white disabled:opacity-50;
+}
