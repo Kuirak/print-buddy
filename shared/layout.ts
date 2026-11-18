@@ -62,11 +62,17 @@ export type Placement = Box & {
 }
 
 export type Sheet = {
+  /** One per page or photo on this sheet. With two pages per sheet and an odd number of pages, the last sheet has one. */
   placements: Placement[]
   /** Part of the content lies outside the printable area and won't print. */
   cutOff: boolean
   /** Part of the printable area stays empty. */
   emptySpace: boolean
+  /**
+   * The sheet is read turned a quarter: two pages per sheet on a portrait sheet. The pages lie on it turned 90°
+   * clockwise, the first in the top half. Turn the sheet 90° counter-clockwise to see them upright and side by side.
+   */
+  sideways: boolean
 }
 
 /** Sizes closer than this, in points, count as equal: Einpassen must not report a cut-off from rounding. */
@@ -126,44 +132,126 @@ function matrixFor(linear: Linear, natural: Size, scale: number, x: number, y: n
   return [a, b, c, d, x - minX, y - minY]
 }
 
+/** One page or photo of the selection, before it meets a sheet. */
+type Content = {
+  ref: number
+  /** As stored, in points. */
+  natural: Size
+  orientation: Photo["orientation"]
+  /** After the EXIF orientation. */
+  upright: Size
+  autoRotate: boolean
+  manualRotation: Rotation
+}
+
+/** The part of a sheet that takes one page or photo: the whole sheet, or one half of it. */
+type Area = { whole: Box; printable: Box }
+
+/**
+ * Where each selected page or photo sits, sheet by sheet. Every entry of the selection must exist in the source.
+ *
+ * - Rotation: EXIF orientation first, then auto-rotate (photos only, at Einpassen and Füllen: a landscape photo on a
+ *   portrait sheet turns 90°, and the reverse), then manual rotation. All turns are clockwise.
+ * - Einpassen is the largest size inside the printable area, Füllen the smallest that covers the whole sheet,
+ *   a percentage scales from the natural size.
+ * - Position aligns the content to the printable area.
+ * - Two pages per sheet (PDFs only; photos get one sheet each): the sheet is read in landscape and split into a left
+ *   and a right half, each laid out as its own sheet. A portrait sheet is therefore `sideways`.
+ */
 export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[] {
-  const printable = { width: sheet.width - margins.left - margins.right, height: sheet.height - margins.top - margins.bottom }
-  const { printSize } = options
-  const [alignX, alignY] = ANCHORS[options.position]
-  return options.selection.map(ref => {
-    const photo = source.kind === "photos" ? source.photos[ref]! : undefined
-    const natural = source.kind === "pdf" ? source.pages[ref - 1]! : photoNaturalSize(photo!)
-    const orientation = photo?.orientation ?? 1
-    const upright = orientation <= 4 ? natural : { width: natural.height, height: natural.width }
-    // A landscape photo on a portrait sheet, or the reverse. Squares stay.
-    const across = (upright.width - upright.height) * (sheet.width - sheet.height) < 0
-    const autoRotation = photo && printSize.kind !== "percent" && across ? 90 : 0
-    const rotation = ((autoRotation + options.rotation) % 360) as Rotation
-    const turned = rotation % 180 === 0 ? upright : { width: upright.height, height: upright.width }
-    const scale =
-      printSize.kind === "fit" ? Math.min(printable.width / turned.width, printable.height / turned.height)
-      : printSize.kind === "fill" ? Math.max(sheet.width / turned.width, sheet.height / turned.height)
-      : printSize.value / 100
-    const width = turned.width * scale
-    const height = turned.height * scale
-    const left = margins.left + (printable.width - width) * alignX
-    const top = margins.top + (printable.height - height) * alignY
+  const contents = options.selection.map((ref): Content => {
+    if (source.kind === "pdf") {
+      const natural = source.pages[ref - 1]!
+      return { ref, natural, orientation: 1, upright: natural, autoRotate: false, manualRotation: options.rotation }
+    }
+    const photo = source.photos[ref]!
+    const natural = photoNaturalSize(photo)
     return {
-      placements: [
-        {
-          ref,
-          rotation,
-          scale,
-          left,
-          top,
-          width,
-          height,
-          matrix: matrixFor(compose(TURNS[rotation], ORIENTATIONS[orientation]), natural, scale, left, sheet.height - top - height),
-          clip: { left: 0, top: 0, width: sheet.width, height: sheet.height },
-        },
-      ],
-      cutOff: width > printable.width + TOLERANCE || height > printable.height + TOLERANCE,
-      emptySpace: width < printable.width - TOLERANCE || height < printable.height - TOLERANCE,
+      ref,
+      natural,
+      orientation: photo.orientation,
+      upright: photo.orientation <= 4 ? natural : flipped(natural),
+      autoRotate: options.printSize.kind !== "percent",
+      manualRotation: options.photoRotations?.[ref] ?? 0,
     }
   })
+
+  // Everything is laid out the way the sheet is read, and only then put onto the sheet the way the Printer feeds it.
+  const twoPerSheet = source.kind === "pdf" && options.pagesPerSheet === 2
+  const sideways = twoPerSheet && sheet.height > sheet.width
+  const view = sideways ? flipped(sheet) : sheet
+  const edge = sideways ? { top: margins.right, right: margins.bottom, bottom: margins.left, left: margins.top } : margins
+  const printableHeight = view.height - edge.top - edge.bottom
+  const half = view.width / 2
+  const areas: Area[] =
+    twoPerSheet ?
+      [
+        {
+          whole: { left: 0, top: 0, width: half, height: view.height },
+          printable: { left: edge.left, top: edge.top, width: half - edge.left, height: printableHeight },
+        },
+        {
+          whole: { left: half, top: 0, width: half, height: view.height },
+          printable: { left: half, top: edge.top, width: half - edge.right, height: printableHeight },
+        },
+      ]
+    : [
+        {
+          whole: { left: 0, top: 0, ...view },
+          printable: { left: edge.left, top: edge.top, width: view.width - edge.left - edge.right, height: printableHeight },
+        },
+      ]
+  const onSheet = (box: Box): Box =>
+    sideways ? { left: sheet.width - box.top - box.height, top: box.left, width: box.height, height: box.width } : box
+
+  const [across, down] = ANCHORS[options.position]
+  const sheets: Sheet[] = []
+  for (let first = 0; first < contents.length; first += areas.length) {
+    const onThisSheet = contents.slice(first, first + areas.length)
+    const result: Sheet = { placements: [], cutOff: false, emptySpace: onThisSheet.length < areas.length, sideways }
+    onThisSheet.forEach((content, index) => {
+      const { whole, printable } = areas[index]!
+      const { upright } = content
+      // A landscape photo on a portrait sheet, or the reverse. Squares stay.
+      const liesAcross = (upright.width - upright.height) * (whole.width - whole.height) < 0
+      const viewRotation = ((content.autoRotate && liesAcross ? 90 : 0) + content.manualRotation) % 360
+      const turned = viewRotation % 180 === 0 ? upright : flipped(upright)
+      const { printSize } = options
+      const scale =
+        printSize.kind === "fit" ? Math.min(printable.width / turned.width, printable.height / turned.height)
+        : printSize.kind === "fill" ? Math.max(whole.width / turned.width, whole.height / turned.height)
+        : printSize.value / 100
+      const width = turned.width * scale
+      const height = turned.height * scale
+      const box = onSheet({
+        left: printable.left + (printable.width - width) * across,
+        top: printable.top + (printable.height - height) * down,
+        width,
+        height,
+      })
+      const rotation = ((viewRotation + (sideways ? 90 : 0)) % 360) as Rotation
+      result.placements.push({
+        ref: content.ref,
+        rotation,
+        scale,
+        ...box,
+        matrix: matrixFor(
+          compose(TURNS[rotation], ORIENTATIONS[content.orientation]),
+          content.natural,
+          scale,
+          box.left,
+          sheet.height - box.top - box.height,
+        ),
+        clip: onSheet(whole),
+      })
+      result.cutOff ||= width > printable.width + TOLERANCE || height > printable.height + TOLERANCE
+      result.emptySpace ||= width < printable.width - TOLERANCE || height < printable.height - TOLERANCE
+    })
+    sheets.push(result)
+  }
+  return sheets
+}
+
+function flipped({ width, height }: Size): Size {
+  return { width: height, height: width }
 }
