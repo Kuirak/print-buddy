@@ -84,3 +84,30 @@ test("Print size: Einpassen fits inside the printable area, Füllen covers the s
     })
   }
 })
+
+test("Position aligns the content to the printable area", async t => {
+  // The printable area reaches from 10 to 570 pt across and from 20 to 760 pt down.
+  // Small: a 300 × 400 page at 100 %, so Position decides where the empty space ends up.
+  // Large: the same page at 250 % (750 × 1000), so Position decides which part is cut off.
+  const cases: [PrintOptions["position"], small: [left: number, top: number], large: [left: number, top: number]][] = [
+    ["top-left", [10, 20], [10, 20]],
+    ["top", [140, 20], [-85, 20]],
+    ["top-right", [270, 20], [-180, 20]],
+    ["left", [10, 190], [10, -110]],
+    ["center", [140, 190], [-85, -110]],
+    ["right", [270, 190], [-180, -110]],
+    ["bottom-left", [10, 360], [10, -240]],
+    ["bottom", [140, 360], [-85, -240]],
+    ["bottom-right", [270, 360], [-180, -240]],
+  ]
+  for (const [position, small, large] of cases) {
+    await t.test(position, () => {
+      const at = (value: number) => {
+        const { left, top } = box(layout({ source: pdf([300, 400]), options: options({ position, printSize: percent(value) }), sheet, margins }))
+        return [left, top]
+      }
+      assert.deepEqual(at(100), small)
+      assert.deepEqual(at(250), large)
+    })
+  }
+})

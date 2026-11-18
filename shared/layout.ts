@@ -32,6 +32,19 @@ export type Placement = Box & {
 
 export type Sheet = { placements: Placement[] }
 
+/** How far along the printable area each Position sits: 0 is the left or top edge, 1 the right or bottom edge. */
+const ANCHORS: Record<PrintOptions["position"], [across: number, down: number]> = {
+  "top-left": [0, 0],
+  top: [0.5, 0],
+  "top-right": [1, 0],
+  left: [0, 0.5],
+  center: [0.5, 0.5],
+  right: [1, 0.5],
+  "bottom-left": [0, 1],
+  bottom: [0.5, 1],
+  "bottom-right": [1, 1],
+}
+
 export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[] {
   const ref = options.selection[0]!
   const natural = source.pages[ref - 1]!
@@ -43,8 +56,9 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
     : printSize.value / 100
   const width = natural.width * scale
   const height = natural.height * scale
-  const left = margins.left + (printable.width - width) / 2
-  const top = margins.top + (printable.height - height) / 2
+  const [alignX, alignY] = ANCHORS[options.position]
+  const left = margins.left + (printable.width - width) * alignX
+  const top = margins.top + (printable.height - height) * alignY
   return [
     {
       placements: [
