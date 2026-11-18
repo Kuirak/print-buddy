@@ -15,6 +15,16 @@ export type Box = { left: number; top: number; width: number; height: number }
 /** A PDF transformation matrix `[a b c d e f]`: x' = a·x + c·y + e, y' = b·x + d·y + f. */
 export type Matrix = [number, number, number, number, number, number]
 
+const POINTS_PER_MM = 72 / 25.4
+
+/** The papers as the Printer feeds them: portrait, envelopes too (their PPD sizes are 110 × 220 and 162 × 229 mm). */
+export const SHEET_SIZES: Record<PrintOptions["paper"], Size> = {
+  A4: { width: 210 * POINTS_PER_MM, height: 297 * POINTS_PER_MM },
+  A5: { width: 148 * POINTS_PER_MM, height: 210 * POINTS_PER_MM },
+  EnvDL: { width: 110 * POINTS_PER_MM, height: 220 * POINTS_PER_MM },
+  EnvC5: { width: 162 * POINTS_PER_MM, height: 229 * POINTS_PER_MM },
+}
+
 export type LayoutInput = {
   source: { kind: "pdf"; pages: Size[] }
   options: Pick<PrintOptions, "printSize" | "position" | "pagesPerSheet" | "rotation" | "selection" | "photoRotations">

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { layout, type LayoutInput, type Sheet } from "./layout.ts"
+import { layout, SHEET_SIZES, type LayoutInput, type Sheet } from "./layout.ts"
 import type { PrintOptions } from "./print-options.ts"
 
 // A made-up sheet with round numbers: 600 × 800 pt, and a different margin on every side.
@@ -131,6 +131,43 @@ test("a sheet says whether content is cut off and whether part of it stays empty
     await t.test(name, () => {
       const [{ cutOff, emptySpace }] = layout({ source: pdf(page), options: options({ printSize }), sheet, margins: edge }) as [Sheet]
       assert.deepEqual({ cutOff, emptySpace }, expected)
+    })
+  }
+})
+
+test("the four papers have their sizes in points, portrait", () => {
+  assert.deepEqual(rounded(SHEET_SIZES), {
+    A4: { width: 595.28, height: 841.89 }, // 210 × 297 mm
+    A5: { width: 419.53, height: 595.28 }, // 148 × 210 mm
+    EnvDL: { width: 311.81, height: 623.62 }, // 110 × 220 mm
+    EnvC5: { width: 459.21, height: 649.13 }, // 162 × 229 mm
+  })
+})
+
+test("Print size on each paper: an A4 page of 595 × 842 pt with the Printer's A4 margins", async t => {
+  const edge = { top: 12, right: 9, bottom: 12, left: 9 }
+  const cases: [PrintOptions["paper"], PrintOptions["printSize"], ReturnType<typeof box>][] = [
+    ["A4", fit, { scale: 0.97, left: 9, top: 12.49, width: 577.28, height: 816.92 }],
+    ["A4", fill, { scale: 1, left: 0, top: -0.25, width: 595.28, height: 842.39 }],
+    ["A4", percent(100), { scale: 1, left: 0.14, top: -0.06, width: 595, height: 842 }],
+    ["A4", percent(50), { scale: 0.5, left: 148.89, top: 210.44, width: 297.5, height: 421 }],
+    ["A5", fit, { scale: 0.67, left: 9, top: 13.53, width: 401.53, height: 568.21 }],
+    ["A5", fill, { scale: 0.71, left: -0.56, top: 0, width: 420.65, height: 595.28 }],
+    ["A5", percent(100), { scale: 1, left: -87.74, top: -123.36, width: 595, height: 842 }],
+    ["A5", percent(50), { scale: 0.5, left: 61.01, top: 87.14, width: 297.5, height: 421 }],
+    ["EnvDL", fit, { scale: 0.49, left: 9, top: 103.92, width: 293.81, height: 415.78 }],
+    ["EnvDL", fill, { scale: 0.74, left: -64.44, top: 0, width: 440.68, height: 623.62 }],
+    ["EnvDL", percent(100), { scale: 1, left: -141.59, top: -109.19, width: 595, height: 842 }],
+    ["EnvDL", percent(50), { scale: 0.5, left: 7.16, top: 101.31, width: 297.5, height: 421 }],
+    ["EnvC5", fit, { scale: 0.74, left: 9, top: 12.38, width: 441.21, height: 624.37 }],
+    ["EnvC5", fill, { scale: 0.77, left: 0, top: -0.35, width: 459.21, height: 649.84 }],
+    ["EnvC5", percent(100), { scale: 1, left: -67.89, top: -96.43, width: 595, height: 842 }],
+    ["EnvC5", percent(50), { scale: 0.5, left: 80.86, top: 114.07, width: 297.5, height: 421 }],
+  ]
+  for (const [paper, printSize, expected] of cases) {
+    await t.test(`${paper}, ${printSize.kind === "percent" ? `${printSize.value} %` : printSize.kind}`, () => {
+      const sheets = layout({ source: pdf([595, 842]), options: options({ paper, printSize }), sheet: SHEET_SIZES[paper], margins: edge })
+      assert.deepEqual(box(sheets), expected)
     })
   }
 })
