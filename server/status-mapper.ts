@@ -12,11 +12,17 @@ const notConnectedMessages = [
   "The printer is in use.",
 ]
 
-/** Status mapper: turns what CUPS reports about a job into a screen state and a short German reason. */
-export function mapStatus(cups: CupsJobDetails): { state: ScreenState; reason: string | null } {
+/**
+ * Status mapper: turns what CUPS reports about a job into a screen state and a short German reason.
+ * CUPS marks every cancelled job `job-canceled-by-user`, so Print Buddy's own cancel comes as a flag.
+ */
+export function mapStatus(cups: CupsJobDetails, cancelledByPrintBuddy: boolean): { state: ScreenState; reason: string | null } {
   if (cups.jobState === "completed") return { state: "done", reason: null }
   if (cups.jobState === "aborted") return { state: "error", reason: "Beim Drucken ist ein Fehler aufgetreten." }
-  if (cups.jobState === "canceled") return { state: "error", reason: "Der Auftrag wurde von jemand anderem abgebrochen." }
+  if (cups.jobState === "canceled") {
+    if (cancelledByPrintBuddy) return { state: "cancelled", reason: null }
+    return { state: "error", reason: "Der Auftrag wurde von jemand anderem abgebrochen." }
+  }
   if (cups.jobState === "processing" && !notConnectedMessages.includes(cups.printerMessage)) return { state: "printing", reason: null }
   return { state: "waiting", reason: null }
 }

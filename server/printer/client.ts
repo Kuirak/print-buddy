@@ -27,6 +27,9 @@ function jobDetails(reply: IppMessage): CupsJobDetails {
   }
 }
 
+/** CUPS answered and said no: a bare HTTP status (how it refuses a Cancel-Job from a non-owner) or an IPP error status. */
+export class IppRefusal extends Error {}
+
 export type PrinterClient = ReturnType<typeof createPrinterClient>
 
 /**
@@ -62,10 +65,10 @@ export function createPrinterClient(printerUri: string) {
       body,
       signal: AbortSignal.timeout(30_000),
     })
-    if (res.status !== 200) throw new Error(`ipp: http ${res.status}`)
+    if (res.status !== 200) throw new IppRefusal(`ipp: http ${res.status}`)
     const reply = decodeIpp(new Uint8Array(await res.arrayBuffer()))
     if (reply.code !== Status.ok) {
-      throw new Error(`ipp: status 0x${reply.code.toString(16).padStart(4, "0")} ${String(values(reply, Tag.operation, "status-message")[0] ?? "")}`)
+      throw new IppRefusal(`ipp: status 0x${reply.code.toString(16).padStart(4, "0")} ${String(values(reply, Tag.operation, "status-message")[0] ?? "")}`)
     }
     return reply
   }
@@ -88,6 +91,17 @@ export function createPrinterClient(printerUri: string) {
         attr("job-id", v.int(cupsJobId)),
         attr("requested-attributes", ...["job-id", "job-state", "job-state-reasons", "job-printer-state-message"].map(v.keyword)),
       ]))
+    },
+
+    /** Asks CUPS to cancel the job. False when CUPS refuses, which it does unless the job is ours and still running. */
+    async cancelJob(cupsJobId: number): Promise<boolean> {
+      try {
+        await call(Op.cancelJob, [attr("job-id", v.int(cupsJobId))])
+        return true
+      } catch (err) {
+        if (err instanceof IppRefusal) return false
+        throw err
+      }
     },
   }
 }

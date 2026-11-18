@@ -14,6 +14,8 @@ export interface PrintJob {
   details: CupsJobDetails
   /** When Print Buddy first saw that the job had ended, in ms since the epoch; null while it runs. */
   endedAt: number | null
+  /** Print Buddy cancelled the job itself. CUPS can't tell: it marks every cancelled job the same way. */
+  cancelled: boolean
 }
 
 export type JobStore = ReturnType<typeof createJobStore>
@@ -23,13 +25,13 @@ export function createJobStore(deps: { now: Now }) {
 
   return {
     add(job: Pick<PrintJob, "cupsJobId" | "sheets" | "details">): PrintJob {
-      const record: PrintJob = { id: randomUUID(), sentAt: deps.now(), endedAt: null, ...job }
+      const record: PrintJob = { id: randomUUID(), sentAt: deps.now(), endedAt: null, cancelled: false, ...job }
       jobs.set(record.id, record)
       return record
     },
     get: (id: string): PrintJob | undefined => jobs.get(id),
     /** Records what was learned about a job since it was sent. */
-    update(job: PrintJob, changes: Partial<Pick<PrintJob, "details" | "endedAt">>): PrintJob {
+    update(job: PrintJob, changes: Partial<Pick<PrintJob, "details" | "endedAt" | "cancelled">>): PrintJob {
       const record: PrintJob = { ...job, ...changes }
       jobs.set(record.id, record)
       return record
