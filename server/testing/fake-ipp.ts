@@ -43,6 +43,10 @@ export async function startFakeIpp(queue = "Test_Printer") {
     )),
     /** answer the next request with this bare HTTP status instead of IPP */
     failNext: undefined as number | undefined,
+    /** true: drop every connection without an answer, like a CUPS that is down */
+    unreachable: false,
+    /** false: refuse Print-Job the way a queue does that rejects jobs */
+    acceptingJobs: true,
   }
   const media = (m: FakeMedia) => v.col({
     "media-size": [v.col({ "x-dimension": [v.int(m.width)], "y-dimension": [v.int(m.height)] })],
@@ -55,6 +59,7 @@ export async function startFakeIpp(queue = "Test_Printer") {
   ]
 
   const server = http.createServer((req, res) => {
+    if (printer.unreachable) { req.socket.destroy(); return }
     const chunks: Buffer[] = []
     req.on("data", c => chunks.push(c)).on("end", () => {
       const msg = decodeIpp(Buffer.concat(chunks))
@@ -72,6 +77,7 @@ export async function startFakeIpp(queue = "Test_Printer") {
       const job = jobs.get(values(msg, Tag.operation, "job-id")[0] as number)
       switch (msg.code) {
         case Op.printJob: {
+          if (!printer.acceptingJobs) return reply(Status.notAcceptingJobs, [], `Destination "${queue}" is not accepting jobs.`)
           const j: FakeJob = { id: nextJobId++, user, state: JobState.pending, reasons: ["none"], message: "", printerReasons: ["none"], request: msg }
           jobs.set(j.id, j)
           return reply(Status.ok, [{ tag: Tag.job, attributes: jobAttrs(j, base).slice(0, 4) }])

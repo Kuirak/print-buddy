@@ -82,6 +82,14 @@ export type CupsJobDetails = {
   printerMessage: string
 }
 
+/**
+ * Body of the answer when a valid submit could not be sent: no Print Job exists, and the draft is unchanged.
+ * Status 500 for `render-failed` (the PDF could not be built), 502 when CUPS could not be reached or refused the job.
+ */
+export type SubmitFailure = {
+  error: "render-failed" | "cups-unreachable" | "cups-rejected"
+}
+
 /** Widths of the strips along the sheet's edges the Printer can't print on, in points (1/72 inch). */
 export type Margins = { top: number; right: number; bottom: number; left: number }
 
