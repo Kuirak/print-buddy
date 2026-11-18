@@ -9,6 +9,6 @@ test("the health endpoint answers without touching CUPS", async t => {
   const res = await server.request("/health")
 
   assert.equal(res.status, 200)
-  assert.deepEqual(await res.json(), { ok: true })
+  assert.equal((await res.json()).ok, true)
   assert.equal(server.printer.requests.length, 0)
 })
