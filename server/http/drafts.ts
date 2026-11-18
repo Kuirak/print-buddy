@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { readFile } from "node:fs/promises"
-import type { ApiError, DraftCreated, FileFacts, JobSubmitted } from "../../shared/api.ts"
+import type { ApiError, DraftCreated, FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import type { Intake } from "../intake.ts"
 import type { JobStore } from "../job-store.ts"
 import type { PrinterClient } from "../printer/client.ts"
@@ -16,9 +16,10 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
   app.post("/api/drafts/:draftId/files", async c => {
     const file = (await c.req.parseBody())["file"]
     if (!(file instanceof File)) return c.json<ApiError>({ error: "no-file" }, 400)
-    const facts = await deps.intake.addFile(c.req.param("draftId"), new Uint8Array(await file.arrayBuffer()))
-    if (!facts) return c.json(notFound, 404)
-    return c.json<FileFacts>(facts, 201)
+    const result = await deps.intake.addFile(c.req.param("draftId"), new Uint8Array(await file.arrayBuffer()))
+    if (result.outcome === "unknown-draft") return c.json(notFound, 404)
+    if (result.outcome === "refused") return c.json<Refusal>({ refusal: result.refusal }, 415)
+    return c.json<FileFacts>(result.facts, 201)
   })
 
   app.post("/api/drafts/:draftId/submit", async c => {
