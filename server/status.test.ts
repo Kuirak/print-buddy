@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import { PDFDocument } from "@cantoo/pdf-lib"
 import type { JobStatus } from "../shared/api.ts"
 import { JobState } from "./printer/ipp-codec.ts"
 import { samplePdf } from "./testing/fixtures.ts"
@@ -90,6 +91,7 @@ test("a completed job reads as Fertig, and remembers when Print Buddy saw it end
   server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"], "Print file sent.")
   const first = await readJob(server, jobId)
   server.clock.advance(60_000)
+  const asked = server.printer.requests.length
   const later = await readJob(server, jobId)
 
   assert.equal(first.state, "done")
@@ -97,4 +99,78 @@ test("a completed job reads as Fertig, and remembers when Print Buddy saw it end
   assert.equal(first.endedAt, sentAt + 75_000)
   assert.deepEqual(first.details, { jobState: "completed", jobStateReasons: ["job-completed-successfully"], printerMessage: "Print file sent." })
   assert.deepEqual(later, first)
+  assert.equal(server.printer.requests.length, asked, "an ended job no longer changes, so CUPS is not asked again")
+})
+
+test("a job that CUPS aborted reads as Fehler", async t => {
+  const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
+  const server = await startTestServer({ now: sentAt })
+  t.after(server.close)
+  const { jobId, cupsJobId } = await printSample(server)
+
+  server.clock.advance(9_000)
+  server.printer.setJob(cupsJobId, JobState.aborted, ["aborted-by-system"], "Job aborted after 5 unsuccessful attempts.")
+  const status = await readJob(server, jobId)
+
+  assert.equal(status.state, "error")
+  assert.equal(status.reason, "Beim Drucken ist ein Fehler aufgetreten.")
+  assert.equal(status.endedAt, sentAt + 9_000)
+  assert.deepEqual(status.details, {
+    jobState: "aborted",
+    jobStateReasons: ["aborted-by-system"],
+    printerMessage: "Job aborted after 5 unsuccessful attempts.",
+  })
+})
+
+test("a job that someone else cancelled reads as Fehler", async t => {
+  const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
+  const server = await startTestServer({ now: sentAt })
+  t.after(server.close)
+  const { jobId, cupsJobId } = await printSample(server)
+
+  // CUPS marks every cancelled job like this, whoever cancelled it
+  server.clock.advance(4_000)
+  server.printer.setJob(cupsJobId, JobState.canceled, ["job-canceled-by-user"])
+  const status = await readJob(server, jobId)
+
+  assert.equal(status.state, "error")
+  assert.equal(status.reason, "Der Auftrag wurde von jemand anderem abgebrochen.")
+  assert.equal(status.endedAt, sentAt + 4_000)
+})
+
+test("a Print Job that does not exist is a 404", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+
+  const res = await server.request("/api/jobs/no-such-job")
+
+  assert.equal(res.status, 404)
+  assert.deepEqual(await res.json(), { error: "not-found" })
+  assert.equal(server.printer.requests.length, 0)
+})
+
+test("the sheet count is the number of pages sent to the Printer", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const pdf = await PDFDocument.create()
+  for (let i = 0; i < 3; i++) pdf.addPage([595, 842])
+  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
+  await server.upload(draftId, new Uint8Array(await pdf.save()), "a.pdf", "application/pdf")
+  const { jobId } = await (await server.post(`/api/drafts/${draftId}/submit`)).json() as { jobId: string }
+
+  assert.equal((await readJob(server, jobId)).sheets, 3)
+})
+
+test("while CUPS can't be reached, a Print Job reads as it was last seen", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { jobId, cupsJobId } = await printSample(server)
+  server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "Connected to printer.")
+  const seen = await readJob(server, jobId)
+
+  server.printer.printer.failNext = 503
+  const res = await server.request(`/api/jobs/${jobId}`)
+
+  assert.equal(res.status, 200)
+  assert.deepEqual(await res.json(), seen)
 })

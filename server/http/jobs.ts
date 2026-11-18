@@ -9,12 +9,20 @@ export function jobRoutes(deps: { jobs: JobStore; printer: PrinterClient; now: N
   const app = new Hono()
   const notFound: ApiError = { error: "not-found" }
 
-  /** Asks CUPS about a job that is still running and records the answer. An ended job no longer changes. */
+  /**
+   * Asks CUPS about a job that is still running and records the answer. An ended job no longer changes.
+   * When CUPS can't answer, or has forgotten the job, the job stays as it was last seen.
+   */
   async function refresh(job: PrintJob): Promise<JobStatus> {
     if (job.endedAt === null) {
-      const details = await deps.printer.getJobAttributes(job.cupsJobId)
-      const ended = mapStatus(details).state === "done"
-      job = deps.jobs.update(job, { details, endedAt: ended ? deps.now() : null })
+      try {
+        const details = await deps.printer.getJobAttributes(job.cupsJobId)
+        const { state } = mapStatus(details)
+        const ended = state !== "waiting" && state !== "printing"
+        job = deps.jobs.update(job, { details, endedAt: ended ? deps.now() : null })
+      } catch (err) {
+        console.warn(`CUPS did not answer for job ${job.cupsJobId}:`, err instanceof Error ? err.message : err)
+      }
     }
     return {
       jobId: job.id,
