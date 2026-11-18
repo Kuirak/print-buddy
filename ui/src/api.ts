@@ -1,5 +1,5 @@
 // The app's only way to the server: one function per API operation.
-import type { DraftCreated, FileFacts, JobSubmitted } from "../../shared/api.ts"
+import type { DraftCreated, FileFacts, JobSubmitted, SubmitRequest } from "../../shared/api.ts"
 
 /** The server (or Cloudflare Access, with 401) answered with an error status. */
 export class ApiFailure extends Error {
@@ -14,12 +14,17 @@ export class ApiFailure extends Error {
   }
 }
 
-async function call<T>(method: string, path: string, body?: BodyInit): Promise<T> {
+/** `body`: FormData goes out as multipart, anything else as JSON. */
+async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const json = body !== undefined && !(body instanceof FormData)
   const res = await fetch(path, {
     method,
-    // makes Cloudflare Access answer 401 instead of redirecting to its login page
-    headers: { "X-Requested-With": "XMLHttpRequest" },
-    body,
+    headers: {
+      // makes Cloudflare Access answer 401 instead of redirecting to its login page
+      "X-Requested-With": "XMLHttpRequest",
+      ...(json ? { "Content-Type": "application/json" } : {}),
+    },
+    body: json ? JSON.stringify(body) : body,
   })
   if (!res.ok) throw new ApiFailure(res.status, await res.json().catch(() => undefined))
   return await res.json() as T
@@ -33,4 +38,4 @@ export function addFile(draftId: string, file: File) {
   return call<FileFacts>("POST", `/api/drafts/${draftId}/files`, form)
 }
 
-export const submitDraft = (draftId: string) => call<JobSubmitted>("POST", `/api/drafts/${draftId}/submit`)
+export const submitDraft = (draftId: string, options: SubmitRequest) => call<JobSubmitted>("POST", `/api/drafts/${draftId}/submit`, options)

@@ -159,7 +159,7 @@ test("…", async t => {
 
   const { draftId } = await (await server.post("/api/drafts")).json()
   await server.upload(draftId, samplePdf(), "a.pdf", "application/pdf")
-  await server.post(`/api/drafts/${draftId}/submit`)
+  await server.submit(draftId, { copies: 2 })
 
   assert.equal(server.printer.requests.length, 1)
 })
@@ -168,12 +168,15 @@ test("…", async t => {
 - `startTestServer(opts)` in `server/testing/harness.ts` starts the real server on a free port. It writes an options file that points `printer_uri` at the fake printer, and uses a temporary directory in place of `/share` and `/data`. `close()` stops everything and deletes the directory.
   - `opts.options`: extra keys for the options file, for example `{ upload_limit_mb: 1 }`.
   - `opts.now`: start time of the fake clock. `opts.ui`: files of a stand-in UI build.
-  - It returns `request(path, init)`, `post(path, json?)`, `upload(draftId, bytes, name, type)`, `url`, `jobsDir`, `clock` and `printer`.
+  - `opts.beforeStart(printer)`: runs before the server starts, to script what the fake printer answers to the startup read of the margins.
+  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
+  - `submit` posts `samplePrintOptions` from `server/testing/fixtures.ts` (one copy, black and white, A4, page 1), changed by `overrides`. A submit without valid Print Options is a 400.
+  - `startupRequests` holds the IPP requests the server made while starting. They are taken out of `printer.requests`, so that list starts empty and holds only what the test caused.
 - `server.clock` is the server's only source of time: `clock.now()` and `clock.advance(ms)`. Server code takes `now` from its dependencies and never calls `Date.now()` itself. For anything that runs on a schedule, expose a function the test can call after `clock.advance(…)`, instead of faking timers.
 - `server.printer` is the fake IPP printer from `server/testing/fake-ipp.ts`. It answers like cupsd 2.4.10.
   - `printer.requests`: every IPP request received, decoded. Read attributes with `values(request, Tag.operation, "requesting-user-name")` or `findAttr(…)` from `server/printer/ipp-codec.ts`. `request.data` holds the document bytes.
   - `printer.jobs`: the jobs by CUPS job number. `printer.setJob(id, JobState.processing, ["job-printing"], "message")` scripts a state change.
-  - `printer.printer`: the printer's `state`, `reasons` and `message`. `mediaColDatabase = false` leaves the margins out. `failNext = 503` makes the next request fail at HTTP level.
+  - `printer.printer`: the printer's `state`, `reasons` and `message`. `media` lists the entries of `media-col-database` (size and margins in 1/100 mm); `mediaColDatabase = false` leaves the margins out. `failNext = 503` makes the next request fail at HTTP level.
   - Cancel-Job from a user who doesn't own the job gets HTTP 401, as with real CUPS.
 - `server/testing/fixtures.ts` holds small test files. Add new ones there, built in code and without dates or random ids.
 
@@ -222,4 +225,11 @@ test("…", async () => {
 - **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
 - **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
 - **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on (`init: false`). Anything that must finish before the process ends belongs in the server's `close()`.
-- **What the skeleton leaves open.** The API accepts any file as a PDF and has no size limit yet (upload intake). Submit takes no Print Options and sends the upload as it is (options, renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed upload or submit shows nothing in the app (refusals, failures). The status screen shows only that CUPS accepted the job.
+- **What the skeleton leaves open.** The API accepts any file as a PDF and has no size limit yet (upload intake). Submit sends the upload as it is (renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed upload or submit shows nothing in the app (refusals, failures). The status screen shows only that CUPS accepted the job.
+
+### Print Options and printer info
+
+- **Submit.** The body of `POST /api/drafts/:draftId/submit` is the Print Options object itself (`SubmitRequest` in `shared/api.ts`). `parsePrintOptions` in `shared/print-options.ts` checks all of it; anything invalid is a 400 `{ error: "invalid-options" }` and nothing is sent to CUPS. It doesn't check `selection` against the draft's files: that is for the renderer.
+- **What CUPS gets.** `printer.printJob(pdf, options)` sends only `copies`, collated copies, `ColorMode`, `PageSize`, `Quality` and `MediaType`. Our paper names are the PPD's `PageSize` names. Everything else in the Print Options has to be drawn into the PDF.
+- **Printable margins.** `GET /api/printer` answers `PrinterInfo`: `margins` per paper plus the printer's `state`, `reasons` and `message`. Margins are in points, for the sheet in portrait, as `{ top, right, bottom, left }`. On the server the same values come from `printer.margins()`. They are read once, while the server starts; a paper CUPS doesn't report gets 9 pt left and right, 12 pt top and bottom, with one warning in the log. When CUPS doesn't answer the state read, `state` is `unknown` and the margins are still there.
+- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts with one copy, black and white, A4, Normal, and an empty `selection`, because the app doesn't know the page count yet. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.

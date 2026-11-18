@@ -17,6 +17,9 @@ export interface FakeJob {
   request: IppMessage
 }
 
+/** One entry of `media-col-database`: sheet size and printable margins, in 1/100 mm. */
+export interface FakeMedia { width: number; height: number; top: number; right: number; bottom: number; left: number }
+
 export type FakeIpp = Awaited<ReturnType<typeof startFakeIpp>>
 
 export async function startFakeIpp(queue = "Test_Printer") {
@@ -29,13 +32,19 @@ export async function startFakeIpp(queue = "Test_Printer") {
     message: "",
     /** false: answer Get-Printer-Attributes without `media-col-database` */
     mediaColDatabase: true,
+    /**
+     * The entries of `media-col-database`, with the numbers cupsd derives from the PPD:
+     * A4, A5, Umschlag DL, Umschlag C5, all with the margins of the real Printer's A4.
+     */
+    media: [[20990, 29704], [14817, 20990], [11007, 22013], [16193, 22895]].map(([width, height]): FakeMedia => (
+      { width: width!, height: height!, top: 423, right: 318, bottom: 423, left: 318 }
+    )),
     /** answer the next request with this bare HTTP status instead of IPP */
     failNext: undefined as number | undefined,
   }
-  // sizes and margins in 1/100 mm, as cupsd derives them from the PPD
-  const media = (w: number, h: number) => v.col({
-    "media-size": [v.col({ "x-dimension": [v.int(w)], "y-dimension": [v.int(h)] })],
-    "media-bottom-margin": [v.int(423)], "media-left-margin": [v.int(318)], "media-right-margin": [v.int(318)], "media-top-margin": [v.int(423)],
+  const media = (m: FakeMedia) => v.col({
+    "media-size": [v.col({ "x-dimension": [v.int(m.width)], "y-dimension": [v.int(m.height)] })],
+    "media-bottom-margin": [v.int(m.bottom)], "media-left-margin": [v.int(m.left)], "media-right-margin": [v.int(m.right)], "media-top-margin": [v.int(m.top)],
   })
   const jobAttrs = (j: FakeJob, base: string): IppAttribute[] => [
     attr("job-uri", v.uri(`${base}/jobs/${j.id}`)), attr("job-id", v.int(j.id)), attr("job-state", v.enum(j.state)),
@@ -78,8 +87,10 @@ export async function startFakeIpp(queue = "Test_Printer") {
         case Op.getPrinterAttributes:
           return reply(Status.ok, [{ tag: Tag.printer, attributes: [
             attr("printer-state", v.enum(printer.state)), attr("printer-state-reasons", ...printer.reasons.map(v.keyword)), attr("printer-state-message", v.text(printer.message)),
-            // A4, A5, Umschlag DL, Umschlag C5
-            ...(printer.mediaColDatabase ? [attr("media-col-database", media(20990, 29704), media(14817, 20990), media(11007, 22013), media(16193, 22895))] : []),
+            // like cupsd, only when asked for by name: `all` leaves it out
+            ...(printer.mediaColDatabase && printer.media.length > 0 && values(msg, Tag.operation, "requested-attributes").includes("media-col-database")
+              ? [attr("media-col-database", ...printer.media.map(media))]
+              : []),
           ] }])
         default:
           return reply(Status.operationNotSupported, [], "operation-not-supported")

@@ -19,7 +19,7 @@ export interface RunningServer {
 /** Starts Print Buddy. `config.port` 0 picks a free port. */
 export async function startServer(config: Config, opts: ServerOptions = {}): Promise<RunningServer> {
   const hostname = opts.hostname ?? "0.0.0.0"
-  const app = createApp({
+  const app = await createApp({
     config,
     now: opts.now ?? Date.now,
     uiDir: opts.uiDir ?? join(import.meta.dirname, "..", "dist", "ui"),
