@@ -1,7 +1,12 @@
 import { Hono } from "hono"
+import { join } from "node:path"
 import type { Now } from "./clock.ts"
 import type { Config } from "./config.ts"
+import { draftRoutes } from "./http/drafts.ts"
 import { healthRoutes } from "./http/health.ts"
+import { createIntake } from "./intake.ts"
+import { createJobStore } from "./job-store.ts"
+import { createPrinterClient } from "./printer/client.ts"
 
 export interface AppDeps {
   config: Config
@@ -11,8 +16,13 @@ export interface AppDeps {
 }
 
 /** Wires the modules together. One route file per resource under `http/`; mount new ones here. */
-export function createApp(_deps: AppDeps) {
+export function createApp(deps: AppDeps) {
+  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts") })
+  const jobs = createJobStore({ now: deps.now })
+  const printer = createPrinterClient(deps.config.printerUri)
+
   const app = new Hono()
   app.route("/", healthRoutes())
+  app.route("/", draftRoutes({ intake, jobs, printer }))
   return app
 }
