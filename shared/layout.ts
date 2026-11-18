@@ -1,7 +1,7 @@
 // The layout module: where content sits on a sheet. The browser preview and the server renderer both
 // call `layout`, so the printout matches the preview. Keep this file free of DOM and Node imports.
 
-import type { PrintOptions } from "./print-options.ts"
+import type { PrintOptions, Rotation } from "./print-options.ts"
 
 /** In points (1/72 inch). */
 export type Size = { width: number; height: number }
@@ -44,11 +44,20 @@ export type LayoutInput = {
   margins: Margins
 }
 
+/** One page or photo on a sheet. The box is the space it takes up there, after turning and scaling. */
 export type Placement = Box & {
+  /** The PDF page number or the photo index, as in the selection. */
   ref: number
-  rotation: 0 | 90 | 180 | 270
+  /** Clockwise turn of the upright content: auto-rotate plus manual rotation. A photo's EXIF orientation is not part of it. */
+  rotation: Rotation
+  /** 1 is the natural size. */
   scale: number
+  /**
+   * For drawing into a PDF: maps the content as stored (its natural size in points, origin at the lower left,
+   * a photo before its EXIF orientation) onto the sheet (origin at the lower left, y counts upwards).
+   */
   matrix: Matrix
+  /** The part of the sheet this placement may draw on. Whatever falls outside is not drawn. */
   clip: Box
 }
 
@@ -80,7 +89,7 @@ const ANCHORS: Record<PrintOptions["position"], [across: number, down: number]> 
 type Linear = [number, number, number, number]
 
 /** Clockwise turns, in PDF coordinates (y counts upwards). */
-const TURNS: Record<PrintOptions["rotation"], Linear> = {
+const TURNS: Record<Rotation, Linear> = {
   0: [1, 0, 0, 1],
   90: [0, -1, 1, 0],
   180: [-1, 0, 0, -1],
@@ -126,7 +135,10 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
     const natural = source.kind === "pdf" ? source.pages[ref - 1]! : photoNaturalSize(photo!)
     const orientation = photo?.orientation ?? 1
     const upright = orientation <= 4 ? natural : { width: natural.height, height: natural.width }
-    const { rotation } = options
+    // A landscape photo on a portrait sheet, or the reverse. Squares stay.
+    const across = (upright.width - upright.height) * (sheet.width - sheet.height) < 0
+    const autoRotation = photo && printSize.kind !== "percent" && across ? 90 : 0
+    const rotation = ((autoRotation + options.rotation) % 360) as Rotation
     const turned = rotation % 180 === 0 ? upright : { width: upright.height, height: upright.width }
     const scale =
       printSize.kind === "fit" ? Math.min(printable.width / turned.width, printable.height / turned.height)

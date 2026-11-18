@@ -283,7 +283,7 @@ test("auto-rotate turns a photo that lies across the sheet, at Einpassen and Fü
     ["landscape photo, portrait sheet, 150 %: stays", landscapePhoto, portrait, percent(150), [0, 110, 300, 360, 180]],
     ["portrait photo, portrait sheet, Einpassen: stays", portraitPhoto, portrait, fit, [0, 105, 20, 370, 740]],
     ["portrait photo, landscape sheet, Einpassen: turns", portraitPhoto, landscape, fit, [90, 10, 100, 760, 380]],
-    ["portrait photo, landscape sheet, Füllen: turns", portraitPhoto, landscape, fill, [90, -10, 90, 800, 400]],
+    ["portrait photo, landscape sheet, Füllen: turns", portraitPhoto, landscape, fill, [90, -210, -10, 1200, 600]],
     ["landscape photo, landscape sheet, Einpassen: stays", landscapePhoto, landscape, fit, [0, 10, 100, 760, 380]],
     ["square photo, portrait sheet, Einpassen: stays", photos([500, 500]), portrait, fit, [0, 10, 110, 560, 560]],
     ["stored landscape but upright portrait (EXIF 6), portrait sheet: stays", photos([1000, 500, 6]), portrait, fit, [0, 105, 20, 370, 740]],
@@ -304,5 +304,38 @@ test("auto-rotate turns a photo that lies across the sheet, at Einpassen and Fü
     const { matrix } = only(layout({ source: landscapePhoto, options: options({ selection: [0], printSize: fit }), sheet, margins }))
     // 370 × 740 pt, from 105 pt from the left and 40 pt above the bottom edge. The stored top-left corner is (0, 120).
     assert.deepEqual(matrix, [0, -3.08, 3.08, 0, 105, 780])
+  })
+})
+
+test("manual rotation turns each photo by its own amount, on top of EXIF and auto-rotate", async t => {
+  const turns = (sheets: Sheet[]) => rounded(sheets).map(s => s.placements.map(p => [p.ref, p.rotation, p.width, p.height]))
+  const three = photos([1000, 500], [500, 1000], [1000, 500]) // 240 × 120, 120 × 240, 240 × 120 pt
+
+  await t.test("each photo has its own rotation", () => {
+    const sheets = layout({ source: three, options: options({ selection: [0, 1, 2], photoRotations: { 0: 90, 2: 180 } }), sheet, margins })
+    assert.deepEqual(turns(sheets), [[[0, 90, 120, 240]], [[1, 0, 120, 240]], [[2, 180, 240, 120]]])
+  })
+
+  await t.test("the rotation of the whole PDF doesn't turn photos", () => {
+    const sheets = layout({ source: three, options: options({ selection: [0, 1], rotation: 90 }), sheet, margins })
+    assert.deepEqual(turns(sheets), [[[0, 0, 240, 120]], [[1, 0, 120, 240]]])
+  })
+
+  await t.test("photo rotations don't turn PDF pages", () => {
+    const sheets = layout({ source: pdf([400, 200], [400, 200]), options: options({ selection: [1, 2], rotation: 90, photoRotations: { 1: 180 } }), sheet, margins })
+    assert.deepEqual(turns(sheets), [[[1, 90, 200, 400]], [[2, 90, 200, 400]]])
+  })
+
+  await t.test("it adds to auto-rotate: a landscape photo at Einpassen turned once more lies across the sheet", () => {
+    const once = layout({ source: three, options: options({ selection: [0], printSize: fit, photoRotations: { 0: 90 } }), sheet, margins })
+    assert.deepEqual(turns(once), [[[0, 180, 560, 280]]])
+    const back = layout({ source: three, options: options({ selection: [0], printSize: fit, photoRotations: { 0: 270 } }), sheet, margins })
+    assert.deepEqual(turns(back), [[[0, 0, 560, 280]]])
+  })
+
+  await t.test("it adds to the EXIF orientation: stored on its side (EXIF 6), then turned 90°, makes half a turn", () => {
+    const source = photos([1000, 500, 6])
+    const placement = only(layout({ source, options: options({ selection: [0], position: "top-left", photoRotations: { 0: 90 } }), sheet, margins }))
+    assert.deepEqual(placement, { ref: 0, rotation: 90, scale: 1, left: 10, top: 20, width: 240, height: 120, matrix: [-1, 0, 0, -1, 250, 780], clip: { left: 0, top: 0, width: 600, height: 800 } })
   })
 })
