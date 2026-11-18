@@ -205,3 +205,67 @@ test("manual rotation turns a PDF page clockwise in 90° steps", async t => {
     assert.deepEqual(box(turned), { scale: 1.85, left: 105, top: 20, width: 370, height: 740 })
   })
 })
+
+type Orientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+const photos = (...sizes: [width: number, height: number, orientation?: Orientation][]): LayoutInput["source"] => ({
+  kind: "photos",
+  photos: sizes.map(([width, height, orientation = 1]) => ({ width, height, orientation })),
+})
+
+test("the natural size of a photo is its pixels at 300 dpi", async t => {
+  // 1500 × 2100 px are 5 × 7 inches, so 360 × 504 pt.
+  const cases: [number, ReturnType<typeof box>, matrix: number[]][] = [
+    [100, { scale: 1, left: 10, top: 20, width: 360, height: 504 }, [1, 0, 0, 1, 10, 276]],
+    [50, { scale: 0.5, left: 10, top: 20, width: 180, height: 252 }, [0.5, 0, 0, 0.5, 10, 528]],
+    [200, { scale: 2, left: 10, top: 20, width: 720, height: 1008 }, [2, 0, 0, 2, 10, -228]],
+  ]
+  for (const [value, expected, matrix] of cases) {
+    await t.test(`${value} %`, () => {
+      const sheets = layout({ source: photos([1500, 2100]), options: options({ selection: [0], printSize: percent(value), position: "top-left" }), sheet, margins })
+      assert.deepEqual(box(sheets), expected)
+      assert.deepEqual(only(sheets).matrix, matrix)
+    })
+  }
+})
+
+test("the selection decides which photos appear and in which order, counted from 0, one photo per sheet", () => {
+  const source = photos([300, 600], [600, 900], [900, 1200])
+  const sheets = (changes: Partial<PrintOptions>) => summary(layout({ source, options: options({ position: "top-left", ...changes }), sheet, margins }))
+
+  assert.deepEqual(sheets({ selection: [2, 0] }), [[[2, 10, 20, 216, 288]], [[0, 10, 20, 72, 144]]])
+  assert.deepEqual(sheets({ selection: [0, 1, 2], pagesPerSheet: 2 }), [[[0, 10, 20, 72, 144]], [[1, 10, 20, 144, 216]], [[2, 10, 20, 216, 288]]])
+  assert.deepEqual(sheets({ selection: [] }), [])
+})
+
+test("a photo comes out upright for each of the 8 EXIF orientations", async t => {
+  // A photo stored as 1000 × 500 px (240 × 120 pt), at 100 % in the top-left corner of the printable area.
+  // Its stored corners, in the matrix's coordinates (y counts up):
+  const stored = { topLeft: [0, 120], topRight: [240, 120], bottomLeft: [0, 0], bottomRight: [240, 0] }
+  type Corner = keyof typeof stored
+  // Per orientation: which stored corners the EXIF standard shows at the top-left and the top-right, and the upright size.
+  const cases: [Orientation, topLeft: Corner, topRight: Corner, size: [number, number], matrix: number[]][] = [
+    [1, "topLeft", "topRight", [240, 120], [1, 0, 0, 1, 10, 660]],
+    [2, "topRight", "topLeft", [240, 120], [-1, 0, 0, 1, 250, 660]],
+    [3, "bottomRight", "bottomLeft", [240, 120], [-1, 0, 0, -1, 250, 780]],
+    [4, "bottomLeft", "bottomRight", [240, 120], [1, 0, 0, -1, 10, 780]],
+    [5, "topLeft", "bottomLeft", [120, 240], [0, -1, -1, 0, 130, 780]],
+    [6, "bottomLeft", "topLeft", [120, 240], [0, -1, 1, 0, 10, 780]],
+    [7, "bottomRight", "topRight", [120, 240], [0, 1, 1, 0, 10, 540]],
+    [8, "topRight", "bottomRight", [120, 240], [0, 1, -1, 0, 130, 540]],
+  ]
+  for (const [orientation, topLeft, topRight, [width, height], matrix] of cases) {
+    await t.test(`orientation ${orientation}`, () => {
+      const source = photos([1000, 500, orientation])
+      const placement = only(layout({ source, options: options({ selection: [0], position: "top-left" }), sheet, margins }))
+      const onSheet = ([x, y]: number[]) => {
+        const [a, b, c, d, e, f] = placement.matrix
+        return [a * x! + c * y! + e, b * x! + d * y! + f]
+      }
+
+      assert.deepEqual(placement, { ref: 0, rotation: 0, scale: 1, left: 10, top: 20, width, height, matrix, clip: { left: 0, top: 0, width: 600, height: 800 } })
+      // The box's top edge is 780 pt above the sheet's bottom edge.
+      assert.deepEqual(onSheet(stored[topLeft]), [10, 780])
+      assert.deepEqual(onSheet(stored[topRight]), [10 + width, 780])
+    })
+  }
+})
