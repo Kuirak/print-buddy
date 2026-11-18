@@ -48,8 +48,10 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
     if (!file) return c.json<ApiError>({ error: "empty-draft" }, 400)
     const options = parsePrintOptions(await c.req.json().catch(() => undefined))
     if (!options) return c.json<ApiError>({ error: "invalid-options" }, 400)
-    const { cupsJobId } = await deps.printer.printJob(await readFile(file.path), options)
-    const job = deps.jobs.add({ cupsJobId })
+    // until the renderer builds the sheets: one sheet per page of the PDF, or per photo, for every copy
+    const sheets = (file.facts.kind === "pdf" ? file.facts.pageCount : files.length) * options.copies
+    const { cupsJobId, details } = await deps.printer.printJob(await readFile(file.path), options)
+    const job = deps.jobs.add({ cupsJobId, sheets, details })
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
   })
 

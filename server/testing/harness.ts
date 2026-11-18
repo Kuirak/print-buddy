@@ -7,7 +7,7 @@ import { loadConfig } from "../config.ts"
 import { startServer } from "../server.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { startFakeIpp, type FakeIpp } from "./fake-ipp.ts"
-import { samplePrintOptions } from "./fixtures.ts"
+import { samplePdf, samplePrintOptions } from "./fixtures.ts"
 
 export interface TestServerOptions {
   /** Extra or overriding keys for the add-on options file. `printer_uri` defaults to the fake printer. */
@@ -59,6 +59,13 @@ export async function startTestServer(opts: TestServerOptions = {}) {
     ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
   })
 
+  const submit = (draftId: string, overrides: Partial<PrintOptions> = {}) => post(`/api/drafts/${draftId}/submit`, { ...samplePrintOptions, ...overrides })
+  function upload(draftId: string, bytes: Uint8Array<ArrayBuffer>, name: string, type = "application/octet-stream") {
+    const form = new FormData()
+    form.set("file", new File([bytes], name, { type }))
+    return request(`/api/drafts/${draftId}/files`, { method: "POST", body: form })
+  }
+
   return {
     url: server.url,
     /**
@@ -75,12 +82,17 @@ export async function startTestServer(opts: TestServerOptions = {}) {
     /** POST a JSON body (or none). */
     post,
     /** Submit a draft with `samplePrintOptions`, changed by `overrides`. */
-    submit: (draftId: string, overrides: Partial<PrintOptions> = {}) => post(`/api/drafts/${draftId}/submit`, { ...samplePrintOptions, ...overrides }),
+    submit,
     /** Add one file to a draft the way the app does: multipart, field `file`. */
-    upload(draftId: string, bytes: Uint8Array<ArrayBuffer>, name: string, type = "application/octet-stream") {
-      const form = new FormData()
-      form.set("file", new File([bytes], name, { type }))
-      return request(`/api/drafts/${draftId}/files`, { method: "POST", body: form })
+    upload,
+    /**
+     * Send a Print Job the way the app does: a new draft, one upload per file, then a submit with
+     * `samplePrintOptions`, changed by `overrides`. Without `files` it is `samplePdf()`.
+     */
+    async print(overrides: Partial<PrintOptions> = {}, files: Uint8Array<ArrayBuffer>[] = [samplePdf()]) {
+      const { draftId } = await (await post("/api/drafts")).json() as { draftId: string }
+      for (const [i, file] of files.entries()) await upload(draftId, file, `file-${i + 1}`)
+      return await (await submit(draftId, overrides)).json() as { jobId: string; cupsJobId: number }
     },
     async close() {
       await server.close()
