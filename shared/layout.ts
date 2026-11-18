@@ -30,7 +30,16 @@ export type Placement = Box & {
   clip: Box
 }
 
-export type Sheet = { placements: Placement[] }
+export type Sheet = {
+  placements: Placement[]
+  /** Part of the content lies outside the printable area and won't print. */
+  cutOff: boolean
+  /** Part of the printable area stays empty. */
+  emptySpace: boolean
+}
+
+/** Sizes closer than this, in points, count as equal: Einpassen must not report a cut-off from rounding. */
+const TOLERANCE = 0.01
 
 /** How far along the printable area each Position sits: 0 is the left or top edge, 1 the right or bottom edge. */
 const ANCHORS: Record<PrintOptions["position"], [across: number, down: number]> = {
@@ -74,6 +83,8 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
           clip: { left: 0, top: 0, width: sheet.width, height: sheet.height },
         },
       ],
+      cutOff: width > printable.width + TOLERANCE || height > printable.height + TOLERANCE,
+      emptySpace: width < printable.width - TOLERANCE || height < printable.height - TOLERANCE,
     },
   ]
 }

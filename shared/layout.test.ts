@@ -111,3 +111,26 @@ test("Position aligns the content to the printable area", async t => {
     })
   }
 })
+
+test("a sheet says whether content is cut off and whether part of it stays empty", async t => {
+  const none = { top: 0, right: 0, bottom: 0, left: 0 }
+  const cases: [string, [number, number], PrintOptions["printSize"], typeof margins, { cutOff: boolean; emptySpace: boolean }][] = [
+    ["Einpassen, same shape as the printable area", [280, 370], fit, margins, { cutOff: false, emptySpace: false }],
+    ["Einpassen, another shape", [400, 200], fit, margins, { cutOff: false, emptySpace: true }],
+    ["Einpassen, a size that doesn't divide evenly", [333, 777], fit, margins, { cutOff: false, emptySpace: true }],
+    ["Füllen: the unprintable edge cuts content off", [300, 400], fill, margins, { cutOff: true, emptySpace: false }],
+    ["Füllen, another shape", [400, 200], fill, margins, { cutOff: true, emptySpace: false }],
+    ["Füllen on a sheet without margins, same shape", [300, 400], fill, none, { cutOff: false, emptySpace: false }],
+    ["100 %, smaller than the printable area", [300, 400], percent(100), margins, { cutOff: false, emptySpace: true }],
+    ["100 %, exactly the printable area", [560, 740], percent(100), margins, { cutOff: false, emptySpace: false }],
+    ["100 %, as large as the sheet", [600, 800], percent(100), margins, { cutOff: true, emptySpace: false }],
+    ["250 %, larger than the sheet", [300, 400], percent(250), margins, { cutOff: true, emptySpace: false }],
+    ["200 %, too wide and not tall enough", [400, 200], percent(200), margins, { cutOff: true, emptySpace: true }],
+  ]
+  for (const [name, page, printSize, edge, expected] of cases) {
+    await t.test(name, () => {
+      const [{ cutOff, emptySpace }] = layout({ source: pdf(page), options: options({ printSize }), sheet, margins: edge }) as [Sheet]
+      assert.deepEqual({ cutOff, emptySpace }, expected)
+    })
+  }
+})
