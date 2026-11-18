@@ -1,24 +1,9 @@
 import { render, screen } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
-import type { JobStatus } from "../../../shared/api.ts"
+import { jobStatus, sentAt } from "../testing/job-status.ts"
 import { json, mockApi, type ApiCall } from "../testing/mock-api.ts"
 import { StatusScreen } from "./StatusScreen.tsx"
-
-const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
-
-/** What the server answers for job `j1`: waiting, unless the test says otherwise. */
-const jobStatus = (changes: Partial<JobStatus> = {}): JobStatus => ({
-  jobId: "j1",
-  state: "waiting",
-  reason: null,
-  details: { jobState: "pending", jobStateReasons: ["none"], printerMessage: "" },
-  cupsJobId: 42,
-  sentAt,
-  endedAt: null,
-  sheets: 1,
-  ...changes,
-})
 
 /** How often the app has asked the server about job `j1`. */
 const reads = (calls: ApiCall[]) => calls.filter(call => call.method === "GET" && call.path === "/api/jobs/j1").length

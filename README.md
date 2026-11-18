@@ -106,6 +106,7 @@ One package, no workspaces. Imports between folders are relative and end in `.ts
 ```
 shared/            Pure TypeScript for both sides. No DOM, no node: imports.
   print-options.ts   The Print Options type. The only definition.
+  layout.ts          The layout module: where content sits on a sheet.
   api.ts             JSON shapes of the HTTP API.
 server/            Runs as `node server/main.ts`, straight from the sources.
   main.ts            Entry point: reads the config, starts the server.
@@ -215,8 +216,36 @@ test("…", async () => {
 - `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test.
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
-- A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test.
+- A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
 - Never import `pdfjs-dist` in a component. Wrap it in one module of ours and mock that module with `vi.mock`.
+
+### The layout module
+
+`layout()` in `shared/layout.ts` decides where every page or photo sits. The renderer and the preview both call it and add no geometry of their own.
+
+```ts
+import { layout, SHEET_SIZES } from "../shared/layout.ts"
+
+const sheets = layout({
+  source: { kind: "pdf", pages },      // page sizes in points as a reader shows them (the intake's facts)
+  // or { kind: "photos", photos }     // per photo: stored pixel width and height, EXIF orientation
+  options,                             // the Print Options
+  sheet: SHEET_SIZES[options.paper],   // portrait, envelopes too
+  margins,                             // the Printer's margins for that paper, in points
+})
+```
+
+- Everything is in points. `selection` holds PDF page numbers counted from 1, or photo indexes counted from 0. `photoRotations` is keyed by photo index. An entry of `selection` that isn't in the source throws, so check the selection against the draft's files first.
+- `source` takes the intake's facts: `PdfFacts` as it is, or `{ kind: "photos", photos }` with the `PhotoFacts` of the draft in order. `margins` is `PrinterInfo.margins[options.paper]`, or `printer.margins()[options.paper]` on the server.
+- The result has one entry per sheet, so its length is the sheet count for one copy. Each sheet has `placements`, `cutOff`, `emptySpace` and `sideways`.
+- `cutOff` means content lies outside the printable area, so it is true at Füllen whenever the Printer has margins. `emptySpace` means part of the printable area stays empty. A job is cut off when any sheet is.
+- A placement's `left`, `top`, `width` and `height` are its box on the sheet, measured from the sheet's top-left corner. `rotation` is the clockwise turn of the upright content. `scale` × 100 is the effective percentage.
+- **Renderer:** write `matrix` as the `cm` operator and draw the page or photo. It maps the content at its natural size, as stored, onto the sheet in PDF coordinates. EXIF orientation and every turn are already in it.
+  - An image XObject is a unit square, so scale it by `photoNaturalSize(pixels)` first.
+  - A PDF page's own `/Rotate` and CropBox are not in it: `layout()` gets the displayed page size, and the renderer adds the step from the embedded page to the displayed page.
+  - Clip each placement to its `clip` box. With two pages per sheet that is the half, and Füllen would otherwise run into the other half.
+- **Preview:** draw the upright picture (an `<img>` already shows a photo upright, pdf.js applies `/Rotate`) into the box, turned by `rotation`, clipped to `clip`.
+- **Two pages per sheet** is laid out the way CUPS lays out `number-up=2`. The sheet is read in landscape and split into a left and a right half. On a portrait sheet (all four papers) the pages therefore lie turned 90° clockwise, page 1 in the top half, and the sheet says `sideways: true`. The preview should show such a sheet turned 90° counter-clockwise. Photos always get one sheet each.
 
 ### Notes from the first build
 
@@ -235,7 +264,18 @@ test("…", async () => {
 - **Submit.** The body of `POST /api/drafts/:draftId/submit` is the Print Options object itself (`SubmitRequest` in `shared/api.ts`). `parsePrintOptions` in `shared/print-options.ts` checks all of it; anything invalid is a 400 `{ error: "invalid-options" }` and nothing is sent to CUPS. It doesn't check `selection` against the draft's files: that is for the renderer.
 - **What CUPS gets.** `printer.printJob(pdf, options)` sends only `copies`, collated copies, `ColorMode`, `PageSize`, `Quality` and `MediaType`. Our paper names are the PPD's `PageSize` names. Everything else in the Print Options has to be drawn into the PDF.
 - **Printable margins.** `GET /api/printer` answers `PrinterInfo`: `margins` per paper plus the printer's `state`, `reasons` and `message`. Margins are in points, for the sheet in portrait, as `{ top, right, bottom, left }`. On the server the same values come from `printer.margins()`. They are read once, while the server starts; a paper CUPS doesn't report gets 9 pt left and right, 12 pt top and bottom, with one warning in the log. When CUPS doesn't answer the state read, `state` is `unknown` and the margins are still there.
-- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts with one copy, black and white, A4, Normal, and an empty `selection`, because the app doesn't know the page count yet. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
+- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts from the default Preset of its file type (see Presets below) with an empty `selection`, because the app doesn't know the page count yet. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
+
+### Presets
+
+- **Where.** `ui/src/presets.ts` has the built-in Presets, the `PresetValues` type (the seven fields a Preset stores) and `createPresets(kind)`, which reads and writes browser storage. `PresetChips` and `PresetActions` under `ui/src/controls/` are the two parts on the screen. Both take the Print Options and call `onPick`; `OptionsScreen` applies the Preset to its store.
+- **A new field in the Print Options.** If a Preset should store it, add it to `PresetValues`, to `sameValues` and to `save` in `presets.ts`, and to the built-ins. Print size, Position and pages per sheet are already stored and compared, so their controls only have to write the Print Options store. `rotation`, `selection` and `photoRotations` belong to the file and are never touched by a Preset.
+- **File type.** `OptionsScreen` takes `kind: "pdf" | "photo"`. `fileKind(facts)` in `presets.ts` is the one place that decides it: the `kind` the server found for the first file of the Print Job, because a draft never mixes the two. `App` calls it. The kind picks the chips, the default Preset and which star is set. It is read once: a new file gets a new `OptionsScreen`.
+- **Starting options.** A new file starts from the starred Preset of its type plus `rotation: 0` and `selection: []`. Nothing from a Print Job is written to storage, so the next file can't inherit it.
+- **Which chip is marked.** The Preset whose seven fields all equal the Print Options. If several are equal, the one tapped or saved last, else the first in chip order. If none, the last chip reads "✎ Eigene"; otherwise it reads "Eigene …". That chip does nothing when tapped until the options drawer exists (summary line ticket). The Preset actions sit below the option rows for the same reason and move into the drawer with them.
+- **Chips per type.** PDFs get Dokument s/w, Dokument Farbe and Umschlag DL; photos get Foto and Foto s/w Toner sparen. An own Preset belongs to the file type it was saved for.
+- **Storage.** One `localStorage` key, `print-buddy.presets`: `{ own: Preset[], defaults: { pdf?: id, photo?: id } }`. Entries that don't pass `parsePrintOptions` are dropped on load. A starred id that no longer exists falls back to the built-in default. The Seam 3 setup file clears `localStorage` after each test; a test "reopens the app" with `cleanup()` and a second render.
+- **Tests.** In `ui/src/presets.test.tsx` the chips are the `radiogroup` named "Voreinstellung". Saving and deleting ask on the screen itself (a name field, "Voreinstellung löschen?"), not with `window.prompt` or `window.confirm`.
 
 ### Notes from upload intake (ticket 03)
 

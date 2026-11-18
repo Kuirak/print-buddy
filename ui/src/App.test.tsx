@@ -1,28 +1,16 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
-import type { JobStatus } from "../../shared/api.ts"
 import { App } from "./App.tsx"
+import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
-
-const jobStatus = (changes: Partial<JobStatus>): JobStatus => ({
-  jobId: "j1",
-  state: "waiting",
-  reason: null,
-  details: { jobState: "pending", jobStateReasons: ["none"], printerMessage: "" },
-  cupsJobId: 42,
-  sentAt: Date.UTC(2026, 10, 19, 8, 30, 0),
-  endedAt: null,
-  sheets: 1,
-  ...changes,
-})
 
 test("pick a PDF, tap Drucken, and follow the Print Job on the status screen", async () => {
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
     "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
-    "GET /api/jobs/j1": () => jobStatus({}),
+    "GET /api/jobs/j1": () => jobStatus(),
   })
   const user = userEvent.setup()
   const pdf = new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" })
@@ -70,7 +58,7 @@ test("Schließen on Fertig leads back to Start", async () => {
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
     "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
-    "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: Date.UTC(2026, 10, 19, 8, 31, 15) }),
+    "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: sentAt + 75_000 }),
   })
   const user = userEvent.setup()
   render(() => <App />)
@@ -90,7 +78,7 @@ test("Nochmal drucken on Fertig sends the same file with the same Print Options 
     "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
     "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
-    "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: Date.UTC(2026, 10, 19, 8, 31, 15) }),
+    "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: sentAt + 75_000 }),
     "POST /api/drafts/d2/files": () => json({ kind: "pdf" }, 201),
     "POST /api/drafts/d2/submit": () => json({ jobId: "j2", cupsJobId: 43 }, 201),
     "GET /api/jobs/j2": () => jobStatus({ jobId: "j2", cupsJobId: 43 }),

@@ -2,6 +2,7 @@ import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { App } from "./App.tsx"
+import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
 
 /** Opens the app, picks a PDF and waits for the options screen. */
@@ -10,10 +11,7 @@ async function openOptions() {
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
     "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
-    "GET /api/jobs/j1": () => ({
-      jobId: "j1", state: "waiting", reason: null, cupsJobId: 42, sentAt: 0, endedAt: null, sheets: 1,
-      details: { jobState: "pending", jobStateReasons: ["none"], printerMessage: "" },
-    }),
+    "GET /api/jobs/j1": () => jobStatus(),
   })
   const user = userEvent.setup()
   render(() => <App />)
