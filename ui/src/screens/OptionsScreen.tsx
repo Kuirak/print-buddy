@@ -1,21 +1,11 @@
-import { createStore, snapshot } from "solid-js"
+import { createStore, snapshot, untrack } from "solid-js"
 import type { JSX } from "@solidjs/web"
 import { maxCopies, type PrintOptions } from "../../../shared/print-options.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
+import { PresetActions } from "../controls/PresetActions.tsx"
+import { PresetChips } from "../controls/PresetChips.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
-
-/** What a new file starts with. */
-const initialOptions: PrintOptions = {
-  copies: 1,
-  color: "mono",
-  paper: "A4",
-  quality: "normal",
-  printSize: { kind: "fit" },
-  position: "center",
-  pagesPerSheet: 1,
-  rotation: 0,
-  selection: [],
-}
+import { createPresets, type FileKind, type Preset } from "../presets.ts"
 
 const colors = [
   { value: "color", label: "Farbe" },
@@ -43,12 +33,21 @@ function Row(props: { label: string; children: JSX.Element }) {
   )
 }
 
-export function OptionsScreen(props: { fileName: string; onPrint: (options: PrintOptions) => void }) {
-  const [options, setOptions] = createStore<PrintOptions>(structuredClone(initialOptions))
+export function OptionsScreen(props: { fileName: string; kind: FileKind; onPrint: (options: PrintOptions) => void }) {
+  const presets = createPresets(untrack(() => props.kind))
+  // a new file starts from the starred Preset, never from the settings of the job before
+  const [options, setOptions] = createStore<PrintOptions>({ ...structuredClone(presets.starred().values), rotation: 0, selection: [] })
+
+  /** Sets what the Preset stores. Page selection and rotation stay as they are. */
+  function apply(preset: Preset) {
+    presets.pick(preset)
+    setOptions(o => { Object.assign(o, structuredClone(preset.values)) })
+  }
 
   return (
     <main class="flex min-h-dvh flex-col gap-4 p-4">
       <h1 class="truncate font-bold">{props.fileName}</h1>
+      <PresetChips presets={presets} options={options} onPick={apply} />
       <section>
         <Row label="Kopien">
           <Stepper
@@ -71,6 +70,7 @@ export function OptionsScreen(props: { fileName: string; onPrint: (options: Prin
           <ChoiceGroup label="Qualität" choices={qualities} value={options.quality} onChange={quality => setOptions(o => { o.quality = quality })} />
         </Row>
       </section>
+      <PresetActions presets={presets} options={options} onPick={apply} />
       <div class="sticky bottom-0 mt-auto bg-white py-3">
         <button type="button" class="btn-primary" onClick={() => props.onPrint(snapshot(options))}>
           Drucken

@@ -1,15 +1,16 @@
 import { createSignal, Match, Switch } from "solid-js"
-import type { JobSubmitted } from "../../shared/api.ts"
+import type { FileFacts, JobSubmitted } from "../../shared/api.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { addFile, createDraft, submitDraft } from "./api.ts"
+import { fileKind } from "./presets.ts"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
 
 type Screen =
   | { name: "start" }
-  /** The phone keeps `file`; `draftId` is the server's copy of it. */
-  | { name: "options"; file: File; draftId: string }
+  /** The phone keeps `file`; `draftId` is the server's copy of it, and `facts` is what the server found out about it. */
+  | { name: "options"; file: File; facts: FileFacts; draftId: string }
   | { name: "status"; job: JobSubmitted }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
@@ -22,8 +23,8 @@ export function App() {
 
   async function pick(file: File) {
     const { draftId } = await createDraft()
-    await addFile(draftId, file)
-    setScreen({ name: "options", file, draftId })
+    const facts = await addFile(draftId, file)
+    setScreen({ name: "options", file, facts, draftId })
   }
 
   // a second tap while the first is on its way must not print twice
@@ -45,7 +46,13 @@ export function App() {
           <StartScreen onPick={file => void pick(file)} />
         </Match>
         <Match when={on("options")}>
-          {options => <OptionsScreen fileName={options().file.name} onPrint={chosen => void print(options().draftId, chosen)} />}
+          {options => (
+            <OptionsScreen
+              fileName={options().file.name}
+              kind={fileKind(options().facts)}
+              onPrint={chosen => void print(options().draftId, chosen)}
+            />
+          )}
         </Match>
         <Match when={on("status")}>{status => <StatusScreen job={status().job} />}</Match>
       </Switch>
