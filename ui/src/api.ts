@@ -1,5 +1,5 @@
 // The app's only way to the server: one function per API operation.
-import type { DraftCreated, FileFacts, JobSubmitted, SubmitRequest } from "../../shared/api.ts"
+import type { DraftCreated, FileFacts, JobSubmitted, Refusal, SubmitRequest } from "../../shared/api.ts"
 
 /** The server (or Cloudflare Access, with 401) answered with an error status. */
 export class ApiFailure extends Error {
@@ -32,10 +32,17 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 
 export const createDraft = () => call<DraftCreated>("POST", "/api/drafts")
 
-export function addFile(draftId: string, file: File) {
+/** Resolves with the file's facts, or with the Refusal when the server won't take the file. */
+export async function addFile(draftId: string, file: File): Promise<FileFacts | Refusal> {
   const form = new FormData()
   form.set("file", file)
-  return call<FileFacts>("POST", `/api/drafts/${draftId}/files`, form)
+  try {
+    return await call<FileFacts>("POST", `/api/drafts/${draftId}/files`, form)
+  } catch (err) {
+    const body = err instanceof ApiFailure ? err.body : undefined
+    if (typeof body === "object" && body !== null && "refusal" in body) return body as Refusal
+    throw err
+  }
 }
 
 export const submitDraft = (draftId: string, options: SubmitRequest) => call<JobSubmitted>("POST", `/api/drafts/${draftId}/submit`, options)

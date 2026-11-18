@@ -1,17 +1,18 @@
 // Presets: named sets of Print Options, picked in one tap (see GLOSSARY.md). The built-in ones are
 // defined here; own Presets and the starred defaults are kept in this phone's browser storage.
 import { createSignal } from "solid-js"
+import type { FileFacts } from "../../shared/api.ts"
 import { parsePrintOptions, type PrintOptions } from "../../shared/print-options.ts"
 
 /** The two file types a Print Job can hold. Each has its own Presets and its own default. */
-export type FileKind = "pdf" | "photo"
+export type FileKind = FileFacts["kind"]
 
 /**
- * The file type of a Print Job, from what the server said about one of its files. The only place
- * that decides it: the server recognises files by content, and whatever isn't a PDF is a photo.
+ * The file type of a Print Job, from what the server found out about its files. The only place that
+ * decides it. The first file speaks for all: intake refuses a draft that mixes a PDF with photos.
  */
-export function fileKind(facts: { kind: string }): FileKind {
-  return facts.kind === "pdf" ? "pdf" : "photo"
+export function fileKind(facts: readonly FileFacts[]): FileKind {
+  return facts[0]?.kind ?? "pdf"
 }
 
 /** The part of the Print Options a Preset stores. Page selection and rotation belong to the file. */
