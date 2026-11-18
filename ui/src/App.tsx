@@ -2,6 +2,7 @@ import { createSignal, Match, Switch } from "solid-js"
 import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { addFile, createDraft, submitDraft } from "./api.ts"
+import { fileKind } from "./presets.ts"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
@@ -62,6 +63,7 @@ export function App() {
           {options => (
             <OptionsScreen
               fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
+              kind={fileKind(options().facts)}
               onPrint={chosen => void print(options().draftId, chosen)}
             />
           )}
