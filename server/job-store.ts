@@ -24,7 +24,7 @@ export interface PrintJob {
   cancelled: boolean
 }
 
-export interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "file" | "options" | "details"> {
+interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "file" | "options" | "details"> {
   /** The PDF as it was sent to CUPS. */
   pdf: Uint8Array
   /** Paths of the uploaded files, in upload order. They are moved into the job folder. */

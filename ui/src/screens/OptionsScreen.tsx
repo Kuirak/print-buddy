@@ -1,5 +1,5 @@
 import { createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
-import type { FileFacts, PaperMargins } from "../../../shared/api.ts"
+import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
 import { layout, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import type { PrintOptions, Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
@@ -14,7 +14,7 @@ import { SummaryLine } from "../controls/SummaryLine.tsx"
 import { Thumbnails } from "../controls/Thumbnails.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
-import { createPresets, type FileKind, type Preset } from "../presets.ts"
+import { createPresets, type Preset } from "../presets.ts"
 
 const readPrinterAgainAfterMs = 2_000
 
@@ -37,7 +37,7 @@ export function OptionsScreen(props: {
     facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
   /** Every page of the PDF, counted from 1, or every photo, counted from 0: what the thumbnails show and the selection picks from. */
   const refs = source.kind === "pdf" ? source.pages.map((_, index) => index + 1) : source.photos.map((_, index) => index)
-  // a new file starts from the starred Preset, never from the settings of the job before, with every page or photo selected
+  // a new file starts from the starred Preset, never from the Print Options of the job before, with every page or photo selected
   const [options, setOptions] = createStore<PrintOptions>(structuredClone(untrack(() => props.initial)) ?? {
     ...structuredClone(presets.starred().values),
     rotation: 0,

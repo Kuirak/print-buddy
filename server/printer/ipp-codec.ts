@@ -16,8 +16,8 @@ export const JobState = { pending: 3, held: 4, processing: 5, stopped: 6, cancel
 export const PrinterState = { idle: 3, processing: 4, stopped: 5 } as const
 
 export type IppCollection = { [member: string]: IppValue[] }
-export type IppScalar = number | boolean | string | null | [number, number] | [number, number, number] | Uint8Array | IppCollection
-export interface IppValue { tag: number; value: IppScalar }
+type IppScalar = number | boolean | string | null | [number, number] | [number, number, number] | Uint8Array | IppCollection
+interface IppValue { tag: number; value: IppScalar }
 export interface IppAttribute { name: string; values: IppValue[] }
 export interface IppGroup { tag: number; attributes: IppAttribute[] }
 export interface IppMessage {

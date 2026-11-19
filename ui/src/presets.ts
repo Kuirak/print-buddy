@@ -1,11 +1,8 @@
 // Presets: named sets of Print Options, picked in one tap (see GLOSSARY.md). The built-in ones are
 // defined here; own Presets and the starred defaults are kept in this phone's browser storage.
 import { createSignal } from "solid-js"
-import type { FileFacts } from "../../shared/api.ts"
+import type { FileFacts, FileKind } from "../../shared/api.ts"
 import { parsePrintOptions, type PrintOptions } from "../../shared/print-options.ts"
-
-/** The two file types a Print Job can hold. Each has its own Presets and its own default. */
-export type FileKind = FileFacts["kind"]
 
 /**
  * The file type of a Print Job, from what the server found out about its files. The only place that

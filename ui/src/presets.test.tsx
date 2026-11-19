@@ -1,13 +1,14 @@
 import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
+import type { FileKind } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
 import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 /** Opens the app, picks a file of the given type and waits for the options screen. */
-async function openOptions(kind: "pdf" | "photo" = "pdf") {
+async function openOptions(kind: FileKind = "pdf") {
   const facts = kind === "pdf"
     ? { kind, pageCount: 1, pages: [{ width: 595, height: 842 }] }
     : { kind, format: "jpeg", width: 4000, height: 3000, orientation: 1 }
@@ -61,7 +62,7 @@ async function openOptions(kind: "pdf" | "photo" = "pdf") {
     await details()
     await user.click(choice(group, name))
   }
-  /** Saves the current settings as an own Preset. */
+  /** Saves the current Print Options as an own Preset. */
   async function saveAs(name: string) {
     await tap("Als Voreinstellung speichern …")
     await user.type(screen.getByLabelText('Name der Voreinstellung (z. B. "Bastelpapier")'), name)
@@ -71,7 +72,7 @@ async function openOptions(kind: "pdf" | "photo" = "pdf") {
 }
 
 /** Closes the app and opens it again with a new file. Browser storage stays. */
-function reopen(kind: "pdf" | "photo" = "pdf") {
+function reopen(kind: FileKind = "pdf") {
   cleanup()
   return openOptions(kind)
 }
@@ -127,7 +128,7 @@ test("a new photo share starts from Foto and offers the photo Presets", async ()
   expect(await print()).toMatchObject({ color: "color", paper: "A4", quality: "normal" })
 })
 
-test("changing an option shows Eigene until the settings match a Preset again", async () => {
+test("changing an option shows Eigene until the Print Options match a Preset again", async () => {
   const { set, tap, chip, chips } = await openOptions()
 
   await set("Qualität", "Toner sparen")
@@ -189,7 +190,7 @@ test("own Presets are offered only for the file type they were saved for", async
   expect(chips()).toEqual(["★ Foto", "Foto s/w Toner sparen", "Eigene …"])
 })
 
-test("the current settings can be saved as an own Preset, which is still there after reopening the app", async () => {
+test("the current Print Options can be saved as an own Preset, which is still there after reopening the app", async () => {
   const first = await openOptions()
   await first.set("Papier", "A5")
   await first.tap("Mehr Kopien")
@@ -223,7 +224,7 @@ test("saving without a name, or backing out, saves nothing", async () => {
   expect((await reopen()).chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
 })
 
-test("an own Preset can be deleted and stays deleted; the settings go back to the default Preset", async () => {
+test("an own Preset can be deleted and stays deleted; the Print Options go back to the default Preset", async () => {
   const first = await openOptions()
   await first.set("Farbe", "Farbe")
   await first.set("Papier", "A5")
@@ -245,7 +246,7 @@ test("an own Preset can be deleted and stays deleted; the settings go back to th
   expect((await reopen()).chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
 })
 
-test("built-in Presets can't be deleted, and neither can settings that match no Preset", async () => {
+test("built-in Presets can't be deleted, and neither can Print Options that match no Preset", async () => {
   const { chip, pick, set, details } = await openOptions()
 
   await details()
@@ -297,7 +298,7 @@ test("photos have their own starred Preset, which can be an own one", async () =
   expect(pdfs.chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
 })
 
-test("the star can't be set while the settings match no Preset", async () => {
+test("the star can't be set while the Print Options match no Preset", async () => {
   const { set } = await openOptions()
 
   await set("Qualität", "Toner sparen")
@@ -321,7 +322,7 @@ test("deleting the starred own Preset gives the star back to the built-in defaul
   expect((await reopen()).chip("★ Dokument s/w")).toBeChecked()
 })
 
-test("a new file never starts from the settings of the previous Print Job", async () => {
+test("a new file never starts from the Print Options of the previous Print Job", async () => {
   const first = await openOptions()
   await first.set("Farbe", "Farbe")
   await first.set("Papier", "Umschlag C5")

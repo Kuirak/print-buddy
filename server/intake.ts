@@ -14,7 +14,7 @@ export interface DraftFile {
 }
 
 /** What became of an uploaded file. `unknown-draft` is a caller's mistake, not a Refusal. */
-export type AddFileResult =
+type AddFileResult =
   | { outcome: "added"; facts: FileFacts }
   | { outcome: "refused"; refusal: Refusal }
   | { outcome: "unknown-draft" }
