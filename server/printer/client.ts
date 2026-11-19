@@ -85,7 +85,7 @@ export type PrinterClient = ReturnType<typeof createPrinterClient>
 
 /**
  * The Printer client: IPP against the CUPS queue `printer_name`, hand-written because `@sealsystems/ipp`
- * drops the PPD keywords (see the README's development notes).
+ * drops the PPD keywords (see docs/adr/0001-hand-written-ipp-client.md).
  */
 export function createPrinterClient(printerUri: string) {
   // ipp://host:port/printers/Queue is HTTP POST to http://host:port/printers/Queue
