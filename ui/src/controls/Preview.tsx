@@ -1,7 +1,8 @@
-import { createEffect, createSignal, For, Show } from "solid-js"
+import { For, Show } from "solid-js"
 import type { Margins } from "../../../shared/api.ts"
 import type { Box, Sheet, Size } from "../../../shared/layout.ts"
 import type { PdfPreview } from "../pdf-preview.ts"
+import { PdfPage } from "./PdfPage.tsx"
 
 /** Where the pictures come from: the open PDF (`undefined` until pdf.js has read it), or one address per photo. */
 export type PreviewSource = { kind: "pdf"; pdf: PdfPreview | undefined } | { kind: "photos"; urls: readonly string[] }
@@ -41,13 +42,26 @@ export function Preview(props: {
   /** 1 shows the whole sheet, 2 shows it twice as large, and so on. */
   zoom: number
 }) {
+  // a sideways sheet (two pages per sheet) is shown turned a quarter counter-clockwise, so its pages are upright and side by side
+  const sideways = () => props.sheet?.sideways ?? false
+  /** Width by height of the paper as it shows on the screen. */
+  const shape = () => (sideways() ? props.paper.height / props.paper.width : props.paper.width / props.paper.height)
   return (
     <div class="overflow-auto rounded-xl bg-gray-200 p-3" style={{ "max-height": `calc(${sheetHeight} + 24px)` }}>
       <div
         class="relative mx-auto overflow-hidden bg-white shadow-md"
         style={{
-          "aspect-ratio": `${props.paper.width} / ${props.paper.height}`,
-          width: `calc(min(100%, ${sheetHeight} * ${props.paper.width / props.paper.height}) * ${props.zoom})`,
+          "aspect-ratio": `${shape()}`,
+          width: `calc(min(100%, ${sheetHeight} * ${shape()}) * ${props.zoom})`,
+        }}
+      >
+      {/* the paper in portrait, as the layout module measures it; everything on it turns with it */}
+      <div
+        class="absolute top-1/2 left-1/2 overflow-hidden"
+        style={{
+          width: sideways() ? `${(1 / shape()) * 100}%` : "100%",
+          height: sideways() ? `${shape() * 100}%` : "100%",
+          transform: `translate(-50%, -50%) rotate(${sideways() ? -90 : 0}deg)`,
         }}
       >
         {/* by index: a placement that moves keeps its picture */}
@@ -67,7 +81,15 @@ export function Preview(props: {
                 >
                   <Show
                     when={props.source.kind === "photos" && props.source}
-                    fallback={<PdfPage pdf={props.source.kind === "pdf" ? props.source.pdf : undefined} page={placement().ref} zoom={props.zoom} />}
+                    fallback={
+                      <PdfPage
+                        pdf={props.source.kind === "pdf" ? props.source.pdf : undefined}
+                        page={placement().ref}
+                        longSide={Math.min(3000, 1500 * props.zoom)}
+                        label={`Vorschau Seite ${placement().ref}`}
+                        fit="fill"
+                      />
+                    }
                   >
                     {photos => <img class="block size-full" src={photos().urls[placement().ref]} alt={`Vorschau Foto ${placement().ref + 1}`} />}
                   </Show>
@@ -92,24 +114,7 @@ export function Preview(props: {
           )}
         </Show>
       </div>
+      </div>
     </div>
   )
-}
-
-/** One PDF page, drawn by pdf.js. Zooming in draws it again with more pixels; the page before stays until the new one is ready. */
-function PdfPage(props: { pdf: PdfPreview | undefined; page: number; zoom: number }) {
-  const [canvas, setCanvas] = createSignal<HTMLCanvasElement>()
-  createEffect(
-    () => ({ pdf: props.pdf, page: props.page, longSide: Math.min(3000, 1500 * props.zoom) }),
-    ({ pdf, page, longSide }) => {
-      let replaced = false
-      void pdf?.renderPage(page, longSide).then(drawn => {
-        if (replaced) return
-        drawn.className = "block size-full"
-        setCanvas(drawn)
-      })
-      return () => { replaced = true }
-    },
-  )
-  return <Show when={canvas()}>{drawn => <div class="size-full" role="img" aria-label={`Vorschau Seite ${props.page}`}>{drawn()}</div>}</Show>
 }

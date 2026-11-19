@@ -10,7 +10,9 @@ import { PresetActions } from "../controls/PresetActions.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
 import { Preview } from "../controls/Preview.tsx"
 import { PrintSize } from "../controls/PrintSize.tsx"
+import { SheetSteps } from "../controls/SheetSteps.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
+import { Thumbnails } from "../controls/Thumbnails.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type FileKind, type Preset } from "../presets.ts"
@@ -30,6 +32,11 @@ const papers = [
 const qualities = [
   { value: "normal", label: "Normal" },
   { value: "draft", label: "Toner sparen" },
+] as const
+
+const perSheet = [
+  { value: 1, label: "1" },
+  { value: 2, label: "2" },
 ] as const
 
 function Row(props: { label: string; children: JSX.Element }) {
@@ -56,11 +63,13 @@ export function OptionsScreen(props: {
   const facts = untrack(() => props.facts)
   const source: LayoutInput["source"] =
     facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
+  /** Every page of the PDF, counted from 1, or every photo, counted from 0: what the thumbnails show and the selection picks from. */
+  const refs = source.kind === "pdf" ? source.pages.map((_, index) => index + 1) : source.photos.map((_, index) => index)
   // a new file starts from the starred Preset, never from the settings of the job before, with every page or photo selected
   const [options, setOptions] = createStore<PrintOptions>({
     ...structuredClone(presets.starred().values),
     rotation: 0,
-    selection: facts[0]?.kind === "pdf" ? Array.from({ length: facts[0].pageCount }, (_, index) => index + 1) : facts.map((_, index) => index),
+    selection: [...refs],
   })
 
   const [margins, setMargins] = createSignal<PaperMargins>()
@@ -90,8 +99,19 @@ export function OptionsScreen(props: {
     const known = margins()
     return known && layout({ source, options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
   })
-  /** The sheet in the preview. */
-  const shown = () => sheets()?.[0]
+  /** Which sheet the person stepped to, counted from 0. It may point past the end after pages were left out. */
+  const [step, setStep] = createSignal(0)
+  /** The sheet in the preview, counted from 0: the one stepped to, or the last one there is. */
+  const current = () => Math.max(0, Math.min(step(), (sheets()?.length ?? 1) - 1))
+  const shown = () => sheets()?.[current()]
+  /** What the preview shows and which sheet of how many it is, for one copy. */
+  const sheetText = () => {
+    const onSheet = shown()?.placements.map(placement => placement.ref)
+    if (!onSheet?.length) return source.kind === "pdf" ? "Keine Seiten ausgewählt" : "Keine Fotos ausgewählt"
+    const place = `${current() + 1}/${sheets()!.length}`
+    if (source.kind === "photos") return `Foto ${place}`
+    return `${onSheet.length === 1 ? "Seite" : "Seiten"} ${onSheet.join(" und ")} · ${place}`
+  }
   const percent = () => {
     if (options.printSize.kind === "percent") return options.printSize.value
     const first = shown()?.placements[0]
@@ -112,6 +132,19 @@ export function OptionsScreen(props: {
       if (source.kind === "pdf") o.rotation = quarterOn(o.rotation)
       else if (photo !== undefined) o.photoRotations = { ...o.photoRotations, [photo]: quarterOn(o.photoRotations?.[photo]) }
     })
+  }
+
+  /** Leaves a page or photo out, or brings it back to its place in the file's order. The preview goes to one brought back. */
+  function toggle(ref: number) {
+    const selected = options.selection.includes(ref)
+    const selection = selected ? options.selection.filter(other => other !== ref) : [...options.selection, ref].sort((a, b) => a - b)
+    setOptions(o => { o.selection = selection })
+    if (!selected) setStep(Math.floor(selection.indexOf(ref) / (source.kind === "pdf" ? options.pagesPerSheet : 1)))
+  }
+
+  function select(selection: number[]) {
+    setOptions(o => { o.selection = selection })
+    setStep(0)
   }
 
   return (
@@ -138,6 +171,9 @@ export function OptionsScreen(props: {
           grey={options.color === "mono"}
           zoom={zoom()}
         />
+        <Show when={sheets()}>
+          {laidOut => <SheetSteps index={current()} count={laidOut().length} text={sheetText()} onChange={setStep} />}
+        </Show>
       </div>
       <div class="flex flex-col gap-1">
         <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
@@ -146,10 +182,24 @@ export function OptionsScreen(props: {
           <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
         </Show>
       </div>
+      <Thumbnails
+        source={source.kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+        refs={refs}
+        selection={options.selection}
+        grey={options.color === "mono"}
+        onToggle={toggle}
+        onAll={() => select([...refs])}
+        onNone={() => select([])}
+      />
       <section>
         <Row label="Position">
           <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
         </Row>
+        <Show when={source.kind === "pdf"}>
+          <Row label="Seiten pro Blatt">
+            <ChoiceGroup label="Seiten pro Blatt" choices={perSheet} value={options.pagesPerSheet} onChange={pagesPerSheet => setOptions(o => { o.pagesPerSheet = pagesPerSheet })} />
+          </Row>
+        </Show>
         <Row label="Kopien">
           <Stepper
             label="Kopien"
@@ -173,8 +223,8 @@ export function OptionsScreen(props: {
       </section>
       <PresetActions presets={presets} options={options} onPick={apply} />
       <div class="sticky bottom-0 mt-auto bg-white py-3">
-        <button type="button" class="btn-primary" onClick={() => props.onPrint(snapshot(options))}>
-          Drucken
+        <button type="button" class="btn-primary" disabled={options.selection.length === 0} onClick={() => props.onPrint(snapshot(options))}>
+          {options.selection.length > 0 ? "Drucken" : source.kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
         </button>
       </div>
     </main>
