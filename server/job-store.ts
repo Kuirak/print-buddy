@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, rename, writeFile } from "node:fs/promises"
 import { extname, join } from "node:path"
+import { isDeepStrictEqual } from "node:util"
 import type { CupsJobDetails } from "../shared/api.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { Now } from "./clock.ts"
@@ -40,14 +41,19 @@ export function createJobStore(deps: { jobsDir: string; now: Now }) {
   const jobs = new Map<string, PrintJob>()
   const folderOf = (job: PrintJob) => join(deps.jobsDir, `${new Date(job.sentAt).toISOString().slice(0, 10)}_${job.id}`)
 
+  // one write at a time, in the order of the changes: two writes of one job.json at once could leave a mix of both
+  let lastWrite: Promise<void> = Promise.resolve()
+
   /** job.json is the record with its times as ISO 8601 text, so a person can read them. */
-  async function writeRecord(job: PrintJob): Promise<void> {
+  function writeRecord(job: PrintJob): Promise<void> {
     const record = {
       ...job,
       sentAt: new Date(job.sentAt).toISOString(),
       endedAt: job.endedAt === null ? null : new Date(job.endedAt).toISOString(),
     }
-    await writeFile(join(folderOf(job), "job.json"), JSON.stringify(record, null, 2) + "\n")
+    const write = lastWrite.then(() => writeFile(join(folderOf(job), "job.json"), JSON.stringify(record, null, 2) + "\n"))
+    lastWrite = write.catch(() => {})
+    return write
   }
 
   return {
@@ -72,10 +78,16 @@ export function createJobStore(deps: { jobsDir: string; now: Now }) {
       return record
     },
     get: (id: string): PrintJob | undefined => jobs.get(id),
-    /** Records what was learned about a job since it was sent. */
-    update(job: PrintJob, changes: Partial<Pick<PrintJob, "details" | "endedAt" | "cancelled">>): PrintJob {
+    /**
+     * Records what was learned about a job since it was sent. job.json is written only when that changes
+     * something: the status screen asks every 2 s. A job that was deleted meanwhile stays deleted.
+     */
+    async update(job: PrintJob, changes: Partial<Pick<PrintJob, "details" | "endedAt" | "cancelled">>): Promise<PrintJob> {
       const record: PrintJob = { ...job, ...changes }
+      const known = jobs.get(job.id)
+      if (!known || isDeepStrictEqual(record, known)) return record
       jobs.set(record.id, record)
+      await writeRecord(record)
       return record
     },
   }
