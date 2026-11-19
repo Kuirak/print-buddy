@@ -1,5 +1,5 @@
 import {
-  EncryptedPDFError, PDFDocument, clip, concatTransformationMatrix, drawObject, endPath, popGraphicsState, pushGraphicsState, rectangle,
+  PDFDocument, clip, concatTransformationMatrix, drawObject, endPath, popGraphicsState, pushGraphicsState, rectangle,
   type PDFRef,
 } from "@cantoo/pdf-lib"
 import { readFile } from "node:fs/promises"
@@ -7,6 +7,7 @@ import type { Margins, PhotoFacts } from "../shared/api.ts"
 import { SHEET_SIZES, layout, photoNaturalSize, type LayoutInput, type Matrix } from "../shared/layout.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { DraftFile } from "./intake.ts"
+import { drawAnnotations, openSourcePdf } from "./source-pdf.ts"
 
 export type RenderResult =
   /** `sheets` is the number of sheets in `pdf`: what one copy takes. */
@@ -86,14 +87,12 @@ export async function render(files: readonly DraftFile[], options: PrintOptions,
 /**
  * Embeds the pages (numbers counted from 1) as reusable objects. pdf-lib embeds the MediaBox and ignores the
  * page's own rotation; a reader shows the CropBox, turned. So the CropBox is embedded and the turn is added here.
- * A page without content is not in the result: pdf-lib can't embed it.
+ * Only a page's content is embedded, so its form fields and annotations are drawn into the content first.
+ * A page that has no content even then is not in the result: pdf-lib can't embed it.
  */
 async function embedPages(out: PDFDocument, bytes: Uint8Array, pageNumbers: number[]): Promise<Map<number, Drawable>> {
-  const doc = await PDFDocument.load(bytes).catch(err => {
-    if (!(err instanceof EncryptedPDFError)) throw err
-    // as in upload intake: "owner password only" files open with an empty password
-    return PDFDocument.load(bytes, { password: "" })
-  })
+  const doc = await openSourcePdf(bytes)
+  await drawAnnotations(doc, pageNumbers.map(number => doc.getPage(number - 1)))
   const withContent = pageNumbers.filter(number => doc.getPage(number - 1).node.Contents() !== undefined)
   const pages = withContent.map(number => doc.getPage(number - 1))
   const boxes = pages.map(page => {

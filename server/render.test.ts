@@ -294,3 +294,120 @@ test("Print Options that don't fit the draft's files are refused and nothing is 
   assert.equal((await server.submit(pdf, { selection: [2, 1], pagesPerSheet: 2 })).status, 201)
   assert.equal((await server.submit(photos, { selection: [1, 0] })).status, 201)
 })
+
+/** The form fields and annotations drawn into the one item of each sheet. */
+const annotations = (sheets: Awaited<ReturnType<typeof printPdf>>) => sheets.map(sheet => sheet.items.map(item => item.annotations))
+
+test("a filled form prints with what was filled in", async t => {
+  const server = await start(t)
+  const name = "/Tx BMC BT 2 6 Td (Anna) Tj ET EMC"
+  const tick = "2 2 6 6 re f"
+  const page: PdfPageSpec = {
+    size: [200, 100],
+    annotations: [
+      { entries: "/Subtype /Widget /FT /Tx /T (Name) /V (Anna) /Rect [20 60 120 80] /F 4", appearance: { bbox: [0, 0, 100, 20], content: name } },
+      {
+        entries: "/Subtype /Widget /FT /Btn /T (Ja) /V /Yes /AS /Yes /Rect [20 30 30 40] /F 4",
+        appearance: { Yes: { bbox: [0, 0, 10, 10], content: tick }, Off: { bbox: [0, 0, 10, 10], content: "" } },
+      },
+      {
+        entries: "/Subtype /Widget /FT /Btn /T (Nein) /V /Off /AS /Off /Rect [40 30 50 40] /F 4",
+        appearance: { Yes: { bbox: [0, 0, 10, 10], content: tick }, Off: { bbox: [0, 0, 10, 10], content: "" } },
+      },
+    ],
+  }
+
+  const sheets = await printPdf(server, [page], { ...actualSize, selection: [1] })
+
+  assert.deepEqual(annotations(sheets), [[[
+    { rect: [20, 60, 120, 80], content: name },
+    { rect: [20, 30, 30, 40], content: tick },
+    { rect: [40, 30, 50, 40], content: "" },
+  ]]])
+})
+
+test("an annotation prints with its appearance, fitted to its rectangle on the page", async t => {
+  const server = await start(t)
+  const stamp = "1 0 0 rg 0 0 200 100 re f"
+  const highlight = "1 1 0 rg 0 0 40 20 re f"
+  const pages: PdfPageSpec[] = [
+    {
+      size: [200, 100],
+      annotations: [
+        // an appearance twice the size of its rectangle
+        { entries: "/Subtype /Stamp /Rect [50 20 150 70] /F 4", appearance: { bbox: [0, 0, 200, 100], content: stamp } },
+        // an appearance that lies on its side, and a rectangle given from its top-right corner
+        { entries: "/Subtype /Highlight /Rect [30 50 10 10] /F 4", appearance: { bbox: [0, 0, 40, 20], matrix: [0, 1, -1, 0, 0, 0], content: highlight } },
+      ],
+    },
+    // the annotations turn and move with their page
+    { size: [200, 100], rotate: 90, cropBox: [40, 10, 160, 90], annotations: [{ entries: "/Subtype /Stamp /Rect [50 20 150 70] /F 4", appearance: { bbox: [0, 0, 200, 100], content: stamp } }] },
+  ]
+
+  const sheets = await printPdf(server, pages, { ...actualSize, selection: [1, 2] })
+
+  assert.deepEqual(annotations(sheets), [
+    [[{ rect: [50, 20, 150, 70], content: stamp }, { rect: [10, 10, 30, 50], content: highlight }]],
+    [[{ rect: [50, 20, 150, 70], content: stamp }]],
+  ])
+  assert.deepEqual(sheets[1]!.items.map(({ size, box }) => ({ size, box })), [{ size: [120, 80], box: { left: 0, top: 0, width: 80, height: 120 } }])
+})
+
+test("an annotation that is hidden or not meant for printing is left out, and so is one without an appearance", async t => {
+  const server = await start(t)
+  const appearance = (content: string) => ({ bbox: [0, 0, 10, 10] as [number, number, number, number], content })
+  const page: PdfPageSpec = {
+    size: [200, 100],
+    annotations: [
+      { entries: "/Subtype /Stamp /Rect [0 0 10 10] /F 4", appearance: appearance("% printed") },
+      // not shown on the screen, but printed
+      { entries: "/Subtype /Stamp /Rect [10 0 20 10] /F 36", appearance: appearance("% printed, not shown") },
+      { entries: "/Subtype /Stamp /Rect [20 0 30 10] /F 6", appearance: appearance("% hidden") },
+      { entries: "/Subtype /Stamp /Rect [30 0 40 10] /F 5", appearance: appearance("% invisible") },
+      { entries: "/Subtype /Stamp /Rect [40 0 50 10] /F 0", appearance: appearance("% screen only") },
+      { entries: "/Subtype /Stamp /Rect [50 0 60 10]", appearance: appearance("% no flags") },
+      { entries: "/Subtype /Link /Rect [60 0 70 10] /F 4" },
+      // an appearance per state, and no state chosen
+      { entries: "/Subtype /Widget /FT /Btn /T (Ja) /Rect [70 0 80 10] /F 4", appearance: { Yes: appearance("% no state") } },
+    ],
+  }
+
+  const sheets = await printPdf(server, [page], { ...actualSize, selection: [1] })
+
+  assert.deepEqual(annotations(sheets), [[[
+    { rect: [0, 0, 10, 10], content: "% printed" },
+    { rect: [10, 0, 20, 10], content: "% printed, not shown" },
+  ]]])
+})
+
+test("a page with nothing on it but an annotation is printed", async t => {
+  const server = await start(t)
+  const stamp = "1 0 0 rg 0 0 100 50 re f"
+  const page: PdfPageSpec = { size: [200, 100], blank: true, annotations: [{ entries: "/Subtype /Stamp /Rect [50 20 150 70] /F 4", appearance: { bbox: [0, 0, 100, 50], content: stamp } }] }
+
+  const sheets = await printPdf(server, [page], { ...actualSize, selection: [1] })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(({ size, annotations }) => ({ size, annotations }))), [
+    [{ size: [200, 100], annotations: [{ rect: [50, 20, 150, 70], content: stamp }] }],
+  ])
+})
+
+test("a filled text field that leaves its looks to the reader prints with its value", async t => {
+  const server = await start(t)
+  const written = (text: string) => new RegExp(`<${Buffer.from(text).toString("hex")}> Tj`, "i")
+  const field = (value: string) => `/Subtype /Widget /FT /Tx /T (Name) /V (${value}) /Rect [20 60 120 80] /F 4`
+
+  // a field without an appearance
+  const bare = await printPdf(server, [{ size: [200, 100], annotations: [{ entries: field("Anna") }] }], { ...actualSize, selection: [1] })
+  // a form that tells the reader to draw the values itself: the stored appearance is out of date
+  const stale = await print(server, [pdfWithPages(
+    [{ size: [200, 100], annotations: [{ entries: field("Berta"), appearance: { bbox: [0, 0, 100, 20], content: "BT (Anna) Tj ET" } }] }],
+    { needAppearances: true },
+  )], { ...actualSize, selection: [1] })
+
+  for (const [sheets, value] of [[bare, "Anna"], [stale, "Berta"]] as const) {
+    const drawn = annotations(sheets)[0]![0]!
+    assert.deepEqual(drawn.map(annotation => annotation.rect), [[20, 60, 120, 80]], value)
+    assert.match(drawn[0]!.content, written(value))
+  }
+})

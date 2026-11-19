@@ -26,6 +26,11 @@ export interface RenderedItem {
   /** A photo's stream filter (`/DCTDecode` for a JPEG) and stream bytes. */
   filter?: string
   bytes?: Uint8Array
+  /**
+   * A page's form fields and annotations that were drawn into it, in drawing order: the rectangle each takes up
+   * on the source page as [left, bottom, right, top], and the content stream of its appearance. Absent when there are none.
+   */
+  annotations?: { rect: [number, number, number, number]; content: string }[]
 }
 
 export interface RenderedSheet {
@@ -37,6 +42,29 @@ export interface RenderedSheet {
 const round = (n: number) => Math.round(n * 100) / 100 + 0
 const number = "(-?[\\d.]+(?:e-?\\d+)?)"
 const drawn = new RegExp(`q\\s+${number} ${number} ${number} ${number} re\\s+W\\s+n\\s+${number} ${number} ${number} ${number} ${number} ${number} cm\\s+/(\\S+) Do\\s+Q`, "g")
+const placed = new RegExp(`q\\s+${number} ${number} ${number} ${number} ${number} ${number} cm\\s+/(\\S+) Do\\s+Q`, "g")
+
+/** The form fields and annotations drawn into an embedded page, as `RenderedItem.annotations`. */
+function annotationsOf(page: PDFRawStream): Pick<RenderedItem, "annotations"> {
+  const text = Buffer.from(decodePDFRawStream(page).decode()).toString("latin1")
+  const xobjects = page.dict.lookup(PDFName.of("Resources"), PDFDict).lookupMaybe(PDFName.of("XObject"), PDFDict)
+  const annotations = [...text.matchAll(placed)].map(match => {
+    const appearance = xobjects!.lookup(PDFName.of(match[7]!)) as PDFRawStream
+    const numbers = (key: string) => appearance.dict.lookupMaybe(PDFName.of(key), PDFArray)?.asArray().map(n => (n as PDFNumber).asNumber())
+    const [x0, y0, x1, y1] = numbers("BBox") as [number, number, number, number]
+    // the appearance's own matrix first, then the one it was drawn with
+    const matrices = [numbers("Matrix") ?? [1, 0, 0, 1, 0, 0], match.slice(1, 7).map(Number)] as Matrix[]
+    const points = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(corner =>
+      matrices.reduce(([x, y], [a, b, c, d, e, f]) => [a * x! + c * y! + e, b * x! + d * y! + f], corner))
+    const xs = points.map(p => p[0]!)
+    const ys = points.map(p => p[1]!)
+    return {
+      rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map(round) as [number, number, number, number],
+      content: Buffer.from(decodePDFRawStream(appearance).decode()).toString("latin1"),
+    }
+  })
+  return annotations.length > 0 ? { annotations } : {}
+}
 
 /** The sheets of a rendered PDF with everything drawn on them, in drawing order. Numbers are rounded to 0.01 pt. */
 export async function readRenderedPdf(bytes: Uint8Array): Promise<RenderedSheet[]> {
@@ -76,7 +104,7 @@ export async function readRenderedPdf(bytes: Uint8Array): Promise<RenderedSheet[
         },
         clip: { left: round(clipX), top: round(sheet.height - clipY - clipHeight), width: round(clipWidth), height: round(clipHeight) },
         corners: points.map(([x, y]): [number, number] => [round(x), round(sheet.height - y)]),
-        ...(isPhoto ? { filter: object.dict.get(PDFName.of("Filter"))?.toString(), bytes: object.contents } : {}),
+        ...(isPhoto ? { filter: object.dict.get(PDFName.of("Filter"))?.toString(), bytes: object.contents } : annotationsOf(object)),
       }
     })
     return { width: round(sheet.width), height: round(sheet.height), items }

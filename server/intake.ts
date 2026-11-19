@@ -1,10 +1,10 @@
-import { EncryptedPDFError, PDFDocument } from "@cantoo/pdf-lib"
 import exifr from "exifr"
 import { randomUUID } from "node:crypto"
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { FileFacts, PdfFacts, PhotoFacts, Refusal, RefusalType } from "../shared/api.ts"
 import type { Now } from "./clock.ts"
+import { openSourcePdf } from "./source-pdf.ts"
 
 export interface DraftFile {
   path: string
@@ -123,11 +123,7 @@ function sniff(bytes: Uint8Array): "pdf" | "jpeg" | "png" | undefined {
 /** Undefined when the PDF can't be read: corrupt, or it needs a password to open. */
 async function pdfFacts(bytes: Uint8Array): Promise<PdfFacts | undefined> {
   try {
-    const doc = await PDFDocument.load(bytes).catch(err => {
-      if (!(err instanceof EncryptedPDFError)) throw err
-      // "owner password only" files open with an empty password; they are common and print fine
-      return PDFDocument.load(bytes, { password: "" })
-    })
+    const doc = await openSourcePdf(bytes)
     const pages = doc.getPages().map(page => {
       const { width, height } = page.getCropBox()
       const sideways = page.getRotation().angle % 180 !== 0
