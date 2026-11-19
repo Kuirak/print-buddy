@@ -1,52 +1,20 @@
 import { createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
-import type { JSX } from "@solidjs/web"
 import type { FileFacts, PaperMargins } from "../../../shared/api.ts"
 import { layout, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import { maxCopies, type PrintOptions, type Rotation } from "../../../shared/print-options.ts"
+import type { PrintOptions, Rotation } from "../../../shared/print-options.ts"
 import { readPrinter } from "../api.ts"
-import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
+import { Confirmation } from "../controls/Confirmation.tsx"
+import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
-import { PresetActions } from "../controls/PresetActions.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
 import { Preview } from "../controls/Preview.tsx"
 import { PrintSize } from "../controls/PrintSize.tsx"
 import { SheetSteps } from "../controls/SheetSteps.tsx"
-import { Stepper } from "../controls/Stepper.tsx"
+import { SummaryLine } from "../controls/SummaryLine.tsx"
 import { Thumbnails } from "../controls/Thumbnails.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type FileKind, type Preset } from "../presets.ts"
-
-const colors = [
-  { value: "color", label: "Farbe" },
-  { value: "mono", label: "S/W" },
-] as const
-
-const papers = [
-  { value: "A4", label: "A4" },
-  { value: "A5", label: "A5" },
-  { value: "EnvDL", label: "Umschlag DL" },
-  { value: "EnvC5", label: "Umschlag C5" },
-] as const
-
-const qualities = [
-  { value: "normal", label: "Normal" },
-  { value: "draft", label: "Toner sparen" },
-] as const
-
-const perSheet = [
-  { value: 1, label: "1" },
-  { value: 2, label: "2" },
-] as const
-
-function Row(props: { label: string; children: JSX.Element }) {
-  return (
-    <div class="flex items-center justify-between gap-4 border-b border-gray-200 py-2">
-      <span class="shrink-0">{props.label}</span>
-      {props.children}
-    </div>
-  )
-}
 
 export function OptionsScreen(props: {
   fileName: string
@@ -119,6 +87,10 @@ export function OptionsScreen(props: {
     const first = shown()?.placements[0]
     return first && Math.round(first.scale * 100)
   }
+  /** What lies over the screen: the detailed controls behind "Ändern", or "Jetzt drucken?". */
+  const [over, setOver] = createSignal<"details" | "confirmation">()
+  /** A Print Job is cut off when any of its sheets is. */
+  const cutOff = () => sheets()?.some(sheet => sheet.cutOff) ?? false
 
   /** Sets what the Preset stores. Page selection and rotation stay as they are. */
   function apply(preset: Preset) {
@@ -150,9 +122,11 @@ export function OptionsScreen(props: {
   }
 
   return (
-    <main class="flex min-h-dvh flex-col gap-4 p-4">
+    <>
+    {/* nothing behind an open dialog can be tapped or reached with the keyboard */}
+    <main class="flex min-h-dvh flex-col gap-4 p-4" inert={over() !== undefined}>
       <h1 class="truncate font-bold">{props.fileName}</h1>
-      <PresetChips presets={presets} options={options} onPick={apply} />
+      <PresetChips presets={presets} options={options} onPick={apply} onOwn={() => setOver("details")} />
       <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2">
           <button
@@ -179,10 +153,13 @@ export function OptionsScreen(props: {
       </div>
       <div class="flex flex-col gap-1">
         <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
-        {/* a Print Job is cut off when any of its sheets is */}
-        <Show when={sheets()?.some(sheet => sheet.cutOff)}>
+        <Show when={cutOff()}>
           <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
         </Show>
+      </div>
+      <div class="flex items-center justify-between gap-4">
+        <span class="shrink-0">Position</span>
+        <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
       </div>
       <Thumbnails
         source={source.kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
@@ -193,42 +170,36 @@ export function OptionsScreen(props: {
         onAll={() => select([...refs])}
         onNone={() => select([])}
       />
-      <section>
-        <Row label="Position">
-          <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
-        </Row>
-        <Show when={source.kind === "pdf"}>
-          <Row label="Seiten pro Blatt">
-            <ChoiceGroup label="Seiten pro Blatt" choices={perSheet} value={options.pagesPerSheet} onChange={pagesPerSheet => setOptions(o => { o.pagesPerSheet = pagesPerSheet })} />
-          </Row>
-        </Show>
-        <Row label="Kopien">
-          <Stepper
-            label="Kopien"
-            decreaseLabel="Weniger Kopien"
-            increaseLabel="Mehr Kopien"
-            value={options.copies}
-            min={1}
-            max={maxCopies}
-            onChange={copies => setOptions(o => { o.copies = copies })}
-          />
-        </Row>
-        <Row label="Farbe">
-          <ChoiceGroup label="Farbe" choices={colors} value={options.color} onChange={color => setOptions(o => { o.color = color })} />
-        </Row>
-        <Row label="Papier">
-          <ChoiceGroup label="Papier" choices={papers} value={options.paper} onChange={paper => setOptions(o => { o.paper = paper })} />
-        </Row>
-        <Row label="Qualität">
-          <ChoiceGroup label="Qualität" choices={qualities} value={options.quality} onChange={quality => setOptions(o => { o.quality = quality })} />
-        </Row>
-      </section>
-      <PresetActions presets={presets} options={options} onPick={apply} />
+      <SummaryLine kind={source.kind} total={refs.length} options={options} percent={percent()} onChange={() => setOver("details")} />
       <div class="sticky bottom-0 mt-auto bg-white py-3">
-        <button type="button" class="btn-primary" disabled={options.selection.length === 0} onClick={() => props.onPrint(snapshot(options))}>
+        <button type="button" class="btn-primary" disabled={options.selection.length === 0} onClick={() => setOver("confirmation")}>
           {options.selection.length > 0 ? "Drucken" : source.kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
         </button>
       </div>
     </main>
+    <Show when={over() === "details"}>
+      <OptionsDrawer
+        options={options}
+        kind={source.kind}
+        presets={presets}
+        onChange={changes => setOptions(o => { Object.assign(o, changes) })}
+        onPickPreset={apply}
+        onClose={() => setOver(undefined)}
+      />
+    </Show>
+    <Show when={over() === "confirmation"}>
+      <Confirmation
+        fileName={props.fileName}
+        kind={source.kind}
+        total={refs.length}
+        options={options}
+        sheets={sheets()?.length}
+        percent={percent()}
+        cutOff={cutOff()}
+        onConfirm={() => props.onPrint(snapshot(options))}
+        onBack={() => setOver(undefined)}
+      />
+    </Show>
+    </>
   )
 }

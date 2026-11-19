@@ -96,7 +96,7 @@ Never push a different image under a version that already exists.
 No test reaches the real Printer, so each release gets one print against the real queue:
 
 1. Open Print Buddy on a phone through `https://print.example.org`.
-2. Pick a one-page PDF and tap "Drucken".
+2. Pick a one-page PDF, tap "Drucken" and confirm "Jetzt drucken?".
 3. The app shows the job number, and the page comes out of the Printer.
 4. `http://<home-assistant-address>:9217/health` (with the LAN port on) or the add-on log shows the new version.
 
@@ -157,6 +157,7 @@ ui/                Vite root.
   src/interrupted-job.ts  What else of a job survives the page load of the login.
   src/report.ts      The report builder: the plain text behind "Bericht kopieren".
   src/last-job.ts    The last Print Job from this phone, for the line on Start.
+  src/job-text.ts    The German words for the Print Options, as the summary line and the confirmation say them.
   src/pdf-preview.ts The only module that imports pdfjs-dist: opens a PDF and draws a page onto a canvas.
   src/sw.ts          The service worker. Built into /sw.js; its logic is in share-target.ts and app-update.ts.
   src/screens/       One screen per file.
@@ -234,6 +235,7 @@ import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { App } from "./App.tsx"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { printAndConfirm } from "./testing/options-screen.ts"
 
 test("…", async () => {
   const api = mockApi({
@@ -242,7 +244,7 @@ test("…", async () => {
   const user = userEvent.setup()
   render(() => <App />)
 
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
 
   expect(await screen.findByText("…")).toBeInTheDocument()
   expect(api.calls[0]!.headers.get("X-Requested-With")).toBe("XMLHttpRequest")
@@ -255,6 +257,7 @@ test("…", async () => {
 - `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test. It also gives every test an empty phone storage (see the Share-to-print notes below) and a stand-in for pdf.js (see the preview notes below).
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
+- `ui/src/testing/options-screen.ts` has the taps nearly every test needs: `printAndConfirm(user)` (Drucken, then Drucken in "Jetzt drucken?"), `openDetails(user)` ("Ändern") and `closeDetails(user)` ("Fertig"), and `confirmation()` for the open dialog. A test that expects a Print Job to be sent uses `printAndConfirm`, never a bare tap on Drucken.
 - A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
 - Never import `pdfjs-dist` in a component. `ui/src/pdf-preview.ts` wraps it, and the setup file mocks that module for every test.
 - Every options screen reads `GET /api/printer`. `mockApi` answers it with `printerInfo()` from `ui/src/testing/printer-info.ts` unless the table has its own handler, so `api.calls` holds that GET too: filter the calls you assert on.
@@ -303,7 +306,7 @@ const sheets = layout({
 - **Submit.** The body of `POST /api/drafts/:draftId/submit` is the Print Options object itself (`SubmitRequest` in `shared/api.ts`). `parsePrintOptions` in `shared/print-options.ts` checks all of it; anything invalid is a 400 `{ error: "invalid-options" }` and nothing is sent to CUPS. It doesn't check `selection` against the draft's files: the renderer does, with the same answer (see the renderer notes below).
 - **What CUPS gets.** `printer.printJob(pdf, options)` sends only `copies`, collated copies, `ColorMode`, `PageSize`, `Quality` and `MediaType`. Our paper names are the PPD's `PageSize` names. Everything else in the Print Options has to be drawn into the PDF.
 - **Printable margins.** `GET /api/printer` answers `PrinterInfo`: `margins` per paper plus the printer's `state`, `reasons` and `message`. Margins are in points, for the sheet in portrait, as `{ top, right, bottom, left }`. On the server the same values come from `printer.margins()`. They are read once, while the server starts; a paper CUPS doesn't report gets 9 pt left and right, 12 pt top and bottom, with one warning in the log. When CUPS doesn't answer the state read, `state` is `unknown` and the margins are still there.
-- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts from the default Preset of its file type (see Presets below) with everything selected: `selection` is every page of the PDF or every photo, from the `facts` prop. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
+- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts from the default Preset of its file type (see Presets below) with everything selected: `selection` is every page of the PDF or every photo, from the `facts` prop. Kopien, Farbe, Papier, Qualität and Seiten pro Blatt are behind "Ändern" (see the summary line notes below). `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
 
 ### Presets
 
@@ -311,7 +314,7 @@ const sheets = layout({
 - **A new field in the Print Options.** If a Preset should store it, add it to `PresetValues`, to `sameValues` and to `save` in `presets.ts`, and to the built-ins. Print size, Position and pages per sheet are already stored and compared, so their controls only have to write the Print Options store. `rotation`, `selection` and `photoRotations` belong to the file and are never touched by a Preset.
 - **File type.** `OptionsScreen` takes `kind: "pdf" | "photo"`. `fileKind(facts)` in `presets.ts` is the one place that decides it: the `kind` the server found for the first file of the Print Job, because a draft never mixes the two. `App` calls it. The kind picks the chips, the default Preset and which star is set. It is read once: a new file gets a new `OptionsScreen`.
 - **Starting options.** A new file starts from the starred Preset of its type plus `rotation: 0` and `selection: []`. Nothing from a Print Job is written to storage, so the next file can't inherit it.
-- **Which chip is marked.** The Preset whose seven fields all equal the Print Options. If several are equal, the one tapped or saved last, else the first in chip order. If none, the last chip reads "✎ Eigene"; otherwise it reads "Eigene …". That chip does nothing when tapped until the options drawer exists (summary line ticket). The Preset actions sit below the option rows for the same reason and move into the drawer with them.
+- **Which chip is marked.** The Preset whose seven fields all equal the Print Options. If several are equal, the one tapped or saved last, else the first in chip order. If none, the last chip reads "✎ Eigene"; otherwise it reads "Eigene …". Tapping that chip opens the detailed controls, where the Preset actions are too.
 - **Chips per type.** PDFs get Dokument s/w, Dokument Farbe and Umschlag DL; photos get Foto and Foto s/w Toner sparen. An own Preset belongs to the file type it was saved for.
 - **Storage.** One `localStorage` key, `print-buddy.presets`: `{ own: Preset[], defaults: { pdf?: id, photo?: id } }`. Entries that don't pass `parsePrintOptions` are dropped on load. A starred id that no longer exists falls back to the built-in default. The Seam 3 setup file clears `localStorage` after each test; a test "reopens the app" with `cleanup()` and a second render.
 - **Tests.** In `ui/src/presets.test.tsx` the chips are the `radiogroup` named "Voreinstellung". Saving and deleting ask on the screen itself (a name field, "Voreinstellung löschen?"), not with `window.prompt` or `window.confirm`.
@@ -377,6 +380,18 @@ const sheets = layout({
 - **Seiten pro Blatt** is a row with `1` and `2`, for PDFs only. `ChoiceGroup` takes numbers as values now.
 - **Tests.** `ui/src/thumbnails.test.tsx`. pdf.js is asked for thumbnails too, so a test that counts `renderPage` calls has to tell them apart by the pixels asked for (preview 1500 and more, thumbnails 176).
 - **Checked by hand in Chromium on localhost** (412 × 915, fake printer), with a five-page A4 PDF and three PNG photos (two landscape, one portrait): thumbnails with their numbers, a left-out one pale with a grey number, stepping to both ends, two pages per sheet shown side by side on a landscape sheet, Drehen on that sheet, "Keine" and "Alle", Drehen on the second photo only, and leaving out the first photo. The job folders held `selection: [1,3,4,5]` with `pagesPerSheet: 2` and 2 sheets, and `selection: [1,2]` with `photoRotations: {"1":90}`.
+
+### Notes from the summary line and the confirmation (ticket 11)
+
+- **What is on the options screen now**, top to bottom, as the spec lists it: file name, Preset chips, preview, Print size row, Position grid, thumbnails, summary line with "Ändern", Drucken.
+- **Detailed controls.** `OptionsDrawer` (`ui/src/controls/`) is a sheet at the bottom edge, the dialog named "Einstellungen": Kopien, Farbe, Papier, Qualität, Seiten pro Blatt (PDFs only), the Preset actions and "Fertig". "Ändern" and the last Preset chip open it. Every change applies at once and the preview behind follows; there is nothing to undo. A new option that is not on the spec's list for the screen goes in here as one more row.
+- **Summary line.** `SummaryLine` is the `status` named "Gewählte Einstellungen", for example `2× · S/W · A4 · Normal · Einpassen (97 %) · Mitte · 2 Seiten pro Blatt · Seiten 1, 3-5`. Photos have no pages per sheet. The last part says which pages or photos print: "alle 6 Seiten", "Seiten 1-3, 5", "2 von 3 Fotos", "keine Seiten".
+- **Confirmation.** Drucken on the screen only opens `Confirmation`, the dialog named "Jetzt drucken?"; its own Drucken calls `onPrint`, and "Abbrechen" closes it with the Print Options untouched. It stays open while the job is sent; `print()` in `App.tsx` still ignores a second tap. First line: `4 Seiten (1, 3-5; 2 pro Blatt) × 2 Kopien = 4 Blätter` or `2 Fotos × 3 Kopien = 6 Blätter`; the page ranges show only when pages are left out. Second line: `Schwarz-Weiß · A4 · Füllen (104 %)`, with ` · Toner sparen` when chosen. Then `⚠ Teile des Inhalts werden abgeschnitten.` when any sheet is cut off.
+- **Nothing is computed there.** The sheet count is the length of the screen's one `sheets` memo times the copies, the percentage is the one the Print size row shows, and the warning is the same flag. The server counts the sheets of the PDF made from the same layout, so the two agree; `ui/src/confirmation.test.tsx` uses the cases of the sheet count test in `server/status.test.ts`. Until the margins have arrived the confirmation leaves out "= n Blätter", the percentage and the warning, and still prints.
+- **Words.** `ui/src/job-text.ts` has the names of papers, qualities and Positions, `ranges()` ("1-3, 5"), `counted()` ("1 Seite", "3 Seiten") and `printSizeText()`. The drawer, the Position grid, the summary line and the confirmation all take them from there.
+- **Dialogs.** `Dialog` in `ui/src/controls/` is the dimmed backdrop with a panel, in the middle or at the bottom edge. A tap beside the panel and Escape close it, and it takes the focus when it opens. Whoever opens one makes the screen behind `inert`: `OptionsScreen` keeps which one is open in `over` and sets `inert` on its `<main>`. Testing Library still finds what is behind an open dialog, so a test must not tap it; search inside the dialog with `within(confirmation())` where a name is on both (Drucken).
+- **Not built:** "Drucken (n Kopien)" on the button, which the prototype had. The copies are in the summary line right above it and in the confirmation.
+- **Checked by hand in Chromium on localhost** (412 × 915, built app, fake printer). A five-page PDF: summary line, "Ändern", two copies and two pages per sheet, "Fertig", page 2 left out, Füllen; the confirmation read `4 Seiten (1, 3-5; 2 pro Blatt) × 2 Kopien = 4 Blätter`, `Schwarz-Weiß · A4 · Füllen (71 %)` and the warning; "Abbrechen" left the summary line and the sheet in the preview as they were; after confirming the server reported 4 sheets. Three PNG photos: the "Eigene …" chip opened the detailed controls, Escape closed them, two copies on A5 with photo 2 left out read `2 Fotos × 2 Kopien = 4 Blätter`, and the server reported 4 sheets. The screen behind an open dialog was inert and the dialog had the focus.
 
 ### Notes from job folders and cleanup (ticket 12)
 

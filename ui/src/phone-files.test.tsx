@@ -6,6 +6,7 @@ import { phoneFiles } from "./phone-files.ts"
 import { receiveShare } from "./share-target.ts"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { printAndConfirm } from "./testing/options-screen.ts"
 import { share } from "./testing/share.ts"
 
 const pdf = (name: string) => new File(["%PDF-1.4"], name, { type: "application/pdf" })
@@ -26,7 +27,7 @@ test("files chosen with Datei auswählen stay on the phone through Drucken", asy
   await screen.findByText("2 Fotos")
   expect(await names()).toEqual(["IMG_2.jpg", "IMG_1.jpg"])
 
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByText("Auftrag Nr. 42")
   expect(await names()).toEqual(["IMG_2.jpg", "IMG_1.jpg"])
 })
@@ -122,7 +123,7 @@ test("Nochmal drucken uploads the shared file again from the phone's copy, which
   const user = userEvent.setup()
   await share([new File(["%PDF-1.4 shared"], "Rechnung.pdf", { type: "application/pdf" })])
   render(() => <App />)
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Fertig" })
   expect(await names()).toEqual(["Rechnung.pdf"])
 
@@ -154,7 +155,7 @@ test("Erneut versuchen uploads the picked photos again from the phone's copy", a
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), [photo("IMG_2.jpg"), photo("IMG_1.jpg")])
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })
   expect(await names()).toEqual(["IMG_2.jpg", "IMG_1.jpg"])
 
@@ -171,7 +172,7 @@ test("when the phone no longer holds the files, Nochmal drucken says Bitte nochm
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Fertig" })
   // the browser may drop the phone's storage, for example when the phone runs out of space
   await phoneFiles.clear()

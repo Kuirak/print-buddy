@@ -4,6 +4,7 @@ import { expect, test } from "vitest"
 import { App } from "./App.tsx"
 import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 /** Opens the app, picks a file of the given type and waits for the options screen. */
 async function openOptions(kind: "pdf" | "photo" = "pdf") {
@@ -24,23 +25,49 @@ async function openOptions(kind: "pdf" | "photo" = "pdf") {
   await user.upload(screen.getByLabelText("Datei auswählen"), file)
   await screen.findByRole("button", { name: "Drucken" })
 
-  /** Taps Drucken and returns the Print Options the app submitted. */
+  /** The detailed controls behind "Ändern", where copies, colour, paper, quality and the Preset actions are. */
+  const drawer = () => screen.queryByRole("dialog", { name: "Einstellungen" })
+  /** Opens the detailed controls, unless they are open. */
+  async function details() {
+    if (!drawer()) await openDetails(user)
+  }
+  /** Closes the detailed controls, if they are open: the chips and Drucken can be tapped again. */
+  async function overview() {
+    if (drawer()) await closeDetails(user)
+  }
+  /** Taps Drucken, confirms, and returns the Print Options the app submitted. */
   async function print() {
-    await user.click(screen.getByRole("button", { name: "Drucken" }))
+    await overview()
+    await printAndConfirm(user)
     await screen.findByText("Auftrag Nr. 42")
     return JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as Record<string, unknown>
   }
+  /** A choice in the detailed controls, which have to be open, or a chip. */
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
   const chip = (name: string) => choice("Voreinstellung", name)
   const chips = () => within(screen.getByRole("radiogroup", { name: "Voreinstellung" })).getAllByRole("radio").map(chip => chip.textContent)
-  const tap = (name: string) => user.click(screen.getByRole("button", { name }))
+  /** Taps a Preset chip on the options screen. */
+  async function pick(name: string) {
+    await overview()
+    await user.click(chip(name))
+  }
+  /** Taps a button in the detailed controls. */
+  async function tap(name: string) {
+    await details()
+    await user.click(within(drawer()!).getByRole("button", { name }))
+  }
+  /** Makes a choice in the detailed controls. */
+  async function set(group: string, name: string) {
+    await details()
+    await user.click(choice(group, name))
+  }
   /** Saves the current settings as an own Preset. */
   async function saveAs(name: string) {
     await tap("Als Voreinstellung speichern …")
     await user.type(screen.getByLabelText('Name der Voreinstellung (z. B. "Bastelpapier")'), name)
     await tap("Speichern")
   }
-  return { user, print, choice, chip, chips, tap, saveAs }
+  return { user, print, choice, chip, chips, pick, tap, set, saveAs, details }
 }
 
 /** Closes the app and opens it again with a new file. Browser storage stays. */
@@ -66,12 +93,12 @@ test.each([
   ["photo", "★ Foto", { color: "color", paper: "A4", quality: "normal" }],
   ["photo", "Foto s/w Toner sparen", { color: "mono", paper: "A4", quality: "draft" }],
 ] as const)("for a %s, tapping the built-in Preset %s sets its Print Options", async (kind, name, values) => {
-  const { user, print, chip } = await openOptions(kind)
+  const { print, chip, pick, tap, set } = await openOptions(kind)
 
   // leave every stored field first, so the tap has to bring all of them back
-  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
-  await user.click(within(screen.getByRole("radiogroup", { name: "Papier" })).getByRole("radio", { name: "A5" }))
-  await user.click(chip(name))
+  await tap("Mehr Kopien")
+  await set("Papier", "A5")
+  await pick(name)
 
   expect(chip(name)).toBeChecked()
   expect(await print()).toEqual({
@@ -91,31 +118,32 @@ test("a new PDF starts from Dokument s/w and offers the document Presets", async
 })
 
 test("a new photo share starts from Foto and offers the photo Presets", async () => {
-  const { print, chip, chips, choice } = await openOptions("photo")
+  const { print, chip, chips, choice, details } = await openOptions("photo")
 
   expect(chips()).toEqual(["★ Foto", "Foto s/w Toner sparen", "Eigene …"])
   expect(chip("★ Foto")).toBeChecked()
+  await details()
   expect(choice("Farbe", "Farbe")).toBeChecked()
   expect(await print()).toMatchObject({ color: "color", paper: "A4", quality: "normal" })
 })
 
 test("changing an option shows Eigene until the settings match a Preset again", async () => {
-  const { user, choice, chip, chips } = await openOptions()
+  const { set, tap, chip, chips } = await openOptions()
 
-  await user.click(choice("Qualität", "Toner sparen"))
+  await set("Qualität", "Toner sparen")
   expect(chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "✎ Eigene"])
   expect(chip("✎ Eigene")).toBeChecked()
   expect(chip("★ Dokument s/w")).not.toBeChecked()
 
-  await user.click(choice("Qualität", "Normal"))
+  await set("Qualität", "Normal")
   expect(chip("★ Dokument s/w")).toBeChecked()
   expect(chip("Eigene …")).not.toBeChecked()
 
-  await user.click(choice("Farbe", "Farbe"))
+  await set("Farbe", "Farbe")
   expect(chip("Dokument Farbe")).toBeChecked()
   expect(chip("★ Dokument s/w")).not.toBeChecked()
 
-  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await tap("Mehr Kopien")
   expect(chip("✎ Eigene")).toBeChecked()
   expect(chip("Dokument Farbe")).not.toBeChecked()
 })
@@ -128,23 +156,24 @@ test("a Preset sets Print size, Position, pages per sheet and copies, and is tol
     { id: "c", name: "Füllen", kind: "pdf", values: { ...documentMono, printSize: { kind: "fill" } } },
     { id: "d", name: "Doppelt", kind: "pdf", values: { ...documentMono, pagesPerSheet: 2 } },
   ])
-  const { user, print, choice, chip } = await openOptions()
+  const { print, chip, pick, set, details } = await openOptions()
 
   for (const name of ["Zwei auf eins", "Oben", "Füllen", "Doppelt", "Eigene …"]) expect(chip(name)).not.toBeChecked()
   expect(chip("★ Dokument s/w")).toBeChecked()
 
   // each differs from Dokument s/w in one field only, so with colour it is no longer Dokument Farbe
   for (const name of ["Oben", "Füllen", "Doppelt"]) {
-    await user.click(chip(name))
+    await pick(name)
     expect(chip(name)).toBeChecked()
     expect(chip("★ Dokument s/w")).not.toBeChecked()
-    await user.click(choice("Farbe", "Farbe"))
+    await set("Farbe", "Farbe")
     expect(chip("✎ Eigene")).toBeChecked()
   }
 
-  await user.click(chip("Zwei auf eins"))
+  await pick("Zwei auf eins")
   expect(chip("Zwei auf eins")).toBeChecked()
   expect(chip("★ Dokument s/w")).not.toBeChecked()
+  await details()
   expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("3")
 
   expect(await print()).toEqual({
@@ -162,8 +191,8 @@ test("own Presets are offered only for the file type they were saved for", async
 
 test("the current settings can be saved as an own Preset, which is still there after reopening the app", async () => {
   const first = await openOptions()
-  await first.user.click(first.choice("Papier", "A5"))
-  await first.user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await first.set("Papier", "A5")
+  await first.tap("Mehr Kopien")
   expect(first.chip("✎ Eigene")).toBeChecked()
 
   await first.saveAs("Bastelpapier")
@@ -181,7 +210,7 @@ test("the current settings can be saved as an own Preset, which is still there a
 
 test("saving without a name, or backing out, saves nothing", async () => {
   const { user, tap, chips } = await openOptions()
-  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await tap("Mehr Kopien")
 
   await tap("Als Voreinstellung speichern …")
   await tap("Speichern")
@@ -196,8 +225,8 @@ test("saving without a name, or backing out, saves nothing", async () => {
 
 test("an own Preset can be deleted and stays deleted; the settings go back to the default Preset", async () => {
   const first = await openOptions()
-  await first.user.click(first.choice("Farbe", "Farbe"))
-  await first.user.click(first.choice("Papier", "A5"))
+  await first.set("Farbe", "Farbe")
+  await first.set("Papier", "A5")
   await first.saveAs("Bastelpapier")
 
   await first.tap("Löschen")
@@ -217,21 +246,26 @@ test("an own Preset can be deleted and stays deleted; the settings go back to th
 })
 
 test("built-in Presets can't be deleted, and neither can settings that match no Preset", async () => {
-  const { user, chip, choice } = await openOptions()
+  const { chip, pick, set, details } = await openOptions()
 
+  await details()
+  expect(screen.getByRole("button", { name: "★ Standard" })).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Löschen" })).not.toBeInTheDocument()
-  await user.click(chip("Umschlag DL"))
+  await pick("Umschlag DL")
+  await details()
   expect(screen.queryByRole("button", { name: "Löschen" })).not.toBeInTheDocument()
-  await user.click(choice("Farbe", "Farbe"))
+  await set("Farbe", "Farbe")
   expect(chip("✎ Eigene")).toBeChecked()
+  expect(screen.getByRole("button", { name: "Als Voreinstellung speichern …" })).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Löschen" })).not.toBeInTheDocument()
 })
 
 test("a starred Preset is what new PDFs start from, also after reopening the app; photos keep their own default", async () => {
   const first = await openOptions()
+  await first.details()
   expect(screen.getByRole("button", { name: "★ Standard" })).toBeDisabled()
 
-  await first.user.click(first.chip("Dokument Farbe"))
+  await first.pick("Dokument Farbe")
   await first.tap("Als Standard festlegen")
 
   expect(first.chips()).toEqual(["Dokument s/w", "★ Dokument Farbe", "Umschlag DL", "Eigene …"])
@@ -250,7 +284,7 @@ test("a starred Preset is what new PDFs start from, also after reopening the app
 
 test("photos have their own starred Preset, which can be an own one", async () => {
   const first = await openOptions("photo")
-  await first.user.click(first.choice("Papier", "A5"))
+  await first.set("Papier", "A5")
   await first.saveAs("Kleines Foto")
   await first.tap("Als Standard festlegen")
   expect(first.chips()).toEqual(["Foto", "Foto s/w Toner sparen", "★ Kleines Foto", "Eigene …"])
@@ -264,17 +298,18 @@ test("photos have their own starred Preset, which can be an own one", async () =
 })
 
 test("the star can't be set while the settings match no Preset", async () => {
-  const { user, choice } = await openOptions()
+  const { set } = await openOptions()
 
-  await user.click(choice("Qualität", "Toner sparen"))
+  await set("Qualität", "Toner sparen")
 
+  expect(screen.getByRole("button", { name: "Als Voreinstellung speichern …" })).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Als Standard festlegen" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "★ Standard" })).not.toBeInTheDocument()
 })
 
 test("deleting the starred own Preset gives the star back to the built-in default", async () => {
   const first = await openOptions()
-  await first.user.click(first.choice("Papier", "A5"))
+  await first.set("Papier", "A5")
   await first.saveAs("Bastelpapier")
   await first.tap("Als Standard festlegen")
   expect(first.chip("★ Bastelpapier")).toBeChecked()
@@ -288,9 +323,9 @@ test("deleting the starred own Preset gives the star back to the built-in defaul
 
 test("a new file never starts from the settings of the previous Print Job", async () => {
   const first = await openOptions()
-  await first.user.click(first.choice("Farbe", "Farbe"))
-  await first.user.click(first.choice("Papier", "Umschlag C5"))
-  await first.user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await first.set("Farbe", "Farbe")
+  await first.set("Papier", "Umschlag C5")
+  await first.tap("Mehr Kopien")
   expect(await first.print()).toMatchObject({ copies: 2, color: "color", paper: "EnvC5" })
 
   const second = await reopen()
