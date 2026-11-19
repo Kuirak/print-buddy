@@ -9,7 +9,7 @@ export const jobStatus = (changes: Partial<JobStatus> = {}): JobStatus => ({
   jobId: "j1",
   state: "waiting",
   reason: null,
-  details: { jobState: "pending", jobStateReasons: ["none"], printerMessage: "" },
+  details: { jobState: "pending", jobStateReasons: ["none"], printerStateReasons: [], printerMessage: "" },
   cupsJobId: 42,
   sentAt,
   endedAt: null,
