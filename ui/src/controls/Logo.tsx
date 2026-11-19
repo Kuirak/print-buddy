@@ -1,0 +1,27 @@
+/** The Print Buddy printer with a face; the same drawing as `ui/public/icon.svg`. Inline rather than an <img> of the
+ * icon, because the icons always come from the server and the Start screen must also show it from the cache. */
+export function Logo(props: { class?: string }) {
+  return (
+    <svg viewBox="0 0 512 512" class={props.class} aria-hidden="true">
+      <defs>
+        <linearGradient id="logo-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#4c8df6" />
+          <stop offset="1" stop-color="#1a73e8" />
+        </linearGradient>
+      </defs>
+      <rect width="512" height="512" rx="112" fill="url(#logo-sky)" />
+      <rect x="168" y="100" width="176" height="150" rx="14" fill="#fff" />
+      <rect x="196" y="132" width="120" height="12" rx="6" fill="#a8c7fa" />
+      <rect x="196" y="160" width="84" height="12" rx="6" fill="#a8c7fa" />
+      <rect x="88" y="216" width="336" height="200" rx="56" fill="#fff" />
+      <circle cx="380" cy="256" r="10" fill="#34a853" />
+      <circle cx="212" cy="300" r="20" fill="#174ea6" />
+      <circle cx="300" cy="300" r="20" fill="#174ea6" />
+      <circle cx="206" cy="293" r="6" fill="#fff" />
+      <circle cx="294" cy="293" r="6" fill="#fff" />
+      <circle cx="168" cy="342" r="16" fill="#f6aea9" />
+      <circle cx="344" cy="342" r="16" fill="#f6aea9" />
+      <path d="M224 346 Q256 376 288 346" fill="none" stroke="#174ea6" stroke-width="14" stroke-linecap="round" />
+    </svg>
+  )
+}

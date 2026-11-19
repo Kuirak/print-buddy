@@ -21,8 +21,10 @@ test("the server reports the version of the add-on config", async t => {
   assert.equal(version, await addonVersion())
 })
 
-test("the changelog's newest entry is the current version", async () => {
+test("the changelog's newest released entry is the current version", async () => {
   const changelog = await readFile(join(root, "print-buddy", "CHANGELOG.md"), "utf8")
 
-  assert.equal(/^## (\S+)/m.exec(changelog)?.[1], await addonVersion())
+  // "## Unreleased" collects the changes since the last release and has no version yet
+  const released = [...changelog.matchAll(/^## (\S+)/gm)].map(match => match[1]).find(heading => heading !== "Unreleased")
+  assert.equal(released, await addonVersion())
 })
