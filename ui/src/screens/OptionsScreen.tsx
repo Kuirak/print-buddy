@@ -2,7 +2,7 @@ import { createMemo, createSignal, createStore, onSettled, Show, snapshot, untra
 import type { FileFacts, PaperMargins } from "../../../shared/api.ts"
 import { layout, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import type { PrintOptions, Rotation } from "../../../shared/print-options.ts"
-import { readPrinter } from "../api.ts"
+import { isLoginExpired, readPrinter } from "../api.ts"
 import { Confirmation } from "../controls/Confirmation.tsx"
 import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
@@ -15,6 +15,8 @@ import { Thumbnails } from "../controls/Thumbnails.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type FileKind, type Preset } from "../presets.ts"
+
+const readPrinterAgainAfterMs = 2_000
 
 export function OptionsScreen(props: {
   fileName: string
@@ -50,7 +52,17 @@ export function OptionsScreen(props: {
   onSettled(() => {
     let left = false
     let opened: PdfPreview | undefined
-    void readPrinter().then(printer => setMargins(printer.margins))
+    let nextRead: ReturnType<typeof setTimeout> | undefined
+    // nothing is laid out without the margins, and Drucken waits for them: a read that fails is tried again.
+    // Not once the login has run out: "Anmeldung abgelaufen" shows then.
+    async function readMargins() {
+      try {
+        setMargins((await readPrinter()).margins)
+      } catch (failure) {
+        if (!left && !isLoginExpired(failure)) nextRead = setTimeout(() => void readMargins(), readPrinterAgainAfterMs)
+      }
+    }
+    void readMargins()
     if (source.kind === "pdf") {
       void (async () => {
         opened = await openPdf(await files[0]!.arrayBuffer())
@@ -60,6 +72,7 @@ export function OptionsScreen(props: {
     }
     return () => {
       left = true
+      clearTimeout(nextRead)
       void opened?.destroy()
       for (const url of photoUrls) URL.revokeObjectURL(url)
     }
@@ -172,7 +185,8 @@ export function OptionsScreen(props: {
       />
       <SummaryLine kind={source.kind} total={refs.length} options={options} percent={percent()} onChange={() => setOver("details")} />
       <div class="sticky bottom-0 mt-auto bg-white py-3">
-        <button type="button" class="btn-primary" disabled={options.selection.length === 0} onClick={() => setOver("confirmation")}>
+        {/* not before the layout is known: the confirmation says how many sheets, at what size, and whether something is cut off */}
+        <button type="button" class="btn-primary" disabled={options.selection.length === 0 || !sheets()} onClick={() => setOver("confirmation")}>
           {options.selection.length > 0 ? "Drucken" : source.kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
         </button>
       </div>
