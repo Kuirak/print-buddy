@@ -2,7 +2,7 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
-## Unreleased
+## 2026.11.3
 
 - A new icon: a smiling printer. It greets you on the start screen, too, with "PDFs und Fotos vom Handy drucken" underneath. The Home Assistant app store shows it as well.
 - "Datei auswählen" is now at the bottom of the start screen, where the thumb reaches it with the phone in one hand.
