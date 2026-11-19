@@ -109,7 +109,7 @@ const sheets = layout({
 ### Start screen
 
 - `canReceiveShares` is true where the browser has a service worker. Over plain HTTP it is false and the share hint is not shown.
-- The logo, the name and "PDFs und Fotos vom Handy drucken" sit in the middle. "Datei auswählen" sits in a bar at the bottom, within reach of the thumb with the phone in one hand.
+- The logo, the name and "PDFs und Fotos vom Handy drucken" sit in the middle. "Datei auswählen" is the last element, at the bottom within reach of the thumb with the phone in one hand. It is not sticky. When the screen is too short, for example with a large font, the page scrolls, and nothing lies over "Bericht kopieren". On screens up to 640 px tall the logo is 80 px instead of 112.
 - **Last job.** `lastJob` in `ui/src/last-job.ts` keeps `{ jobId, cupsJobId }` of the last submit in `localStorage` under `print-buddy.last-job`. `print()` in `App.tsx` writes it. `LastJobLine` reads the job once when Start shows, as "Letzter Druck: {Zustand}" with the report button. A 404 forgets the job, because the job folder is gone after 7 days. Any other failure shows "Letzter Druck: unbekannt" and still offers the report.
 
 ### Share-to-print
