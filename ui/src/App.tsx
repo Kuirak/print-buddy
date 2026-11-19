@@ -142,7 +142,7 @@ export function App() {
       <Switch>
         {/* first, so that it covers whatever screen the person was on */}
         <Match when={loginExpired()}>
-          <LoginExpiredScreen onLogin={() => {}} />
+          <LoginExpiredScreen />
         </Match>
         <Match when={on("start")}>
           <StartScreen canReceiveShares={update.hasServiceWorker} onPick={files => void pick(files)} />

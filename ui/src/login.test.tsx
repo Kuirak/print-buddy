@@ -1,6 +1,6 @@
 import { render, screen } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { json, mockApi } from "./testing/mock-api.ts"
 
@@ -17,6 +17,18 @@ test("the app asks the session check when it opens, and a 401 shows Anmeldung ab
   expect(screen.queryByLabelText("Datei auswählen")).not.toBeInTheDocument()
   expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["GET /api/session"])
   expect(api.calls[0]!.headers.get("X-Requested-With")).toBe("XMLHttpRequest")
+})
+
+test("Neu anmelden leaves the app for a full page load of the login address", async () => {
+  mockApi({ "GET /api/session": loginExpired })
+  // stands in for the browser, which would leave the page here
+  const pageLoad = vi.spyOn(location, "assign").mockImplementation(() => {})
+  const user = userEvent.setup()
+  render(() => <App />)
+
+  await user.click(await screen.findByRole("button", { name: "Neu anmelden" }))
+
+  expect(pageLoad).toHaveBeenCalledExactlyOnceWith("/login")
 })
 
 const pdfFacts = { kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }
