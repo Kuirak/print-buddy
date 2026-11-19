@@ -1,11 +1,11 @@
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
-import type { ApiError, DraftCreated, FileFacts, JobSubmitted, Refusal, RefusalType } from "../../shared/api.ts"
+import type { ApiError, DraftCreated, FileFacts, JobSubmitted, Refusal, RefusalType, SubmitFailure } from "../../shared/api.ts"
 import { parsePrintOptions } from "../../shared/print-options.ts"
 import type { Intake } from "../intake.ts"
 import type { JobStore } from "../job-store.ts"
-import type { PrinterClient } from "../printer/client.ts"
-import { render } from "../renderer.ts"
+import { IppRefusal, type PrinterClient } from "../printer/client.ts"
+import { render, type RenderResult } from "../renderer.ts"
 
 const refusalStatus = {
   "too-large": 413,
@@ -47,9 +47,23 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
     if (files.length === 0) return c.json<ApiError>({ error: "empty-draft" }, 400)
     const options = parsePrintOptions(await c.req.json().catch(() => undefined))
     if (!options) return c.json<ApiError>({ error: "invalid-options" }, 400)
-    const rendered = await render(files, options, deps.printer.margins()[options.paper])
+    // a failed submit leaves the draft as it was, so the same submit can be tried again
+    const failed = (error: SubmitFailure["error"], status: 500 | 502, err: unknown) => {
+      console.warn(`Submit failed (${error}):`, err instanceof Error ? err.message : err)
+      return c.json<SubmitFailure>({ error }, status)
+    }
+    let rendered: RenderResult
+    try {
+      rendered = await render(files, options, deps.printer.margins()[options.paper])
+    } catch (err) {
+      return failed("render-failed", 500, err)
+    }
     if (rendered.outcome === "invalid-options") return c.json<ApiError>({ error: "invalid-options" }, 400)
-    const { cupsJobId, details } = await deps.printer.printJob(rendered.pdf, options)
+    const sent = await deps.printer.printJob(rendered.pdf, options).catch((err: unknown) => (
+      failed(err instanceof IppRefusal ? "cups-rejected" : "cups-unreachable", 502, err)
+    ))
+    if (sent instanceof Response) return sent
+    const { cupsJobId, details } = sent
     const job = deps.jobs.add({ cupsJobId, sheets: rendered.sheets * options.copies, details })
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
   })

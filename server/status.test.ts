@@ -24,7 +24,7 @@ test("a Print Job that CUPS just accepted reads as Wartet, with its job number, 
     jobId,
     state: "waiting",
     reason: null,
-    details: { jobState: "pending", jobStateReasons: ["none"], printerMessage: "" },
+    details: { jobState: "pending", jobStateReasons: ["none"], printerStateReasons: ["none"], printerMessage: "" },
     cupsJobId: 1,
     sentAt,
     endedAt: null,
@@ -71,7 +71,7 @@ test("a job that CUPS is processing but can't hand to the Printer yet still read
     server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], message)
     const status = await readJob(server, jobId)
     assert.equal(status.state, "waiting", message)
-    assert.deepEqual(status.details, { jobState: "processing", jobStateReasons: ["job-printing"], printerMessage: message })
+    assert.deepEqual(status.details, { jobState: "processing", jobStateReasons: ["job-printing"], printerStateReasons: ["none"], printerMessage: message })
   }
 })
 
@@ -91,7 +91,12 @@ test("a completed job reads as Fertig, and remembers when Print Buddy saw it end
   assert.equal(first.state, "done")
   assert.equal(first.reason, null)
   assert.equal(first.endedAt, sentAt + 75_000)
-  assert.deepEqual(first.details, { jobState: "completed", jobStateReasons: ["job-completed-successfully"], printerMessage: "Print file sent." })
+  assert.deepEqual(first.details, {
+    jobState: "completed",
+    jobStateReasons: ["job-completed-successfully"],
+    printerStateReasons: ["none"],
+    printerMessage: "Print file sent.",
+  })
   assert.deepEqual(later, first)
   assert.equal(server.printer.requests.length, asked, "an ended job no longer changes, so CUPS is not asked again")
 })
@@ -112,6 +117,7 @@ test("a job that CUPS aborted reads as Fehler", async t => {
   assert.deepEqual(status.details, {
     jobState: "aborted",
     jobStateReasons: ["aborted-by-system"],
+    printerStateReasons: ["none"],
     printerMessage: "Job aborted after 5 unsuccessful attempts.",
   })
 })
@@ -178,4 +184,90 @@ test("while CUPS can't be reached, a Print Job reads as it was last seen", async
 
   assert.equal(res.status, 200)
   assert.deepEqual(await res.json(), seen)
+})
+
+test("a failed job tells the reason in German when CUPS names one Print Buddy knows", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+
+  const cases = [
+    { job: ["aborted-by-system"], printer: ["offline-report"], message: "", reason: "Der Drucker antwortet nicht. Ist er eingeschaltet?" },
+    { job: ["aborted-by-system"], printer: ["none"], message: "The printer is not responding.", reason: "Der Drucker antwortet nicht. Ist er eingeschaltet?" },
+    { job: ["aborted-by-system"], printer: ["connecting-to-device"], message: "", reason: "Verbindung zum Drucker wird aufgebaut." },
+    { job: ["aborted-by-system"], printer: ["media-empty-warning"], message: "", reason: "Kein Papier im Drucker." },
+    { job: ["aborted-by-system"], printer: ["media-empty-error"], message: "", reason: "Kein Papier im Drucker." },
+    { job: ["aborted-by-system"], printer: ["media-needed"], message: "", reason: "Kein Papier im Drucker." },
+    { job: ["aborted-by-system"], printer: ["media-jam-error"], message: "", reason: "Papierstau im Drucker." },
+    { job: ["aborted-by-system"], printer: ["stopped"], message: "", reason: "Der Drucker ist in CUPS angehalten." },
+    { job: ["aborted-by-system"], printer: ["paused"], message: "", reason: "Der Drucker ist in CUPS angehalten." },
+    { job: ["printer-stopped"], printer: ["none"], message: "", reason: "Der Drucker ist in CUPS angehalten." },
+    { job: ["aborted-by-system"], printer: ["toner-empty-error"], message: "", reason: "Toner ist leer." },
+    { job: ["aborted-by-system"], printer: ["marker-supply-empty-warning"], message: "", reason: "Toner ist leer." },
+    { job: ["aborted-by-system"], printer: ["cover-open"], message: "", reason: "Eine Klappe am Drucker ist offen." },
+    { job: ["aborted-by-system"], printer: ["door-open-report"], message: "", reason: "Eine Klappe am Drucker ist offen." },
+    // the first reason Print Buddy knows wins
+    { job: ["aborted-by-system"], printer: ["cups-waiting-for-job-completed", "media-jam-error", "cover-open"], message: "", reason: "Papierstau im Drucker." },
+  ]
+  for (const { job, printer, message, reason } of cases) {
+    const { jobId, cupsJobId } = await server.print()
+    server.printer.setJob(cupsJobId, JobState.aborted, job, message, printer)
+
+    const status = await readJob(server, jobId)
+
+    assert.equal(status.state, "error", JSON.stringify({ job, printer }))
+    assert.equal(status.reason, reason, JSON.stringify({ job, printer, message }))
+    assert.deepEqual(status.details, { jobState: "aborted", jobStateReasons: job, printerStateReasons: printer, printerMessage: message })
+  }
+})
+
+test("a failed job with a reason Print Buddy doesn't know gets a generic sentence, and what CUPS said as details", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { jobId, cupsJobId } = await server.print()
+
+  server.printer.setJob(cupsJobId, JobState.aborted, ["cups-filter-crashed"], "Filter failed", ["fuser-over-temp-error"])
+  const status = await readJob(server, jobId)
+
+  assert.equal(status.state, "error")
+  assert.equal(status.reason, "Beim Drucken ist ein Fehler aufgetreten.")
+  assert.equal(status.cupsJobId, cupsJobId)
+  assert.deepEqual(status.details, {
+    jobState: "aborted",
+    jobStateReasons: ["cups-filter-crashed"],
+    printerStateReasons: ["fuser-over-temp-error"],
+    printerMessage: "Filter failed",
+  })
+})
+
+test("a job someone else cancelled says so, whatever the Printer reports", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { jobId, cupsJobId } = await server.print()
+
+  server.printer.setJob(cupsJobId, JobState.canceled, ["job-canceled-by-user"], "", ["media-empty-warning"])
+  const status = await readJob(server, jobId)
+
+  assert.equal(status.state, "error")
+  assert.equal(status.reason, "Der Auftrag wurde von jemand anderem abgebrochen.")
+})
+
+test("a job that is still running tells a reason Print Buddy knows, and stays in its state", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { jobId, cupsJobId } = await server.print()
+
+  const cases = [
+    { cups: [JobState.pending, ["printer-stopped"], "", ["paused"]], state: "waiting", reason: "Der Drucker ist in CUPS angehalten." },
+    { cups: [JobState.processing, ["job-printing"], "The printer is not responding.", ["none"]], state: "waiting", reason: "Der Drucker antwortet nicht. Ist er eingeschaltet?" },
+    { cups: [JobState.processing, ["job-printing"], "Connecting to printer.", ["connecting-to-device"]], state: "waiting", reason: "Verbindung zum Drucker wird aufgebaut." },
+    { cups: [JobState.processing, ["job-printing"], "", ["media-empty-warning"]], state: "printing", reason: "Kein Papier im Drucker." },
+    { cups: [JobState.processing, ["job-printing"], "", ["cups-waiting-for-job-completed"]], state: "printing", reason: null },
+  ] as const
+  for (const { cups, state, reason } of cases) {
+    server.printer.setJob(cupsJobId, cups[0], [...cups[1]], cups[2], [...cups[3]])
+    const status = await readJob(server, jobId)
+    assert.equal(status.state, state, JSON.stringify(cups))
+    assert.equal(status.reason, reason, JSON.stringify(cups))
+    assert.equal(status.endedAt, null)
+  }
 })

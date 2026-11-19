@@ -76,8 +76,18 @@ export type CupsJobDetails = {
   jobState: string
   /** IPP `job-state-reasons`. */
   jobStateReasons: string[]
+  /** IPP `job-printer-state-reasons`: the Printer's reasons while it has the job. Empty until CUPS reports them. */
+  printerStateReasons: string[]
   /** IPP `job-printer-state-message`: the last line the CUPS backend reported. */
   printerMessage: string
+}
+
+/**
+ * Body of the answer when a valid submit could not be sent: no Print Job exists, and the draft is unchanged.
+ * Status 500 for `render-failed` (the PDF could not be built), 502 when CUPS could not be reached or refused the job.
+ */
+export type SubmitFailure = {
+  error: "render-failed" | "cups-unreachable" | "cups-rejected"
 }
 
 /** Widths of the strips along the sheet's edges the Printer can't print on, in points (1/72 inch). */

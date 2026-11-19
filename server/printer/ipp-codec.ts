@@ -11,7 +11,7 @@ export const Tag = {
 } as const
 
 export const Op = { printJob: 0x0002, cancelJob: 0x0008, getJobAttributes: 0x0009, getPrinterAttributes: 0x000b } as const
-export const Status = { ok: 0x0000, badRequest: 0x0400, forbidden: 0x0401, notAuthenticated: 0x0402, notAuthorized: 0x0403, notPossible: 0x0404, notFound: 0x0406, operationNotSupported: 0x0501 } as const
+export const Status = { ok: 0x0000, badRequest: 0x0400, forbidden: 0x0401, notAuthenticated: 0x0402, notAuthorized: 0x0403, notPossible: 0x0404, notFound: 0x0406, operationNotSupported: 0x0501, notAcceptingJobs: 0x0506 } as const
 export const JobState = { pending: 3, held: 4, processing: 5, stopped: 6, canceled: 7, aborted: 8, completed: 9 } as const
 export const PrinterState = { idle: 3, processing: 4, stopped: 5 } as const
 

@@ -1,6 +1,10 @@
 import { createSignal, onSettled, Show } from "solid-js"
 import type { JobStatus, JobSubmitted, ScreenState } from "../../../shared/api.ts"
 import { cancelJob, readJob } from "../api.ts"
+import { Collapsible } from "../controls/Collapsible.tsx"
+
+/** The CUPS web page. It answers on the Household network only, so the link is of no use on the road. */
+const cupsWebPage = "http://homeassistant.local:631"
 
 const pollEveryMs = 2_000
 const hintAfterSeconds = 60
@@ -77,6 +81,26 @@ export function StatusScreen(props: { job: JobSubmitted; onClose: () => void; on
       <p class="text-muted">Auftrag Nr. {props.job.cupsJobId}</p>
       <Show when={state() === "waiting" && elapsed() >= hintAfterSeconds}>
         <p class="rounded-lg bg-[#fff1d6] p-3 text-[#7a4b00]">Schläft der Drucker oder ist er aus? Der Auftrag wartet weiter.</p>
+      </Show>
+      <Show when={state() === "error" && status()}>
+        {failed => (
+          <>
+            <Collapsible title="Details">
+              <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                <dt class="text-muted">Meldung</dt>
+                <dd>{failed().details.printerMessage || "–"}</dd>
+                <dt class="text-muted">Zustand</dt>
+                <dd>{failed().details.jobState}</dd>
+                <dt class="text-muted">Gründe</dt>
+                <dd>{[...failed().details.jobStateReasons, ...failed().details.printerStateReasons].join(", ")}</dd>
+              </dl>
+              <p class="mt-1 text-sm">CUPS-Auftrag Nr. {failed().cupsJobId}</p>
+            </Collapsible>
+            <a class="text-brand underline" href={cupsWebPage} target="_blank" rel="noreferrer">
+              CUPS-Seite öffnen (nur im Heimnetz)
+            </a>
+          </>
+        )}
       </Show>
       <Show when={state() === "waiting"}>
         <button type="button" class="btn-secondary mt-4" onClick={() => void cancel()}>
