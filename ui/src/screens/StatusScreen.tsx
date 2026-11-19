@@ -2,7 +2,10 @@ import { createSignal, onSettled, Show, untrack } from "solid-js"
 import type { JobStatus, JobSubmitted } from "../../../shared/api.ts"
 import { cancelJob, readJob } from "../api.ts"
 import { Collapsible } from "../controls/Collapsible.tsx"
+import { Dialog } from "../controls/Dialog.tsx"
 import { ReportButton } from "../controls/ReportButton.tsx"
+import { ThumbScreen } from "../controls/ThumbScreen.tsx"
+import { counted, paperNames, printSizeText, ranges } from "../job-text.ts"
 import { stateWords } from "../state-words.ts"
 
 const pollEveryMs = 2_000
@@ -14,7 +17,43 @@ function minutesSeconds(seconds: number) {
 }
 
 /**
- * Follows one Print Job until it has ended.
+ * "Nochmal drucken?": what will come out again, read from the ended Print Job, as the confirmation on the
+ * options screen says it. The percentage of Einpassen and Füllen isn't known here, so they stand alone.
+ */
+function PrintAgain(props: { job: JobStatus; onConfirm: () => void; onBack: () => void }) {
+  const options = () => props.job.options
+  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos". */
+  const content = () => {
+    const count = options().selection.length
+    if (props.job.file.kind === "photo") return counted(count, "Foto", "Fotos")
+    const notes = [
+      ...(count < props.job.file.count ? [ranges(options().selection)] : []),
+      ...(options().pagesPerSheet === 2 ? ["2 pro Blatt"] : []),
+    ]
+    return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
+  }
+  return (
+    <Dialog label="Nochmal drucken?" at="bottom" onClose={props.onBack}>
+      <h2 class="text-lg font-bold">Nochmal drucken?</h2>
+      <ul class="flex list-disc flex-col gap-1 pl-5">
+        <li>
+          {content()} × {counted(options().copies, "Kopie", "Kopien")} = <strong>{counted(props.job.sheets, "Blatt", "Blätter")}</strong>
+        </li>
+        <li>
+          {options().color === "color" ? "Farbe" : "Schwarz-Weiß"} · {paperNames[options().paper]} · {printSizeText(options().printSize, undefined)}
+          {options().quality === "draft" ? " · Toner sparen" : ""}
+        </li>
+      </ul>
+      <div class="flex gap-2">
+        <button type="button" class="btn-secondary" onClick={props.onBack}>Abbrechen</button>
+        <button type="button" class="btn-primary" onClick={props.onConfirm}>Drucken</button>
+      </div>
+    </Dialog>
+  )
+}
+
+/**
+ * Follows one Print Job until it has ended. "Nochmal drucken" asks first, with what will come out.
  * `since`: when CUPS accepted the job, by the phone's clock. Left out it is now, because the screen
  * opens as soon as the job is sent. The way back from the login brings the earlier time.
  */
@@ -26,6 +65,8 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
   const since = untrack(() => props.since) ?? Date.now()
   /** Seconds since CUPS accepted the job. */
   const [elapsed, setElapsed] = createSignal(0)
+  /** "Nochmal drucken?" is open. */
+  const [askingAgain, setAskingAgain] = createSignal(false)
 
   let ticking: ReturnType<typeof setInterval> | undefined
   let nextPoll: ReturnType<typeof setTimeout> | undefined
@@ -66,7 +107,30 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
   })
 
   return (
-    <main class="flex flex-col gap-2 p-4">
+    <>
+    <ThumbScreen
+      inert={askingAgain()}
+      actions={
+        <>
+          <Show when={running()}>
+            <Show when={state() === "printing"}>
+              <p class="text-sm text-muted">Was der Drucker schon hat, kann noch herauskommen.</p>
+            </Show>
+            <button type="button" class="btn-secondary" onClick={() => void cancel()}>
+              Abbrechen
+            </button>
+          </Show>
+          <Show when={!running()}>
+            <button type="button" class="btn-secondary" onClick={() => setAskingAgain(true)}>
+              Nochmal drucken
+            </button>
+            <button type="button" class="btn-primary" onClick={() => props.onClose()}>
+              Schließen
+            </button>
+          </Show>
+        </>
+      }
+    >
       <h1 class="text-xl font-bold">{stateWords[state()]}</h1>
       <Show when={running()}>
         <p>läuft seit {minutesSeconds(elapsed())}</p>
@@ -96,24 +160,22 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
           </>
         )}
       </Show>
-      <Show when={state() === "waiting"}>
-        <button type="button" class="btn-secondary mt-4" onClick={() => void cancel()}>
-          Abbrechen
-        </button>
-      </Show>
-      <Show when={!running()}>
-        <div class="mt-4 flex flex-col gap-2">
-          <button type="button" class="btn-primary" onClick={() => props.onClose()}>
-            Schließen
-          </button>
-          <button type="button" class="btn-secondary" onClick={() => props.onPrintAgain()}>
-            Nochmal drucken
-          </button>
-        </div>
-      </Show>
       <div class="mt-2">
         <ReportButton subject={{ job: props.job }} />
       </div>
-    </main>
+    </ThumbScreen>
+    <Show when={askingAgain() && status()}>
+      {ended => (
+        <PrintAgain
+          job={ended()}
+          onConfirm={() => {
+            setAskingAgain(false)
+            props.onPrintAgain()
+          }}
+          onBack={() => setAskingAgain(false)}
+        />
+      )}
+    </Show>
+    </>
   )
 }

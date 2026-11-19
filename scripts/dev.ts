@@ -17,6 +17,8 @@ const config = await loadConfig({
   PRINT_BUDDY_OPTIONS_FILE: optionsFile,
   PRINT_BUDDY_JOBS_DIR: join(dir, "jobs"),
   PRINT_BUDDY_PORT: process.env.PRINT_BUDDY_PORT,
+  // to try Dell's engine against the fake printer; foo2hbpl2 must be on the PATH then
+  PRINT_BUDDY_DELL_ENGINE: process.env.PRINT_BUDDY_DELL_ENGINE,
   PRINT_BUDDY_CUPS: printer.cups,
 })
 await startServer(config)

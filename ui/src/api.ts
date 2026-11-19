@@ -1,5 +1,5 @@
 // The app's only way to the server: one function per API operation.
-import type { DraftCreated, FileFacts, JobStatus, JobSubmitted, PrinterInfo, Refusal, ReportFacts, SubmitRequest } from "../../shared/api.ts"
+import type { DraftCreated, FileFacts, JobStatus, JobSubmitted, PrinterInfo, Refusal, ReportFacts, SubmitProgress, SubmitRequest } from "../../shared/api.ts"
 
 /** The server (or Cloudflare Access, with 401) answered with an error status. */
 export class ApiFailure extends Error {
@@ -28,10 +28,14 @@ export function onLoginExpired(listener: () => void) {
 /** True for the failure of a call that Cloudflare Access answered with 401. `onLoginExpired` has heard of it by then. */
 export const isLoginExpired = (failure: unknown) => failure instanceof ApiFailure && failure.status === 401
 
+/** True for the failure of a call the server refused with the `ApiError` `error`, for example 409 `stopped`. */
+export const failedWith = (failure: unknown, error: string) =>
+  failure instanceof ApiFailure && typeof failure.body === "object" && failure.body !== null && "error" in failure.body && failure.body.error === error
+
 /** Sent with every call: makes Cloudflare Access answer 401 instead of redirecting to its login page. */
 const appHeader = { "X-Requested-With": "XMLHttpRequest" }
 
-/** `body` goes out as JSON. `signal` stops the call. */
+/** `body` goes out as JSON. `signal` stops the call. A 204 resolves with nothing, as it has no body. */
 async function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const json = body !== undefined
   const res = await fetch(path, {
@@ -42,6 +46,7 @@ async function call<T>(method: string, path: string, body?: unknown, signal?: Ab
   })
   if (res.status === 401) loginExpired()
   if (!res.ok) throw new ApiFailure(res.status, await res.json().catch(() => undefined))
+  if (res.status === 204) return undefined as T
   return await res.json() as T
 }
 
@@ -109,14 +114,27 @@ export async function addFile(draftId: string, file: File, control: UploadContro
   }
 }
 
+/**
+ * Resolves once CUPS has the Print Job. Rejects with a 409 ApiFailure `stopped` when `stopSubmit` stopped it,
+ * and with 409 `already-submitting` while another submit of the draft runs.
+ */
 export const submitDraft = (draftId: string, options: SubmitRequest) => call<JobSubmitted>("POST", `/api/drafts/${draftId}/submit`, options)
+
+/** How far the running submit of the draft has got. Rejects with a 404 ApiFailure while none runs. */
+export const readSubmitProgress = (draftId: string) => call<SubmitProgress>("GET", `/api/drafts/${draftId}/progress`)
+
+/**
+ * Stops the running submit of the draft while it prepares; the submit then rejects with 409 `stopped`.
+ * Rejects with a 409 ApiFailure `not-stoppable` once it is sending, and with 404 when no submit runs.
+ */
+export const stopSubmit = (draftId: string) => call<void>("POST", `/api/drafts/${draftId}/stop`)
 
 /** The printable margins of each paper, and the Printer's state. */
 export const readPrinter = () => call<PrinterInfo>("GET", "/api/printer")
 
 export const readJob = (jobId: string) => call<JobStatus>("GET", `/api/jobs/${jobId}`)
 
-/** Rejects with a 409 ApiFailure once the job is being printed or has ended. */
+/** Works while the job reads as Wartet or Wird gedruckt. Rejects with a 409 ApiFailure once it has ended. */
 export const cancelJob = (jobId: string) => call<JobStatus>("POST", `/api/jobs/${jobId}/cancel`)
 
 /** The server's part of a "Bericht kopieren" report. */

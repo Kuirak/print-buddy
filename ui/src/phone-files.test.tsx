@@ -1,4 +1,4 @@
-import { render, screen } from "@solidjs/testing-library"
+import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { App } from "./App.tsx"
@@ -128,6 +128,7 @@ test("Nochmal drucken uploads the shared file again from the phone's copy, which
   expect(await names()).toEqual(["Rechnung.pdf"])
 
   await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+  await user.click(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getByRole("button", { name: "Drucken" }))
 
   await screen.findByText("Auftrag Nr. 43")
   const again = api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData
@@ -178,6 +179,7 @@ test("when the phone no longer holds the files, Nochmal drucken says Bitte nochm
   await phoneFiles.clear()
 
   await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+  await user.click(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getByRole("button", { name: "Drucken" }))
 
   expect(await screen.findByRole("heading", { name: "Bitte nochmal teilen" })).toBeInTheDocument()
   expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()

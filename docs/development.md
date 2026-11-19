@@ -46,11 +46,12 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   intake.ts          Upload intake (drafts).
   source-pdf.ts      An uploaded PDF as a reader shows it: which part of a page, turned how, with which form fields and annotations.
   job-store.ts       Job store: job folders, job.json, the 7-day cleanup.
-  renderer.ts        Renderer: builds the PDF that goes to CUPS.
+  renderer.ts        Renderer: builds the PDF or HBPL that goes to CUPS.
+  dell-engine.ts     Dell's engine from the share folder: its file format, and the toner codes of a row of pixels.
   status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
-  printer/           Printer client: client.ts and the IPP codec.
+  printer/           Printer client: client.ts, the IPP codec, and hbpl.ts, which runs foo2hbpl2 on the raster of a Dell job.
   http/              One file per API resource: drafts, jobs, printer, report, session (with /login), health, share-target, ui (static files).
-  testing/           Seam 1 helpers: harness, fake IPP printer, fixtures, and rendered-pdf.ts, which reads a printed PDF back.
+  testing/           Seam 1 helpers: harness (with an optional Dell engine, and foo2hbpl2 replaced by a pass-through or a test's own stand-in), fake IPP printer, fixtures, and rendered-pdf.ts, which reads a printed PDF back.
   *.test.ts          Seam 1 tests, next to the sources.
 ui/                Vite root.
   index.html         The page.
@@ -77,6 +78,7 @@ ui/                Vite root.
   src/*.test.tsx     Seam 3 tests, all in this one folder.
 scripts/dev.ts     What `pnpm dev` runs.
 scripts/pdfjs-assets.ts  Runs before every build: copies pdf.js's decoders, fonts and character maps into ui/public/pdfjs.
+scripts/dell-engine.ts  Measures Dell's macOS driver into the file of Dell's engine. Runs on a Mac with the driver.
 vite.config.ts     The UI build, the second build for the service worker, and the vitest settings.
 print-buddy/       The Home Assistant add-on folder: config.yaml, README.md (the intro in the store), DOCS.md, CHANGELOG.md, translations.
 repository.yaml    Makes the repository an add-on repository.
@@ -99,8 +101,18 @@ docs/              This file, architecture.md, and the decisions in adr/.
 
 - **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
 - **Health path.** The health endpoint is `/health`, outside `/api`, for the Home Assistant watchdog. It never contacts CUPS.
-- **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
+- **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`, and foo2hbpl2 with its source under `/usr/local/share/foo2hbpl2/source`, built from a pinned foo2zjs commit. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
 - **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on, which sets `init: false`. Anything that must finish before the process ends belongs in the server's `close()`.
+
+## The real Printer
+
+- **Against your own CUPS.** `pnpm dev` always uses the fake printer. To print for real, run `pnpm build` once. Then run `pnpm start` with `PRINT_BUDDY_OPTIONS_FILE` naming a file `{ "printer_name": "<queue>" }`, `PRINT_BUDDY_JOBS_DIR` set to a temporary folder, and `PRINT_BUDDY_CUPS=<host>:631`. CUPS has to accept jobs from the LAN. When it can't be reached, the log warns at start that the margins are unknown.
+- **Dell's engine.** Colour photos print through it when `/share/print-buddy/dell-engine.json` is there. See [ADR 0007](adr/0007-colour-photos-print-through-dells-engine.md). The file is Dell's data: never commit it.
+  1. On a Mac, install Dell's C1765nfw driver and add the printer, so that a CUPS queue uses Dell's PPD.
+  2. Run `node scripts/dell-engine.ts dell-engine.json`. It prints nothing. It needs `git` and `cc` the first time, to build `hbpldecode` from foo2zjs into the temp folder.
+  3. Copy `dell-engine.json` into the add-on's share folder as `print-buddy/dell-engine.json` and restart the add-on. Its log says "Colour photos print through Dell's engine".
+
+  Run it again after an update of Dell's driver. To print through the engine from a local `pnpm start`, set `PRINT_BUDDY_DELL_ENGINE` to the file, and put a foo2hbpl2 on the `PATH`: in a foo2zjs checkout, `cc -O2 -w -o foo2hbpl2 foo2hbpl2.c jbig.c jbig_ar.c`.
 
 ## Solid 2
 
@@ -153,8 +165,9 @@ test("…", async t => {
   - The printer client rounds margins to 0.01 pt, which gives 9.01 and 11.99 pt for the fake printer. The renderer uses exactly those, and so does the preview through `GET /api/printer`.
 - **Fixtures.** `server/testing/fixtures.ts` holds small test files. Add new ones there, built in code and without dates or random ids. Make test files different in size, so a test can tell them apart in a rendered PDF.
   - `pdfWithPages()` takes sizes, `/Rotate`, CropBox, form fields and annotations. Its pages have a content stream, because pdf-lib can't embed a page without one. `{ blank: true }` makes a page without `/Contents`; it prints as an empty sheet unless an annotation is drawn on it. `annotations` puts form fields and annotations on a page, each with its dictionary entries as text and its appearance. `pdfWithPages(pages, { needAppearances: true })` sets the form's `/NeedAppearances`.
-  - The other fixtures are `sampleJpeg()`, which is 40×30, `withExifOrientation()`, `samplePng(w, h)` and `encryptedPdf()`.
-- **Reading the printed PDF.** `readRenderedPdf(request.data)` in `server/testing/rendered-pdf.ts` gives the sheets with their size and items. Each item has `kind`, `size`, `box`, `clip` and `corners`. `size` tells fixtures apart. It is the size of the embedded part of the page before `/Rotate`, or the photo's pixels. `box` and `clip` are on the sheet, measured from the top-left corner. `corners` show rotation and mirroring. A page with form fields or annotations drawn into it also has `annotations`. They hold the rectangle each one takes up on the source page and the content stream of its appearance. Numbers are rounded to 0.01 pt. `server/render.test.ts` sets the fake printer's margins to zero where that keeps the expected numbers simple.
+  - The other fixtures are `sampleJpeg()`, which is 40×30, `withExifOrientation()`, `samplePng(w, h)`, `pngWithPixels(rows)`, `jpegWithPixels(rows)` and `encryptedPdf()`.
+- **Reading the printed PDF.** `readRenderedPdf(request.data)` in `server/testing/rendered-pdf.ts` gives the sheets with their size and items. Each item has `kind`, `size`, `box`, `clip` and `corners`. `size` tells fixtures apart. It is the size of the embedded part of the page before `/Rotate`, or the photo's pixels. `box` and `clip` are on the sheet, measured from the top-left corner. `corners` show rotation and mirroring. A photo also has `filter` and `bytes`. A page with form fields or annotations drawn into it also has `annotations`. They hold the rectangle each one takes up on the source page and the content stream of its appearance. Numbers are rounded to 0.01 pt. `server/render.test.ts` sets the fake printer's margins to zero where that keeps the expected numbers simple.
+- **Dell jobs.** With `dellEngine` in the harness options, colour photo jobs go out as HBPL, and the fake printer receives the raster foo2hbpl2 would get: one byte per 600 dpi pixel, `RASTERS[paper]` per sheet. `server/dell-print.test.ts` builds a small engine of its own, never Dell's data.
 - **Status reasons.** To teach the status mapper a new reason, add a line to one of its two tables and a case to the table test in `server/status.test.ts`.
 - **Who printed.** `server/report.test.ts` sends the Cloudflare Access headers with every request of a Print Job and checks that nothing of them reaches CUPS, the job folder, the answers or the log.
 

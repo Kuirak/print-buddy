@@ -3,7 +3,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { buffer } from "node:stream/consumers"
 import { loadConfig } from "../config.ts"
+import type { DellEngine } from "../dell-engine.ts"
+import type { HbplEncoder } from "../printer/hbpl.ts"
 import { startServer } from "../server.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { startFakeIpp, type FakeIpp } from "./fake-ipp.ts"
@@ -18,6 +21,10 @@ export interface TestServerOptions {
   ui?: Record<string, string>
   /** Runs before the server starts, to script what the printer answers to the startup read of the margins. */
   beforeStart?: (printer: FakeIpp) => void
+  /** Dell's engine in the share folder. Its HBPL is the raster foo2hbpl2 would get, unchanged: rows of `RASTERS[paper]`. */
+  dellEngine?: DellEngine
+  /** Stands in for foo2hbpl2 instead of the pass-through. */
+  encodeHbpl?: HbplEncoder
 }
 
 export type TestServer = Awaited<ReturnType<typeof startTestServer>>
@@ -44,17 +51,24 @@ export async function startTestServer(opts: TestServerOptions = {}) {
   }
 
   const jobsDir = join(dir, "share", "print-buddy", "jobs")
+  const dellEngineFile = join(dir, "share", "print-buddy", "dell-engine.json")
+  if (opts.dellEngine) {
+    await mkdir(join(dir, "share", "print-buddy"), { recursive: true })
+    await writeFile(dellEngineFile, JSON.stringify(opts.dellEngine))
+  }
   const config = await loadConfig({
     PRINT_BUDDY_OPTIONS_FILE: optionsFile,
     PRINT_BUDDY_JOBS_DIR: jobsDir,
+    PRINT_BUDDY_DELL_ENGINE: dellEngineFile,
     PRINT_BUDDY_PORT: "0",
     PRINT_BUDDY_CUPS: printer.cups,
   })
+  const encodeHbpl: HbplEncoder = opts.encodeHbpl ?? (async (_paper, raster) => new Uint8Array(await buffer(raster)))
   // what the server asks the printer while starting is set aside, so `printer.requests` holds only what a test caused
   const startupRequests: typeof printer.requests = []
   async function start() {
     const asked = printer.requests.length
-    const running = await startServer(config, { now: clock.now, hostname: "127.0.0.1", uiDir })
+    const running = await startServer(config, { now: clock.now, hostname: "127.0.0.1", uiDir, encodeHbpl })
     startupRequests.push(...printer.requests.splice(asked))
     return running
   }

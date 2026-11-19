@@ -4,3 +4,5 @@ dist
 ui/public/pdfjs
 .scratch/
 .wayfinder/
+# Dell's data, written by scripts/dell-engine.ts: it belongs in the add-on's share folder, never here
+dell-engine*.json

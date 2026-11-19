@@ -43,7 +43,11 @@ export type Refusal =
   /** `limitMb` is the add-on's `upload_limit_mb`. */
   | { refusal: "too-large"; limitMb: number }
 
-/** POST /api/drafts/:draftId/submit */
+/**
+ * POST /api/drafts/:draftId/submit: 201 with the Print Job once CUPS has accepted it.
+ * 409 `{ error: "stopped" }` when POST /api/drafts/:draftId/stop stopped it while it prepared: no Print Job, the draft stays.
+ * 409 `{ error: "already-submitting" }` while another submit of the same draft runs.
+ */
 export type JobSubmitted = {
   /** Print Buddy's id for the Print Job. */
   jobId: string
@@ -51,13 +55,23 @@ export type JobSubmitted = {
   cupsJobId: number
 }
 
+/**
+ * GET /api/drafts/:draftId/progress: how far the running submit of the draft has got; 404 while none runs.
+ * `preparing`: the renderer builds what goes to CUPS, and `sheetsDone` of `sheets` (all copies) are ready.
+ * `sending`: CUPS is getting the job. From here on the submit can't be stopped and ends with a Print Job or a failure.
+ *
+ * POST /api/drafts/:draftId/stop stops the running submit while it prepares: 204, and the submit then answers 409
+ * `stopped`. Once it is sending: 409 `{ error: "not-stoppable" }`. While no submit runs: 404.
+ */
+export type SubmitProgress = { phase: "preparing"; sheetsDone: number; sheets: number } | { phase: "sending" }
+
 /** Body of every 4xx answer that is not a typed refusal. */
 export type ApiError = { error: string }
 
 /** What the status screen shows: Wartet, Wird gedruckt, Fertig, Abgebrochen or Fehler. */
 export type ScreenState = "waiting" | "printing" | "done" | "cancelled" | "error"
 
-/** GET /api/jobs/:jobId, and the answer to POST /api/jobs/:jobId/cancel */
+/** GET /api/jobs/:jobId, and the answer to POST /api/jobs/:jobId/cancel, which works while the job reads as Wartet or Wird gedruckt */
 export type JobStatus = {
   jobId: string
   state: ScreenState

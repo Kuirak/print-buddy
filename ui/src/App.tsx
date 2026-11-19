@@ -3,7 +3,7 @@ import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import { loggedInParam } from "../../shared/login.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { lostShare, sharedParam } from "../../shared/share-target.ts"
-import { checkSession, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
+import { checkSession, failedWith, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
 import { readFacts } from "./file-facts.ts"
 import { interruptedJob } from "./interrupted-job.ts"
@@ -16,28 +16,37 @@ import { OpeningScreen } from "./screens/OpeningScreen.tsx"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
 import { SendFailedScreen } from "./screens/SendFailedScreen.tsx"
+import { SendingScreen } from "./screens/SendingScreen.tsx"
 import { ShareAgainScreen } from "./screens/ShareAgainScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
-import { startUpload, type Upload } from "./upload.ts"
+import { startUpload, type Upload, type UploadEnd } from "./upload.ts"
+
+/**
+ * The options screen: one PDF, or photos in the order they were shared or picked, while `upload` puts them on the server.
+ * `facts` are what the browser read from them, or the server's when the browser couldn't read them.
+ * `initial`: the Print Options the screen starts with in place of the starred Preset: after the login, when the person
+ * had chosen them before it ran out, and after Abbrechen while the Print Job was prepared.
+ */
+type OptionsState = { name: "options"; files: File[]; facts: FileFacts[]; upload: Upload; initial?: PrintOptions }
 
 // The files of a job are not in here from screen to screen: they are the phone's copy (phone-files.ts).
 type Screen =
   | { name: "start" }
   /** A share has just come in and the browser reads its files. */
   | { name: "opening" }
-  /**
-   * One PDF, or photos in the order they were shared or picked, while `upload` puts them on the server.
-   * `facts` are what the browser read from them, or the server's when the browser couldn't read them.
-   * `initial`: the Print Options the screen starts with after the login, when the person had chosen them before it ran out.
-   */
-  | { name: "options"; files: File[]; facts: FileFacts[]; upload: Upload; initial?: PrintOptions }
+  | OptionsState
   /** `file` is the one the server refused. */
   | { name: "refusal"; refusal: Refusal; file: File }
   /** The files of the job are no longer on the phone: "Bitte nochmal teilen". */
   | { name: "share-again" }
   /** `options` is what was sent, kept for "Nochmal drucken". `since`: when CUPS accepted the job, by the phone's clock. */
   | { name: "status"; options: PrintOptions; job: JobSubmitted; since: number }
+  /**
+   * Printing has started and the submit hasn't answered yet. `upload` is the upload of the phone's copy for
+   * "Nochmal drucken" and "Erneut versuchen"; `draftId` is the draft being submitted, once every file is there.
+   */
+  | { name: "sending"; upload?: Upload; draftId?: string }
   /**
    * Sending didn't work; `error` is what went wrong. `options` is what the person chose, kept for "Erneut
    * versuchen": after Drucken it sends them again. When the upload failed while the options screen
@@ -172,38 +181,54 @@ export function App() {
   }
 
   /**
-   * Uploads the phone's copy into a new draft and resolves with its id once every file is there. Resolves
-   * with nothing when there is nothing to print, and has then moved on itself: to "Bitte nochmal teilen"
-   * when the phone holds no files, to the Refusal when the server won't take one of them.
+   * Uploads the phone's copy into a new draft while the sending screen shows it, and resolves with how the upload
+   * ended. Resolves with nothing when the phone holds no files, and has then moved on to "Bitte nochmal teilen".
+   * A Refusal shows by itself, through `beginUpload`.
    */
-  async function uploadHeld(): Promise<string | undefined> {
+  async function uploadHeld(): Promise<UploadEnd | undefined> {
     const files = await phoneFiles.held()
     if (files.length === 0) {
       await leaveJob("share-again")
       return undefined
     }
-    const end = await beginUpload(files).done
-    return "draft" in end ? end.draft.draftId : undefined
+    const started = beginUpload(files)
+    setScreen({ name: "sending", upload: started })
+    return await started.done
   }
 
   // a second tap while the first is on its way must not print twice
   let sending = false
   /**
-   * Sends the draft as a Print Job. Without a draft ("Nochmal drucken", "Erneut versuchen") the phone's copy is uploaded again first.
-   * When that doesn't work, the person lands on "Drucken hat nicht geklappt", unless it was the login that ran out.
+   * Sends the draft of the options screen `from` as a Print Job, while the sending screen shows. Without it ("Nochmal
+   * drucken", "Erneut versuchen") the phone's copy is uploaded again first. When that doesn't work, the person lands on
+   * "Drucken hat nicht geklappt", unless it was the login that ran out. Abbrechen on the sending screen leads back to
+   * `from` with the Print Options just sent, or to a new options screen with them.
    */
-  async function print(options: PrintOptions, draftId?: string) {
+  async function print(options: PrintOptions, from?: OptionsState) {
     if (sending) return
     sending = true
     chosen = options
+    const back = () => {
+      if (from) setScreen({ ...from, initial: options })
+      else void openHeld(options)
+    }
     try {
-      draftId ??= await uploadHeld()
-      if (draftId === undefined) return
+      let draftId = from?.upload.draft()?.draftId
+      if (draftId === undefined) {
+        const end = await uploadHeld()
+        // while the sending screen shows, only its Abbrechen stops the upload
+        if (end && "stopped" in end) return back()
+        if (!end || !("draft" in end)) return
+        draftId = end.draft.draftId
+      }
+      setScreen({ name: "sending", draftId })
       const job = await submitDraft(draftId, options)
       lastJob.remember(job)
       setScreen({ name: "status", options, job, since: Date.now() })
     } catch (error) {
-      if (!isLoginExpired(error)) setScreen({ name: "send-failed", printed: true, options, error })
+      // Abbrechen stopped the submit while it prepared: nothing was printed, and the draft is still there
+      if (failedWith(error, "stopped")) back()
+      else if (!isLoginExpired(error)) setScreen({ name: "send-failed", printed: true, options, error })
     } finally {
       sending = false
     }
@@ -239,8 +264,18 @@ export function App() {
               kind={fileKind(options.facts)}
               initial={options.initial}
               onChange={changed => { chosen = changed }}
-              onPrint={changed => void print(changed, options.upload.draft()?.draftId)}
+              onPrint={changed => void print(changed, options)}
               onBack={() => void leaveJob()}
+            />
+          )}
+        </Match>
+        {/* not keyed: the same sending screen goes on from the upload to the submit */}
+        <Match when={on("sending")}>
+          {sent => (
+            <SendingScreen
+              uploading={sent().upload?.progress()}
+              draftId={sent().draftId}
+              onStopUpload={() => sent().upload?.stop()}
             />
           )}
         </Match>

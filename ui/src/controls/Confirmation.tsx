@@ -32,7 +32,7 @@ export function Confirmation(props: {
     return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
   }
   return (
-    <Dialog label="Jetzt drucken?" at="center" onClose={props.onBack}>
+    <Dialog label="Jetzt drucken?" at="bottom" onClose={props.onBack}>
       <div>
         <h2 class="text-lg font-bold">Jetzt drucken?</h2>
         <p class="truncate text-muted">{props.fileName}</p>

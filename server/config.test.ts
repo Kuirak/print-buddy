@@ -41,6 +41,7 @@ test("every other key has the spec's default", async t => {
     printerUri: "ipp://172.30.32.1:631/printers/Office",
     uploadLimitMb: 50,
     jobsDir: "/share/print-buddy/jobs",
+    dellEngineFile: "/share/print-buddy/dell-engine.json",
     port: 9217,
   })
 })

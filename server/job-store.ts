@@ -5,6 +5,7 @@ import { isDeepStrictEqual } from "node:util"
 import type { CupsJobDetails, JobFile } from "../shared/api.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { Now } from "./clock.ts"
+import type { PrintDocument } from "./renderer.ts"
 
 /** What Print Buddy remembers about a Print Job. Never names of people, emails or file names. */
 export interface PrintJob {
@@ -25,8 +26,8 @@ export interface PrintJob {
 }
 
 interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "file" | "options" | "details"> {
-  /** The PDF as it was sent to CUPS. */
-  pdf: Uint8Array
+  /** The document as it was sent to CUPS. */
+  document: PrintDocument
   /** Paths of the uploaded files, in upload order. They are moved into the job folder. */
   uploads: readonly string[]
 }
@@ -43,7 +44,7 @@ const keepFor = 7 * day
 
 /**
  * Job store: one folder per Print Job, `<date>_<job-id>` under the jobs directory, with the uploads
- * (`upload-<n>`), the PDF that was sent to CUPS (`print.pdf`) and the record (`job.json`).
+ * (`upload-<n>`), the document that was sent to CUPS (`print.pdf` or `print.hbpl`) and the record (`job.json`).
  * Opening it reads the records of the job folders that are already there.
  */
 export async function openJobStore(deps: { jobsDir: string; now: Now }) {
@@ -106,7 +107,7 @@ export async function openJobStore(deps: { jobsDir: string; now: Now }) {
       const folder = folderOf(record)
       try {
         await mkdir(folder, { recursive: true })
-        await writeFile(join(folder, "print.pdf"), job.pdf)
+        await writeFile(join(folder, `print.${job.document.format}`), job.document.bytes)
         for (const [i, path] of job.uploads.entries()) await rename(path, join(folder, `upload-${i + 1}${extname(path)}`))
       } catch (err) {
         console.error(`The folder of Print Job ${record.id} (CUPS job ${record.cupsJobId}) is incomplete:`, err instanceof Error ? err.message : err)

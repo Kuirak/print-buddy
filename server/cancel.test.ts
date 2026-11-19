@@ -83,7 +83,7 @@ test("a status read that comes while CUPS is still answering the cancel reads Ab
   assert.deepEqual(await recorded(server, jobId), { cancelled: true, endedAt: "2026-11-19T08:30:12.000Z", jobState: "canceled" })
 })
 
-test("a Print Job can no longer be cancelled once it is being printed", async t => {
+test("a Print Job that is being printed can be cancelled as well", async t => {
   const server = await startTestServer()
   t.after(server.close)
   const { jobId, cupsJobId } = await server.print()
@@ -91,11 +91,9 @@ test("a Print Job can no longer be cancelled once it is being printed", async t 
 
   const res = await server.post(`/api/jobs/${jobId}/cancel`)
 
-  assert.equal(res.status, 409)
-  assert.deepEqual(await res.json(), { error: "not-cancellable" })
-  assert.equal(cancelRequests(server).length, 0)
-  const status = await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus
-  assert.equal(status.state, "printing")
+  assert.equal(res.status, 200)
+  assert.equal((await res.json() as JobStatus).state, "cancelled")
+  assert.equal(cancelRequests(server).length, 1)
 })
 
 test("a Print Job that has ended can't be cancelled", async t => {
@@ -111,19 +109,6 @@ test("a Print Job that has ended can't be cancelled", async t => {
   assert.equal(cancelRequests(server).length, 0)
   const status = await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus
   assert.equal(status.state, "done")
-})
-
-test("a job the Printer has not taken yet can still be cancelled, even though CUPS calls it processing", async t => {
-  const server = await startTestServer()
-  t.after(server.close)
-  const { jobId, cupsJobId } = await server.print()
-  server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "The printer is not responding.")
-
-  const res = await server.post(`/api/jobs/${jobId}/cancel`)
-
-  assert.equal(res.status, 200)
-  assert.equal((await res.json() as JobStatus).state, "cancelled")
-  assert.equal(cancelRequests(server).length, 1)
 })
 
 test("when CUPS refuses the Cancel-Job because the job belongs to someone else, the cancel is refused", async t => {

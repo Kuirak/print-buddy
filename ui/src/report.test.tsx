@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises"
-import { cleanup, render, screen } from "@solidjs/testing-library"
+import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import { userEvent, type UserEvent } from "@testing-library/user-event"
 import { afterEach, expect, test, vi } from "vitest"
 import type { ReportFacts } from "../../shared/api.ts"
@@ -253,6 +253,7 @@ test("only the last Print Job is kept on the phone, and nothing about its file",
   await user.upload(screen.getByLabelText("Datei auswählen"), secretPdf())
   await printAndConfirm(user)
   await user.click(await screen.findByRole("button", { name: "Nochmal drucken" }))
+  await user.click(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getByRole("button", { name: "Drucken" }))
   await screen.findByRole("heading", { name: "Fehler" })
 
   await user.click(screen.getByRole("button", { name: "Schließen" }))

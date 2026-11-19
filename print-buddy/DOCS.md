@@ -26,12 +26,22 @@ Through the tunnel, the Cloudflare login lasts a month. When it has run out, the
 Each print job has its own folder under `/share/print-buddy/jobs/`, named by date and job id. Open it with File Browser or Samba when something went wrong. The folder holds these files:
 
 - `upload-1.pdf`, or `upload-1.jpg`, `upload-2.png` and so on, which are the files as the phone sent them.
-- `print.pdf`, the PDF that Print Buddy sent to CUPS.
+- `print.pdf`, the PDF that Print Buddy sent to CUPS, or `print.hbpl` for colour photos printed through Dell's colour engine: the printer's own data.
 - `job.json`, with the print options, the sheet count, the CUPS job number, the times, what was uploaded, and what CUPS last said about the job. The upload details are PDF or photos, the size, and the number of pages or photos. The file holds no names, no emails and no file names.
 
 Print Buddy deletes a job folder 7 days after the job was sent, and deletes uploads that were never printed after 1 hour. It checks when it starts and every hour. It leaves other files under `/share/print-buddy/jobs/` alone. The `share` folder is not part of this add-on's backup.
 
 A job prints even when Print Buddy can't write its folder. The Print Buddy log then says which folder is incomplete.
+
+## Colour photos like Dell's driver (Dell C1765nfw only)
+
+Through the CUPS add-on's driver, colour photos come out grainy and with a grey black. Dell's own driver prints them smooth and with a deep black, but it exists only for macOS and Windows. Print Buddy can print colour photos the way Dell's driver does, using a file measured from that driver on a Mac:
+
+1. On a Mac, install Dell's driver for the C1765nfw and add the printer.
+2. In a checkout of the Print Buddy repository, run `node scripts/dell-engine.ts dell-engine.json`. It prints nothing and takes a few seconds.
+3. Copy `dell-engine.json` to `/share/print-buddy/dell-engine.json`, with File Browser or Samba, and restart Print Buddy. The log then says "Colour photos print through Dell's engine".
+
+Print Buddy then sends colour photos to the CUPS queue as the printer's own data, which CUPS passes on as it is. Black and white photos and PDFs still go through the CUPS driver. The file contains Dell's data: keep it to yourself. Place it only if the CUPS queue's printer is the Dell C1765nfw, because any other printer would print the data as garbage.
 
 ## Updates
 

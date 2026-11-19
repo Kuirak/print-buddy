@@ -1,5 +1,6 @@
 // Small files and values for tests. Keep them deterministic: no dates, no random ids.
 import { crc32, deflateSync } from "node:zlib"
+import sharp from "sharp"
 import type { PrintOptions } from "../../shared/print-options.ts"
 
 /** Valid Print Options for the one page of `samplePdf()`: what a new PDF starts with. */
@@ -133,8 +134,21 @@ export function withExifOrientation(jpeg: Uint8Array, orientation: number): Uint
 
 /** A valid single-colour RGB PNG of the given pixel size. */
 export function samplePng(width: number, height: number): Uint8Array<ArrayBuffer> {
+  return pngWithPixels(Array.from({ length: height }, () => Array.from({ length: width }, () => [200, 30, 30])))
+}
+
+/** A baseline JPEG with these pixels, row by row from the top, each as [red, green, blue]. */
+export async function jpegWithPixels(rows: number[][][]): Promise<Uint8Array<ArrayBuffer>> {
+  const [width, height] = [rows[0]!.length, rows.length]
+  const raw = Buffer.from(rows.flat(2))
+  return new Uint8Array(await sharp(raw, { raw: { width, height, channels: 3 } }).jpeg({ quality: 95 }).toBuffer())
+}
+
+/** A valid RGB PNG with these pixels, row by row from the top, each as [red, green, blue]. */
+export function pngWithPixels(rows: number[][][]): Uint8Array<ArrayBuffer> {
+  const [width, height] = [rows[0]!.length, rows.length]
   const raw = Buffer.alloc((width * 3 + 1) * height)
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) raw.set([200, 30, 30], y * (width * 3 + 1) + 1 + x * 3)
+  rows.forEach((row, y) => row.forEach((pixel, x) => raw.set(pixel, y * (width * 3 + 1) + 1 + x * 3)))
   const chunk = (type: string, data: Buffer) => {
     const length = Buffer.alloc(4)
     length.writeUInt32BE(data.length)

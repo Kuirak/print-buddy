@@ -1,6 +1,7 @@
 import type { Refusal } from "../../../shared/api.ts"
 import { FilePicker } from "../controls/FilePicker.tsx"
 import { ReportButton } from "../controls/ReportButton.tsx"
+import { ThumbScreen } from "../controls/ThumbScreen.tsx"
 
 function message(refusal: Refusal): string {
   switch (refusal.refusal) {
@@ -20,10 +21,9 @@ function message(refusal: Refusal): string {
 /** Shown when the server refused a picked file. Nothing prints; the person can pick again. `file` is the refused one. */
 export function RefusalScreen(props: { refusal: Refusal; file: File; onPick: (files: File[]) => void }) {
   return (
-    <main class="flex flex-col gap-6 p-4">
+    <ThumbScreen actions={<FilePicker onPick={props.onPick} />}>
       <h1 class="text-xl font-bold">{message(props.refusal)}</h1>
-      <FilePicker onPick={props.onPick} />
       <ReportButton subject={{ happened: `Die Datei wurde abgelehnt: ${message(props.refusal)}`, files: () => [props.file] }} />
-    </main>
+    </ThumbScreen>
   )
 }

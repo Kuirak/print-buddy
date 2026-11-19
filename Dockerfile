@@ -11,6 +11,21 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm run build && pnpm prune --prod
 
+# foo2hbpl2 from foo2zjs (GPL-2.0) packs colour photos into the Printer's own language when Dell's engine is in the
+# share folder (docs/adr/0007-colour-photos-print-through-dells-engine.md). It stays a separate program, and its
+# source travels in the image next to the binary, as the GPL asks of whoever hands the binary on.
+FROM node:26-alpine AS foo2hbpl2
+ARG FOO2ZJS_COMMIT=e04290de6b7a30d588f3411fd9834618e09f7b9b
+RUN apk add --no-cache build-base
+ADD --checksum=sha256:5105113f1758c515265ee53882e846b2c4134b89e7b40906483c4497cd8df1f0 \
+  https://github.com/koenkooi/foo2zjs/archive/${FOO2ZJS_COMMIT}.tar.gz /tmp/foo2zjs.tar.gz
+WORKDIR /src
+RUN tar xzf /tmp/foo2zjs.tar.gz --strip-components=1 \
+  && mkdir -p /out/source \
+  && cp foo2hbpl2.c hbpl.h jbig.c jbig.h jbig_ar.c jbig_ar.h COPYING /out/source/ \
+  && printf 'foo2zjs %s (https://github.com/koenkooi/foo2zjs)\nBuilt with: cc -O2 -w -o foo2hbpl2 foo2hbpl2.c jbig.c jbig_ar.c\n' "$FOO2ZJS_COMMIT" > /out/source/BUILD \
+  && cc -O2 -w -o /out/foo2hbpl2 foo2hbpl2.c jbig.c jbig_ar.c
+
 FROM node:26-alpine
 # Only for the labels. The server reads its version from print-buddy/config.yaml.
 ARG BUILD_VERSION=dev
@@ -22,6 +37,8 @@ COPY --from=build /app/shared ./shared
 COPY --from=build /app/server ./server
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/print-buddy/config.yaml ./print-buddy/config.yaml
+COPY --from=foo2hbpl2 /out/foo2hbpl2 /usr/local/bin/foo2hbpl2
+COPY --from=foo2hbpl2 /out/source /usr/local/share/foo2hbpl2/source
 LABEL \
   io.hass.version="${BUILD_VERSION}" \
   io.hass.type="app" \

@@ -1,4 +1,4 @@
-import { render, screen } from "@solidjs/testing-library"
+import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
@@ -72,23 +72,27 @@ test("a timer runs while the Print Job runs, and Fertig shows how long it took",
   expect(screen.getByText("gedauert 1:15")).toBeInTheDocument()
 })
 
-test("Abbrechen is offered only while the Print Job waits", async () => {
+test("Abbrechen is offered while the Print Job waits or prints, and while it prints a hint says what may still come out", async () => {
   let answer = jobStatus()
   mockApi({ "GET /api/jobs/j1": () => answer })
   renderStatusScreen()
+  const hint = "Was der Drucker schon hat, kann noch herauskommen."
 
   await vi.advanceTimersByTimeAsync(0)
   expect(screen.getByRole("button", { name: "Abbrechen" })).toBeInTheDocument()
+  expect(screen.queryByText(hint)).not.toBeInTheDocument()
 
   answer = jobStatus({ state: "printing" })
   await vi.advanceTimersByTimeAsync(2_000)
   expect(screen.getByRole("heading")).toHaveTextContent("Wird gedruckt")
-  expect(screen.queryByRole("button", { name: "Abbrechen" })).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Abbrechen" })).toBeInTheDocument()
+  expect(screen.getByText(hint)).toBeInTheDocument()
 
   answer = jobStatus({ state: "done", endedAt: sentAt + 4_000 })
   await vi.advanceTimersByTimeAsync(2_000)
   expect(screen.getByRole("heading")).toHaveTextContent("Fertig")
   expect(screen.queryByRole("button", { name: "Abbrechen" })).not.toBeInTheDocument()
+  expect(screen.queryByText(hint)).not.toBeInTheDocument()
 })
 
 test("tapping Abbrechen cancels the Print Job, and the screen shows Abgebrochen", async () => {
@@ -113,8 +117,25 @@ test("tapping Abbrechen cancels the Print Job, and the screen shows Abgebrochen"
   expect(screen.getByRole("heading")).toHaveTextContent("Abgebrochen")
 })
 
-test("when the cancel comes too late, the screen keeps following the Print Job", async () => {
-  let answer = jobStatus()
+test("tapping Abbrechen while the Print Job prints cancels it, and the screen shows Abgebrochen", async () => {
+  const api = mockApi({
+    "GET /api/jobs/j1": () => jobStatus({ state: "printing" }),
+    "POST /api/jobs/j1/cancel": () => jobStatus({ state: "cancelled", endedAt: sentAt + 3_000 }),
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  renderStatusScreen()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(screen.getByRole("heading")).toHaveTextContent("Wird gedruckt")
+
+  await user.click(screen.getByRole("button", { name: "Abbrechen" }))
+
+  expect(screen.getByRole("heading")).toHaveTextContent("Abgebrochen")
+  expect(screen.queryByRole("button", { name: "Abbrechen" })).not.toBeInTheDocument()
+  expect(api.calls.filter(call => call.path === "/api/jobs/j1/cancel")).toHaveLength(1)
+})
+
+test("when the cancel comes too late, the screen shows where the Print Job is now", async () => {
+  let answer = jobStatus({ state: "printing" })
   mockApi({
     "GET /api/jobs/j1": () => answer,
     "POST /api/jobs/j1/cancel": () => json({ error: "not-cancellable" }, 409),
@@ -123,11 +144,11 @@ test("when the cancel comes too late, the screen keeps following the Print Job",
   renderStatusScreen()
   await vi.advanceTimersByTimeAsync(0)
 
-  answer = jobStatus({ state: "printing" })
+  answer = jobStatus({ state: "done", endedAt: sentAt + 4_000 })
   await user.click(screen.getByRole("button", { name: "Abbrechen" }))
   await vi.advanceTimersByTimeAsync(2_000)
 
-  expect(screen.getByRole("heading")).toHaveTextContent("Wird gedruckt")
+  expect(screen.getByRole("heading")).toHaveTextContent("Fertig")
   expect(screen.queryByRole("button", { name: "Abbrechen" })).not.toBeInTheDocument()
 })
 
@@ -195,9 +216,70 @@ test("a failed Print Job shows Fehler with the German reason", async () => {
   expect(screen.queryByRole("button", { name: "Abbrechen" })).not.toBeInTheDocument()
 
   await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
-  await user.click(screen.getByRole("button", { name: "Schließen" }))
+  expect(onPrintAgain).not.toHaveBeenCalled()
+  await user.click(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getByRole("button", { name: "Drucken" }))
   expect(onPrintAgain).toHaveBeenCalledTimes(1)
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Schließen" }))
   expect(onClose).toHaveBeenCalledTimes(1)
+})
+
+test("Nochmal drucken asks first and says what will come out; Abbrechen in it prints nothing", async () => {
+  mockApi({
+    "GET /api/jobs/j1": () => jobStatus({
+      state: "done",
+      endedAt: sentAt + 9_000,
+      sheets: 6,
+      file: { kind: "photo", bytes: 9_000, count: 3 },
+      options: {
+        copies: 2, color: "color", paper: "A4", quality: "draft",
+        printSize: { kind: "fill" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [0, 1, 2],
+      },
+    }),
+  })
+  const onPrintAgain = vi.fn()
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  render(() => <StatusScreen job={{ jobId: "j1", cupsJobId: 42 }} onClose={() => {}} onPrintAgain={onPrintAgain} />)
+  await vi.advanceTimersByTimeAsync(0)
+
+  await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+
+  const dialog = screen.getByRole("dialog", { name: "Nochmal drucken?" })
+  expect(within(dialog).getByRole("heading")).toHaveTextContent("Nochmal drucken?")
+  expect(within(dialog).getAllByRole("listitem").map(line => line.textContent)).toEqual([
+    "3 Fotos × 2 Kopien = 6 Blätter",
+    "Farbe · A4 · Füllen · Toner sparen",
+  ])
+
+  await user.click(within(dialog).getByRole("button", { name: "Abbrechen" }))
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  expect(screen.getByRole("heading")).toHaveTextContent("Fertig")
+  expect(onPrintAgain).not.toHaveBeenCalled()
+})
+
+test("Nochmal drucken names the pages of a PDF as the confirmation does", async () => {
+  mockApi({
+    "GET /api/jobs/j1": () => jobStatus({
+      state: "cancelled",
+      endedAt: sentAt + 9_000,
+      sheets: 2,
+      file: { kind: "pdf", bytes: 9_000, count: 5 },
+      options: {
+        copies: 1, color: "mono", paper: "A5", quality: "normal",
+        printSize: { kind: "percent", value: 71 }, position: "center", pagesPerSheet: 2, rotation: 0, selection: [1, 2, 4],
+      },
+    }),
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  renderStatusScreen()
+  await vi.advanceTimersByTimeAsync(0)
+
+  await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+
+  expect(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getAllByRole("listitem").map(line => line.textContent)).toEqual([
+    "3 Seiten (1-2, 4; 2 pro Blatt) × 1 Kopie = 2 Blätter",
+    "Schwarz-Weiß · A5 · 71 %",
+  ])
 })
 
 test("Fehler has Details, closed at first, with what CUPS said and the CUPS job number", async () => {

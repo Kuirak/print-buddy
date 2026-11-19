@@ -220,6 +220,7 @@ test("a 401 while the status screen follows a Print Job shows Anmeldung abgelauf
 
   // Nochmal drucken still has the file and the Print Options
   await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+  await user.click(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getByRole("button", { name: "Drucken" }))
 
   expect(await screen.findByText("Auftrag Nr. 43")).toBeInTheDocument()
   expect((api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData).get("file")).toBe(file)

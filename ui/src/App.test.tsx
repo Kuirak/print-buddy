@@ -98,6 +98,9 @@ test("Nochmal drucken on Fertig sends the same file with the same Print Options 
   expect(screen.getByText("gedauert 1:15")).toBeInTheDocument()
 
   await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+  // it asks first: nothing is uploaded or sent before Drucken in "Nochmal drucken?"
+  expect(api.calls.filter(call => call.method === "POST")).toHaveLength(3)
+  await user.click(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getByRole("button", { name: "Drucken" }))
 
   expect(await screen.findByText("Auftrag Nr. 43")).toBeInTheDocument()
   expect(screen.getByRole("heading", { name: "Wartet" })).toBeInTheDocument()

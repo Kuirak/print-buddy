@@ -4,11 +4,13 @@ import { join } from "node:path"
 import { createApp } from "./app.ts"
 import type { Now } from "./clock.ts"
 import type { Config } from "./config.ts"
+import type { HbplEncoder } from "./printer/hbpl.ts"
 
 export interface ServerOptions {
   now?: Now
   hostname?: string
   uiDir?: string
+  encodeHbpl?: HbplEncoder
 }
 
 export interface RunningServer {
@@ -27,6 +29,7 @@ export async function startServer(config: Config, opts: ServerOptions = {}): Pro
     config,
     now: opts.now ?? Date.now,
     uiDir: opts.uiDir ?? join(import.meta.dirname, "..", "dist", "ui"),
+    encodeHbpl: opts.encodeHbpl,
   })
   await app.cleanup()
   const hourly = setInterval(() => {

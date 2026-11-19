@@ -7,6 +7,8 @@ export interface Config {
   uploadLimitMb: number
   /** Where Print Job folders live. */
   jobsDir: string
+  /** Dell's engine, written by scripts/dell-engine.ts; colour photos print through it when the file is there. */
+  dellEngineFile: string
   port: number
 }
 
@@ -16,13 +18,14 @@ const defaults = {
   uploadLimitMb: 50,
   optionsFile: "/data/options.json",
   jobsDir: "/share/print-buddy/jobs",
+  dellEngineFile: "/share/print-buddy/dell-engine.json",
   port: 9217,
 }
 
 /**
  * Reads the add-on options file written by the HA Supervisor. A missing file or key gives the default;
  * `printer_name` has none and is required.
- * `PRINT_BUDDY_OPTIONS_FILE`, `PRINT_BUDDY_JOBS_DIR`, `PRINT_BUDDY_PORT` and `PRINT_BUDDY_CUPS` (host:port)
+ * `PRINT_BUDDY_OPTIONS_FILE`, `PRINT_BUDDY_JOBS_DIR`, `PRINT_BUDDY_DELL_ENGINE`, `PRINT_BUDDY_PORT` and `PRINT_BUDDY_CUPS` (host:port)
  * move things for tests and local development.
  */
 export async function loadConfig(env: Record<string, string | undefined>): Promise<Config> {
@@ -35,6 +38,7 @@ export async function loadConfig(env: Record<string, string | undefined>): Promi
     printerUri: `ipp://${env.PRINT_BUDDY_CUPS ?? defaults.cups}/printers/${encodeURIComponent(name)}`,
     uploadLimitMb: typeof options.upload_limit_mb === "number" ? options.upload_limit_mb : defaults.uploadLimitMb,
     jobsDir: env.PRINT_BUDDY_JOBS_DIR ?? defaults.jobsDir,
+    dellEngineFile: env.PRINT_BUDDY_DELL_ENGINE ?? defaults.dellEngineFile,
     port: env.PRINT_BUDDY_PORT === undefined ? defaults.port : Number(env.PRINT_BUDDY_PORT),
   }
 }

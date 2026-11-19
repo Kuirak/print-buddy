@@ -1,4 +1,5 @@
 import { loginPath } from "../../../shared/login.ts"
+import { ThumbScreen } from "../controls/ThumbScreen.tsx"
 
 /**
  * Shown when Cloudflare Access no longer lets the app's calls through: the monthly login has run out.
@@ -7,11 +8,14 @@ import { loginPath } from "../../../shared/login.ts"
  */
 export function LoginExpiredScreen() {
   return (
-    <main class="flex flex-col gap-6 p-4">
+    <ThumbScreen
+      actions={
+        <button type="button" class="btn-primary" onClick={() => location.assign(loginPath)}>
+          Neu anmelden
+        </button>
+      }
+    >
       <h1 class="text-xl font-bold">Anmeldung abgelaufen</h1>
-      <button type="button" class="btn-primary" onClick={() => location.assign(loginPath)}>
-        Neu anmelden
-      </button>
-    </main>
+    </ThumbScreen>
   )
 }

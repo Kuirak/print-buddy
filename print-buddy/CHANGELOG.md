@@ -5,6 +5,11 @@ Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts a
 ## Unreleased
 
 - With a large font or a small screen, "Datei auswählen" no longer covers "Bericht kopieren" on the start screen.
+- Colour photos can print like Dell's own driver: smooth, without a grid of dots, with deep black. Measure Dell's driver once on a Mac with `scripts/dell-engine.ts` and put the file into `/share/print-buddy/`; see the documentation. Print Buddy then sends colour photos as the printer's own data. Without the file, nothing changes.
+- After "Drucken" the app shows how far the job has got: "Wird hochgeladen", "Wird vorbereitet … Blatt 2 von 5", "Wird an den Drucker geschickt". "Abbrechen" stops it while it is being prepared.
+- A job can now be cancelled while it prints, too, not only while it waits. What the printer already has may still come out.
+- "Nochmal drucken" asks before it prints.
+- The buttons sit at the bottom of every screen, within reach of the thumb with the phone in one hand, and "Jetzt drucken?" and "Nochmal drucken?" open at the bottom edge.
 
 ## 2026.11.3
 

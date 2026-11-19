@@ -1,5 +1,6 @@
 import type { CupsJobDetails, Margins, PaperMargins, PrinterStatus } from "../../shared/api.ts"
 import { papers, type Paper, type PrintOptions } from "../../shared/print-options.ts"
+import type { PrintDocument } from "../renderer.ts"
 import {
   JobState, Op, PrinterState, Status, Tag, attr, decodeIpp, encodeIpp, findAttr, v, values,
   type IppAttribute, type IppCollection, type IppMessage,
@@ -133,16 +134,20 @@ export function createPrinterClient(printerUri: string) {
   }
 
   return {
-    /** Sends the PDF as one job and returns the job number CUPS assigned, with the job's first state. */
-    async printJob(pdf: Uint8Array, options: JobOptions): Promise<{ cupsJobId: number; details: CupsJobDetails }> {
+    /**
+     * Sends the document as one job and returns the job number CUPS assigned, with the job's first state.
+     * HBPL goes as raw data, past the queue's driver: its copies are in the data, and the PPD options don't apply.
+     */
+    async printJob(document: PrintDocument, options: JobOptions): Promise<{ cupsJobId: number; details: CupsJobDetails }> {
       const envelope = options.paper === "EnvDL" || options.paper === "EnvC5"
+      const raw = document.format === "hbpl"
       const reply = await call(Op.printJob, [
         attr("job-name", v.name("Print Buddy")),
-        attr("document-format", v.mime("application/pdf")),
+        attr("document-format", v.mime(raw ? "application/vnd.cups-raw" : "application/pdf")),
       ], {
-        data: pdf,
-        // Never scaling, page-ranges or number-up: the PDF already is what the preview showed.
-        jobAttributes: [
+        data: document.bytes,
+        // Never scaling, page-ranges or number-up: the document already is what the preview showed.
+        jobAttributes: raw ? undefined : [
           attr("copies", v.int(options.copies)),
           // 1-2-3, 1-2-3
           attr("multiple-document-handling", v.keyword("separate-documents-collated-copies")),
