@@ -115,7 +115,7 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   app.ts             Wires the modules together and mounts the routes.
   clock.ts           The injectable clock type.
   intake.ts          Upload intake (drafts).
-  job-store.ts       Job store.
+  job-store.ts       Job store: job folders, job.json, the 7-day cleanup.
   status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts and the IPP codec.
   http/              One file per API resource: drafts, jobs, printer, session, health, ui (static files).
@@ -171,10 +171,12 @@ test("…", async t => {
   - `opts.options`: extra keys for the options file, for example `{ upload_limit_mb: 1 }`.
   - `opts.now`: start time of the fake clock. `opts.ui`: files of a stand-in UI build.
   - `opts.beforeStart(printer)`: runs before the server starts, to script what the fake printer answers to the startup read of the margins.
-  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `print(overrides?, files?)`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
+  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `print(overrides?, files?)`, `cleanup()`, `restart()`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
   - `submit` posts `samplePrintOptions` from `server/testing/fixtures.ts` (one copy, black and white, A4, page 1), changed by `overrides`. A submit without valid Print Options is a 400.
   - `print` sends a whole Print Job (new draft, one upload per file, submit) and returns `{ jobId, cupsJobId }`. Without `files` it sends `samplePdf()`.
   - `startupRequests` holds the IPP requests the server made while starting. They are taken out of `printer.requests`, so that list starts empty and holds only what the test caused.
+  - `cleanup()` does what the server does when it starts and every hour: it deletes old job folders and drafts. Call it after `clock.advance(…)`.
+  - `restart()` stops the server and starts it again on the same directories, printer and clock, as a restart of the add-on does. `url` changes with it, so read `server.url` after the restart and don't keep a copy.
 - `server.clock` is the server's only source of time: `clock.now()` and `clock.advance(ms)`. Server code takes `now` from its dependencies and never calls `Date.now()` itself. For anything that runs on a schedule, expose a function the test can call after `clock.advance(…)`, instead of faking timers.
 - `server.printer` is the fake IPP printer from `server/testing/fake-ipp.ts`. It answers like cupsd 2.4.10.
   - `printer.requests`: every IPP request received, decoded. Read attributes with `values(request, Tag.operation, "requesting-user-name")` or `findAttr(…)` from `server/printer/ipp-codec.ts`. `request.data` holds the document bytes.
@@ -257,7 +259,7 @@ const sheets = layout({
 - **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
 - **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
 - **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on (`init: false`). Anything that must finish before the process ends belongs in the server's `close()`.
-- **What the skeleton leaves open.** Submit sends the upload as it is (renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed submit shows nothing in the app (failures).
+- **What the skeleton leaves open.** Submit sends the upload as it is (renderer). A failed submit shows nothing in the app (failures).
 
 ### Print Options and printer info
 
@@ -294,6 +296,19 @@ const sheets = layout({
 - **Status mapper.** `mapStatus(details, cancelledByPrintBuddy)` in `server/status-mapper.ts` is the one place that decides state and reason. A `processing` job whose printer message says the Printer isn't connected yet (`notConnectedMessages`) is Wartet, and `processing-stopped` is Wartet too. It reads no printer state and no reason keywords yet: Fehler has one generic sentence, and one for a job somebody else cancelled.
 - **Cancel.** `POST /api/jobs/:jobId/cancel` answers the new `JobStatus`, or 409 `{ error: "not-cancellable" }`. It is allowed exactly while the job reads as Wartet. The job store's `cancelled` flag records Print Buddy's own cancel, because CUPS marks every cancelled job the same way. `printer.cancelJob()` resolves false when CUPS refuses (`IppRefusal`: a bare HTTP status or an IPP error status) and throws only when CUPS can't be reached.
 - **Sheet count.** `sheets` is set at submit: pages of the PDF, or the number of photos, times `copies`. It ignores `selection` and `pagesPerSheet` until the renderer reports the real count.
-- **Job store.** `jobs.update(job, changes)` returns the changed record; records are never changed in place. `details`, `endedAt` and `cancelled` are the fields that change after `add`.
+- **Job store.** `await jobs.update(job, changes)` gives the changed record; records are never changed in place. `details`, `endedAt` and `cancelled` are the fields that change after `add`.
 - **Status screen.** It assumes Wartet until the first answer. It polls with a timeout chain, 2 s after each answer, and stops once `endedAt` is set. The running timer counts from when the screen opened, on the phone's clock; "gedauert" is `endedAt - sentAt` from the server. The 60 s hint shows while the state is Wartet and the timer is at 60 s or more. Every ended state offers "Schließen" and "Nochmal drucken"; Fehler also shows `reason`.
 - **Nochmal drucken.** The status screen state in `App.tsx` keeps `files` and `options`. `print(files, options)` without a draft id uploads the files into a new draft and submits it with the same Print Options, without going back to the options screen.
+
+### Notes from job folders and cleanup (ticket 12)
+
+- **Job folder.** `<jobs dir>/<date>_<job-id>/` holds `upload-1.pdf` (or `upload-1.jpg`, `upload-2.png`, … in upload order), `print.pdf` and `job.json`. The date is the UTC day the job was sent. No file carries the name it had on the phone.
+- **`print.pdf` is what CUPS got.** Submit in `server/http/drafts.ts` holds the bytes in one variable, `pdf`, and passes it to both `printer.printJob(pdf, options)` and `jobs.add({ …, pdf })`. Whatever builds the PDF must assign that variable, so the folder can't keep something else than what was printed.
+- **Submit uses up the draft.** `jobs.add` moves the uploads into the job folder, then `intake.discard(draftId)` forgets the draft. A second submit of the same draft is a 404. To print again, upload into a new draft, as "Nochmal drucken" does.
+- **`job.json`** is the `PrintJob` record of `server/job-store.ts`: `id`, `cupsJobId`, `sentAt`, `endedAt`, `sheets`, `options` (the Print Options), `details` (what CUPS last said) and `cancelled`. The two times are ISO 8601 text in the file and ms numbers in the record. A new field of `PrintJob` lands in the file by itself; it must never be a name of a person, an email or a file name.
+- **When it is written.** At submit, and whenever `jobs.update` changes something. A status read that learns nothing new writes nothing.
+- **After a restart.** `openJobStore` reads every `job.json` back, so `GET /api/jobs/:jobId` works as before and goes on asking CUPS. A folder whose `job.json` can't be read is skipped with a warning. Drafts are not read back: the list of drafts is in memory.
+- **Cleanup.** `startServer` runs it once before it listens and then every hour; `RunningServer.cleanup()` is the same function. It has two parts, each in the module that owns the folders:
+  - `jobs.cleanup()` deletes job folders more than 7 days after `sentAt`. A folder without a readable `job.json` counts from the end of the day in its name.
+  - `intake.cleanup()` deletes drafts more than 1 hour after they were created, and every draft folder that has no draft. That covers what an earlier run of the server left behind: nobody can submit those any more.
+  - Both only look at entries named like their own folders (`<date>_<uuid>` in the jobs directory, `<uuid>` in `drafts/`). Anything else a person puts there stays.
