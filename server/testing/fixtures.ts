@@ -41,11 +41,14 @@ export interface PdfPageSpec {
   rotate?: 0 | 90 | 180 | 270
   /** `/CropBox` as [left, bottom, right, top]. */
   cropBox?: [number, number, number, number]
+  /** A page without `/Contents`: valid, and what a blank page often looks like. */
+  blank?: true
 }
 
-/** A valid PDF with the given pages and no content on them. */
+/** A valid PDF with the given pages. Each shows one small square, unless it is `blank`. */
 export function pdfWithPages(pages: PdfPageSpec[]): Uint8Array<ArrayBuffer> {
   const kids = pages.map((_, i) => `${i + 3} 0 R`).join(" ")
+  const square = "0 0 10 10 re f"
   return buildPdf([
     "<< /Type /Catalog /Pages 2 0 R >>",
     `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`,
@@ -53,7 +56,9 @@ export function pdfWithPages(pages: PdfPageSpec[]): Uint8Array<ArrayBuffer> {
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.size[0]} ${page.size[1]}]` +
       (page.rotate === undefined ? "" : ` /Rotate ${page.rotate}`) +
       (page.cropBox === undefined ? "" : ` /CropBox [${page.cropBox.join(" ")}]`) +
+      (page.blank ? "" : ` /Contents ${pages.length + 3} 0 R`) +
       " >>"),
+    `<< /Length ${square.length} >>\nstream\n${square}\nendstream`,
   ])
 }
 
@@ -62,7 +67,7 @@ export async function encryptedPdf(passwords: { userPassword: string; ownerPassw
   // the one fixture that is not byte-stable: pdf-lib picks a random file id for the encryption key
   const { PDFDocument } = await import("@cantoo/pdf-lib")
   const doc = await PDFDocument.create()
-  doc.addPage([100, 100])
+  doc.addPage([100, 100]).drawRectangle({ x: 0, y: 0, width: 10, height: 10 })
   doc.encrypt({ ...passwords, permissions: { printing: "highResolution" } })
   return new Uint8Array(await doc.save())
 }

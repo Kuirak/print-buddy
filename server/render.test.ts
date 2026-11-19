@@ -1,0 +1,296 @@
+import assert from "node:assert/strict"
+import { test } from "node:test"
+import type { PrintOptions } from "../shared/print-options.ts"
+import type { FakeIpp } from "./testing/fake-ipp.ts"
+import { encryptedPdf, pdfWithPages, sampleJpeg, samplePng, samplePrintOptions as base, withExifOrientation, type PdfPageSpec } from "./testing/fixtures.ts"
+import { startTestServer, type TestServer } from "./testing/harness.ts"
+import { readRenderedPdf } from "./testing/rendered-pdf.ts"
+
+// Sheet sizes in points: A4 is 595.28 × 841.89, A5 419.53 × 595.28, Umschlag DL 311.81 × 623.62, Umschlag C5 459.21 × 649.13.
+
+/** A printer that can print up to the edge, so the expected numbers stay simple. */
+const noMargins = (printer: FakeIpp) => {
+  for (const media of printer.printer.media) Object.assign(media, { top: 0, right: 0, bottom: 0, left: 0 })
+}
+
+async function start(t: { after(fn: () => unknown): void }, margins: "none" | "printer" = "none") {
+  const server = await startTestServer(margins === "none" ? { beforeStart: noMargins } : {})
+  t.after(server.close)
+  return server
+}
+
+/** Uploads the files into a new draft, submits it and returns the sheets of the PDF the printer received. */
+async function print(server: TestServer, files: Uint8Array<ArrayBuffer>[], options: Partial<PrintOptions>) {
+  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
+  for (const file of files) assert.equal((await server.upload(draftId, file, "file")).status, 201)
+  const submitted = await server.submit(draftId, options)
+  assert.equal(submitted.status, 201, await submitted.clone().text())
+  return readRenderedPdf(server.printer.requests.at(-1)!.data)
+}
+
+const printPdf = (server: TestServer, pages: PdfPageSpec[], options: Partial<PrintOptions>) => print(server, [pdfWithPages(pages)], options)
+
+const actualSize: Partial<PrintOptions> = { printSize: { kind: "percent", value: 100 }, position: "top-left" }
+
+test("the Printer receives a PDF built from the selected page, on a sheet of the chosen paper", async t => {
+  const server = await start(t)
+
+  const sheets = await printPdf(server, [{ size: [200, 100] }], { ...actualSize, selection: [1] })
+
+  assert.equal(server.printer.requests.length, 1)
+  assert.deepEqual(sheets, [{
+    width: 595.28,
+    height: 841.89,
+    items: [{
+      kind: "page",
+      size: [200, 100],
+      box: { left: 0, top: 0, width: 200, height: 100 },
+      clip: { left: 0, top: 0, width: 595.28, height: 841.89 },
+      corners: [[0, 100], [200, 100], [0, 0], [200, 0]],
+    }],
+  }])
+})
+
+test("each sheet has the size of the chosen paper", async t => {
+  const server = await start(t)
+  const sizes = { A4: [595.28, 841.89], A5: [419.53, 595.28], EnvDL: [311.81, 623.62], EnvC5: [459.21, 649.13] } as const
+
+  for (const paper of ["A4", "A5", "EnvDL", "EnvC5"] as const) {
+    const sheets = await printPdf(server, [{ size: [200, 100] }, { size: [300, 100] }], { ...actualSize, paper, selection: [1, 2] })
+
+    assert.deepEqual(sheets.map(sheet => [sheet.width, sheet.height]), [sizes[paper], sizes[paper]], paper)
+    assert.deepEqual(sheets[0]!.items[0]!.clip, { left: 0, top: 0, width: sizes[paper][0], height: sizes[paper][1] }, paper)
+  }
+})
+
+test("only the selected pages are printed, in the order of the selection", async t => {
+  const server = await start(t)
+  const pages: PdfPageSpec[] = [{ size: [100, 100] }, { size: [200, 100] }, { size: [300, 100] }, { size: [400, 100] }]
+
+  const sheets = await printPdf(server, pages, { ...actualSize, selection: [4, 1, 3] })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.size)), [[[400, 100]], [[100, 100]], [[300, 100]]])
+})
+
+test("a page prints the way a reader shows it: turned by its own rotation, cut to its CropBox", async t => {
+  const server = await start(t)
+  const pages: PdfPageSpec[] = [
+    { size: [300, 400], rotate: 90 },
+    { size: [300, 400], rotate: 180 },
+    { size: [300, 400], rotate: 270 },
+    { size: [200, 100], cropBox: [10, 10, 110, 60] },
+    { size: [200, 100], cropBox: [10, 10, 110, 60], rotate: 90 },
+  ]
+
+  const sheets = await printPdf(server, pages, { ...actualSize, selection: [1, 2, 3, 4, 5] })
+
+  // corners of the stored page: bottom-left, bottom-right, top-left, top-right
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(({ size, box, corners }) => ({ size, box, corners }))), [
+    [{ size: [300, 400], box: { left: 0, top: 0, width: 400, height: 300 }, corners: [[0, 0], [0, 300], [400, 0], [400, 300]] }],
+    [{ size: [300, 400], box: { left: 0, top: 0, width: 300, height: 400 }, corners: [[300, 0], [0, 0], [300, 400], [0, 400]] }],
+    [{ size: [300, 400], box: { left: 0, top: 0, width: 400, height: 300 }, corners: [[400, 300], [400, 0], [0, 300], [0, 0]] }],
+    [{ size: [100, 50], box: { left: 0, top: 0, width: 100, height: 50 }, corners: [[0, 50], [100, 50], [0, 0], [100, 0]] }],
+    [{ size: [100, 50], box: { left: 0, top: 0, width: 50, height: 100 }, corners: [[0, 0], [0, 100], [50, 0], [50, 100]] }],
+  ])
+})
+
+test("Print size and Position place a page where the layout module says", async t => {
+  const server = await start(t, "printer")
+  const cases: { options: Partial<PrintOptions>; box: { left: number; top: number; width: number; height: number } }[] = [
+    // the Printer's margins are 9.01 pt left and right, 11.99 pt top and bottom: Einpassen fills the 577.26 pt between them
+    { options: { printSize: { kind: "fit" }, position: "center" }, box: { left: 9.01, top: 276.63, width: 577.26, height: 288.63 } },
+    { options: { printSize: { kind: "fit" }, position: "top" }, box: { left: 9.01, top: 11.99, width: 577.26, height: 288.63 } },
+    { options: { printSize: { kind: "fit" }, position: "bottom-right" }, box: { left: 9.01, top: 541.27, width: 577.26, height: 288.63 } },
+    // Füllen covers the whole sheet in height, so the page is 1683.78 pt wide; Position decides which part is cut off
+    { options: { printSize: { kind: "fill" }, position: "left" }, box: { left: 9.01, top: 0, width: 1683.78, height: 841.89 } },
+    { options: { printSize: { kind: "fill" }, position: "right" }, box: { left: -1097.51, top: 0, width: 1683.78, height: 841.89 } },
+    { options: { printSize: { kind: "percent", value: 50 }, position: "top-left" }, box: { left: 9.01, top: 11.99, width: 100, height: 50 } },
+    { options: { printSize: { kind: "percent", value: 250 }, position: "bottom-right" }, box: { left: 86.27, top: 579.9, width: 500, height: 250 } },
+    { options: { printSize: { kind: "percent", value: 400 }, position: "top-left" }, box: { left: 9.01, top: 11.99, width: 800, height: 400 } },
+  ]
+
+  for (const { options, box } of cases) {
+    const sheets = await printPdf(server, [{ size: [200, 100] }], { ...options, selection: [1] })
+
+    assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.box)), [[box]], JSON.stringify(options))
+  }
+})
+
+test("manual rotation turns every page of the PDF; a PDF is never turned on its own", async t => {
+  const server = await start(t)
+  const pages: PdfPageSpec[] = [{ size: [200, 100] }, { size: [300, 100] }]
+  const corners = (sheets: Awaited<ReturnType<typeof printPdf>>) => sheets.map(sheet => sheet.items.map(item => item.corners))
+
+  assert.deepEqual(corners(await printPdf(server, pages, { ...actualSize, rotation: 90, selection: [1, 2] })), [
+    [[[0, 0], [0, 200], [100, 0], [100, 200]]],
+    [[[0, 0], [0, 300], [100, 0], [100, 300]]],
+  ])
+  assert.deepEqual(corners(await printPdf(server, pages, { ...actualSize, rotation: 180, selection: [1] })), [
+    [[[200, 0], [0, 0], [200, 100], [0, 100]]],
+  ])
+  assert.deepEqual(corners(await printPdf(server, pages, { ...actualSize, rotation: 270, selection: [1] })), [
+    [[[100, 200], [100, 0], [0, 200], [0, 0]]],
+  ])
+  // a landscape page at Einpassen on a portrait sheet stays landscape
+  assert.deepEqual(corners(await printPdf(server, pages, { printSize: { kind: "fit" }, selection: [1] })), [
+    [[[0, 569.76], [595.28, 569.76], [0, 272.13], [595.28, 272.13]]],
+  ])
+})
+
+test("two pages per sheet: the pages lie turned in the two halves of the sheet, each clipped to its half", async t => {
+  const server = await start(t)
+  const pages: PdfPageSpec[] = [{ size: [100, 100] }, { size: [200, 100] }, { size: [300, 100] }]
+
+  const sheets = await printPdf(server, pages, { ...actualSize, pagesPerSheet: 2, selection: [1, 2, 3] })
+
+  const top = { left: 0, top: 0, width: 595.28, height: 420.94 }
+  const bottom = { left: 0, top: 420.94, width: 595.28, height: 420.94 }
+  assert.deepEqual(sheets, [
+    {
+      width: 595.28,
+      height: 841.89,
+      items: [
+        { kind: "page", size: [100, 100], box: { left: 495.28, top: 0, width: 100, height: 100 }, clip: top, corners: [[495.28, 0], [495.28, 100], [595.28, 0], [595.28, 100]] },
+        { kind: "page", size: [200, 100], box: { left: 495.28, top: 420.94, width: 100, height: 200 }, clip: bottom, corners: [[495.28, 420.94], [495.28, 620.94], [595.28, 420.94], [595.28, 620.94]] },
+      ],
+    },
+    {
+      width: 595.28,
+      height: 841.89,
+      items: [
+        { kind: "page", size: [300, 100], box: { left: 495.28, top: 0, width: 100, height: 300 }, clip: top, corners: [[495.28, 0], [495.28, 300], [595.28, 0], [595.28, 300]] },
+      ],
+    },
+  ])
+})
+
+test("a page without content gives an empty sheet", async t => {
+  const server = await start(t)
+
+  const sheets = await printPdf(server, [{ size: [200, 100], blank: true }, { size: [300, 100] }], { ...actualSize, selection: [1, 2] })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.size)), [[], [[300, 100]]])
+})
+
+test("a PDF with an owner password only is printed", async t => {
+  const server = await start(t)
+
+  const sheets = await print(server, [await encryptedPdf({ userPassword: "", ownerPassword: "secret" })], { ...actualSize, selection: [1] })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.size)), [[[100, 100]]])
+})
+
+test("photos go out as one Print Job, one photo per sheet, in the order they were added, with their bytes as uploaded", async t => {
+  const server = await start(t)
+  const jpeg = sampleJpeg()
+
+  const sheets = await print(server, [jpeg, samplePng(64, 48), samplePng(20, 10)], { ...actualSize, selection: [0, 1, 2] })
+
+  assert.equal(server.printer.requests.length, 1)
+  // at 100 % a photo prints at 300 dpi: 40 × 30 px are 9.6 × 7.2 pt
+  assert.deepEqual(sheets.map(sheet => [sheet.width, sheet.height, ...sheet.items.map(({ kind, size, box, filter }) => ({ kind, size, box, filter }))]), [
+    [595.28, 841.89, { kind: "photo", size: [40, 30], box: { left: 0, top: 0, width: 9.6, height: 7.2 }, filter: "/DCTDecode" }],
+    [595.28, 841.89, { kind: "photo", size: [64, 48], box: { left: 0, top: 0, width: 15.36, height: 11.52 }, filter: "/FlateDecode" }],
+    [595.28, 841.89, { kind: "photo", size: [20, 10], box: { left: 0, top: 0, width: 4.8, height: 2.4 }, filter: "/FlateDecode" }],
+  ])
+  assert.deepEqual(Buffer.from(sheets[0]!.items[0]!.bytes!), Buffer.from(jpeg))
+})
+
+test("left-out photos are absent and the others keep the order of the selection", async t => {
+  const server = await start(t)
+
+  const sheets = await print(server, [sampleJpeg(), samplePng(64, 48), samplePng(20, 10)], { ...actualSize, selection: [2, 0] })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.size)), [[[20, 10]], [[40, 30]]])
+})
+
+test("photos come out upright for all 8 EXIF orientations", async t => {
+  const server = await start(t)
+  // where the stored photo's corners (bottom-left, bottom-right, top-left, top-right) belong once it is upright,
+  // from the EXIF definition of each orientation. The 40 × 30 px photo is 9.6 × 7.2 pt, or 7.2 × 9.6 pt when it lies on its side.
+  const upright: Record<number, [number, number][]> = {
+    1: [[0, 7.2], [9.6, 7.2], [0, 0], [9.6, 0]],
+    2: [[9.6, 7.2], [0, 7.2], [9.6, 0], [0, 0]],
+    3: [[9.6, 0], [0, 0], [9.6, 7.2], [0, 7.2]],
+    4: [[0, 0], [9.6, 0], [0, 7.2], [9.6, 7.2]],
+    5: [[7.2, 0], [7.2, 9.6], [0, 0], [0, 9.6]],
+    6: [[0, 0], [0, 9.6], [7.2, 0], [7.2, 9.6]],
+    7: [[0, 9.6], [0, 0], [7.2, 9.6], [7.2, 0]],
+    8: [[7.2, 9.6], [7.2, 0], [0, 9.6], [0, 0]],
+  }
+  const photos = [1, 2, 3, 4, 5, 6, 7, 8].map(orientation => withExifOrientation(sampleJpeg(), orientation))
+
+  const sheets = await print(server, photos, { ...actualSize, selection: [0, 1, 2, 3, 4, 5, 6, 7] })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.corners)), Object.values(upright).map(corners => [corners]))
+  // the bytes still carry the EXIF data
+  assert.deepEqual(Buffer.from(sheets[5]!.items[0]!.bytes!), Buffer.from(photos[5]!))
+})
+
+test("a landscape photo turns to fill the portrait sheet at Einpassen and Füllen, a portrait photo stays", async t => {
+  const server = await start(t)
+  const landscape = sampleJpeg()
+  const portrait = withExifOrientation(sampleJpeg(), 6)
+  const corners = async (options: Partial<PrintOptions>) =>
+    (await print(server, [landscape, portrait], { ...options, selection: [0, 1] })).map(sheet => sheet.items.map(item => item.corners))
+
+  assert.deepEqual(await corners({ printSize: { kind: "fit" } }), [
+    [[[0, 24.09], [0, 817.8], [595.28, 24.09], [595.28, 817.8]]],
+    [[[0, 24.09], [0, 817.8], [595.28, 24.09], [595.28, 817.8]]],
+  ])
+  assert.deepEqual(await corners({ printSize: { kind: "fill" } }), [
+    [[[-18.07, 0], [-18.07, 841.89], [613.35, 0], [613.35, 841.89]]],
+    [[[-18.07, 0], [-18.07, 841.89], [613.35, 0], [613.35, 841.89]]],
+  ])
+  // at a percentage nothing turns on its own
+  assert.deepEqual(await corners(actualSize), [
+    [[[0, 7.2], [9.6, 7.2], [0, 0], [9.6, 0]]],
+    [[[0, 0], [0, 9.6], [7.2, 0], [7.2, 9.6]]],
+  ])
+})
+
+test("manual rotation turns each photo by its own rotation", async t => {
+  const server = await start(t)
+
+  const sheets = await print(server, [sampleJpeg(), samplePng(64, 48), samplePng(20, 10)], {
+    ...actualSize, rotation: 180, photoRotations: { 1: 90, 2: 180 }, selection: [0, 1, 2],
+  })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.corners)), [
+    [[[0, 7.2], [9.6, 7.2], [0, 0], [9.6, 0]]],
+    [[[0, 0], [0, 15.36], [11.52, 0], [11.52, 15.36]]],
+    [[[4.8, 0], [0, 0], [4.8, 2.4], [0, 2.4]]],
+  ])
+})
+
+test("Print Options that don't fit the draft's files are refused and nothing is printed", async t => {
+  const server = await start(t)
+  const draft = async (files: Uint8Array<ArrayBuffer>[]) => {
+    const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
+    for (const file of files) await server.upload(draftId, file, "file")
+    return draftId
+  }
+  const pdf = await draft([pdfWithPages([{ size: [200, 100] }, { size: [300, 100] }])])
+  const photos = await draft([sampleJpeg(), samplePng(64, 48)])
+
+  const refused: [draftId: string, options: Partial<PrintOptions>][] = [
+    [pdf, { selection: [] }],
+    [pdf, { selection: [0] }],
+    [pdf, { selection: [3] }],
+    [pdf, { selection: [1, 3] }],
+    [photos, { selection: [] }],
+    [photos, { selection: [2] }],
+    [photos, { selection: [0, 2] }],
+    [photos, { selection: [0, 1], pagesPerSheet: 2 }],
+  ]
+  for (const [draftId, options] of refused) {
+    const submitted = await server.submit(draftId, options)
+    assert.equal(submitted.status, 400, JSON.stringify(options))
+    assert.deepEqual(await submitted.json(), { error: "invalid-options" })
+  }
+  assert.equal(server.printer.requests.length, 0)
+
+  // the same drafts print once the options fit
+  assert.equal((await server.submit(pdf, { selection: [2, 1], pagesPerSheet: 2 })).status, 201)
+  assert.equal((await server.submit(photos, { selection: [1, 0] })).status, 201)
+})

@@ -49,7 +49,7 @@ function isPrintSize(value: unknown): value is PrintSizeMode {
 /**
  * Checks Print Options that came from outside (the request body of a submit). Returns them with
  * unknown keys dropped, or `undefined` if anything is missing or out of range.
- * Whether `selection` fits the files of the draft is for the renderer to say.
+ * Whether `selection` fits the files of the draft is checked by the renderer.
  */
 export function parsePrintOptions(value: unknown): PrintOptions | undefined {
   if (typeof value !== "object" || value === null) return undefined

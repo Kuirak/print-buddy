@@ -8,7 +8,7 @@ import { json, mockApi } from "./testing/mock-api.ts"
 test("pick a PDF, tap Drucken, and follow the Print Job on the status screen", async () => {
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
     "GET /api/jobs/j1": () => jobStatus(),
   })
@@ -36,7 +36,7 @@ test("tapping Drucken twice sends one Print Job", async () => {
   let accept!: (answer: Response) => void
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => new Promise<Response>(resolve => { accept = resolve }),
     "GET /api/jobs/j1": () => jobStatus({ cupsJobId: 7 }),
   })
@@ -56,7 +56,7 @@ test("tapping Drucken twice sends one Print Job", async () => {
 test("Schließen on Fertig leads back to Start", async () => {
   mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
     "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: sentAt + 75_000 }),
   })
@@ -76,10 +76,10 @@ test("Nochmal drucken on Fertig sends the same file with the same Print Options 
   let drafts = 0
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
     "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: sentAt + 75_000 }),
-    "POST /api/drafts/d2/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d2/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d2/submit": () => json({ jobId: "j2", cupsJobId: 43 }, 201),
     "GET /api/jobs/j2": () => jobStatus({ jobId: "j2", cupsJobId: 43 }),
   })
@@ -108,7 +108,7 @@ test("Nochmal drucken on Fertig sends the same file with the same Print Options 
   ])
   const again = api.calls.find(call => call.path === "/api/drafts/d2/files")!
   expect((again.body as FormData).get("file")).toBe(pdf)
-  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [] }
+  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1] }
   for (const draft of ["d1", "d2"]) {
     const submit = api.calls.find(call => call.path === `/api/drafts/${draft}/submit`)!
     expect(JSON.parse(submit.body as string)).toEqual(sent)
@@ -190,15 +190,51 @@ test("after a refusal nothing more is uploaded, and Datei auswählen on the Refu
   expect(screen.getByRole("button", { name: "Drucken" })).toBeInTheDocument()
 })
 
+test("Drucken submits every page of the PDF", async () => {
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 3, pages: [{ width: 595, height: 842 }, { width: 595, height: 842 }, { width: 842, height: 595 }] }, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus(),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
+
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+
+  await screen.findByText("Auftrag Nr. 42")
+  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
+  expect(submitted.selection).toEqual([1, 2, 3])
+})
+
+test("Drucken submits every picked photo, in the order they were picked", async () => {
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json(photoFacts, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus(),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), [photo("IMG_3.jpg"), photo("IMG_1.jpg"), photo("IMG_2.jpg")])
+
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+
+  await screen.findByText("Auftrag Nr. 42")
+  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
+  expect(submitted.selection).toEqual([0, 1, 2])
+})
+
 test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, which sends the same file with the same Print Options", async () => {
   let drafts = 0
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => json({ error: "cups-unreachable" }, 502),
-    "POST /api/drafts/d2/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d2/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d2/submit": () => json({ error: "cups-rejected" }, 502),
-    "POST /api/drafts/d3/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d3/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d3/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
     "GET /api/jobs/j1": () => jobStatus(),
   })
@@ -223,7 +259,7 @@ test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, wh
 
   expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
   expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
-  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [] }
+  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1] }
   for (const draft of ["d1", "d2", "d3"]) {
     const upload = api.calls.find(call => call.path === `/api/drafts/${draft}/files`)!
     expect((upload.body as FormData).get("file")).toBe(pdf)

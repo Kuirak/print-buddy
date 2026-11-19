@@ -1,9 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
+import type { PrintOptions } from "../shared/print-options.ts"
 import { JobState } from "./printer/ipp-codec.ts"
 import { pdfWithPages, sampleJpeg, type PdfPageSpec } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
+import { readRenderedPdf } from "./testing/rendered-pdf.ts"
 
 const readJob = async (server: TestServer, jobId: string) =>
   await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus
@@ -147,16 +149,27 @@ test("a Print Job that does not exist is a 404", async t => {
   assert.equal(server.printer.requests.length, 0)
 })
 
-test("the sheet count is one sheet per page of the PDF, or per photo, for every copy", async t => {
+test("the sheet count is the number of sheets in the PDF the Printer received, for every copy", async t => {
   const server = await startTestServer()
   t.after(server.close)
   const a4: PdfPageSpec = { size: [595, 842] }
+  const pdf = [pdfWithPages([a4, a4, a4])]
+  const photos = [sampleJpeg(), sampleJpeg()]
 
-  const pdf = await server.print({ copies: 2 }, [pdfWithPages([a4, a4, a4])])
-  const photos = await server.print({ copies: 3 }, [sampleJpeg(), sampleJpeg()])
+  const cases: { files: Uint8Array<ArrayBuffer>[]; options: Partial<PrintOptions>; rendered: number; sheets: number }[] = [
+    { files: pdf, options: { selection: [1, 2, 3], copies: 2 }, rendered: 3, sheets: 6 },
+    { files: pdf, options: { selection: [3, 1], copies: 2 }, rendered: 2, sheets: 4 },
+    { files: pdf, options: { selection: [1, 2, 3], pagesPerSheet: 2, copies: 1 }, rendered: 2, sheets: 2 },
+    { files: pdf, options: { selection: [1, 2, 3], pagesPerSheet: 2, copies: 5 }, rendered: 2, sheets: 10 },
+    { files: photos, options: { selection: [0, 1], copies: 3 }, rendered: 2, sheets: 6 },
+    { files: photos, options: { selection: [1], copies: 3 }, rendered: 1, sheets: 3 },
+  ]
+  for (const { files, options, rendered, sheets } of cases) {
+    const { jobId } = await server.print(options, files)
 
-  assert.equal((await readJob(server, pdf.jobId)).sheets, 6)
-  assert.equal((await readJob(server, photos.jobId)).sheets, 6)
+    assert.equal((await readRenderedPdf(server.printer.requests.at(-1)!.data)).length, rendered, JSON.stringify(options))
+    assert.equal((await readJob(server, jobId)).sheets, sheets, JSON.stringify(options))
+  }
 })
 
 test("while CUPS can't be reached, a Print Job reads as it was last seen", async t => {

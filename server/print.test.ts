@@ -5,8 +5,9 @@ import { test } from "node:test"
 import { Op, Tag, values } from "./printer/ipp-codec.ts"
 import { samplePdf } from "./testing/fixtures.ts"
 import { startTestServer } from "./testing/harness.ts"
+import { readRenderedPdf } from "./testing/rendered-pdf.ts"
 
-test("a picked PDF reaches the Printer unchanged as one Print Job", async t => {
+test("a picked PDF reaches the Printer as one Print Job", async t => {
   const server = await startTestServer()
   t.after(server.close)
   const pdf = samplePdf()
@@ -30,7 +31,8 @@ test("a picked PDF reaches the Printer unchanged as one Print Job", async t => {
   assert.deepEqual(values(request, Tag.operation, "requesting-user-name"), ["print-buddy"])
   assert.deepEqual(values(request, Tag.operation, "printer-uri"), [server.printer.uri])
   assert.deepEqual(values(request, Tag.operation, "document-format"), ["application/pdf"])
-  assert.deepEqual(Buffer.from(request.data), Buffer.from(pdf))
+  const sheets = await readRenderedPdf(request.data)
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(item => item.size)), [[[595, 842]]])
 })
 
 test("a draft that does not exist is a 404 and nothing is printed", async t => {
@@ -77,7 +79,7 @@ test("when CUPS can't be reached, submitting fails and the draft can be sent aga
   assert.equal(again.status, 201)
   const prints = server.printer.requests.filter(request => request.code === Op.printJob)
   assert.equal(prints.length, 1)
-  assert.deepEqual(Buffer.from(prints[0]!.data), Buffer.from(pdf))
+  assert.deepEqual((await readRenderedPdf(prints[0]!.data)).map(sheet => sheet.items.map(item => item.size)), [[[595, 842]]])
   assert.deepEqual(values(prints[0]!, Tag.job, "copies"), [3])
 })
 
