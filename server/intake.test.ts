@@ -38,6 +38,34 @@ test("a PDF returns its page count and the page sizes a reader shows", async t =
   })
 })
 
+test("a page's size is that of the part a reader shows: the CropBox only as far as it lies on the page, turned by quarter turns only", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const pdf = pdfWithPages([
+    // a CropBox that reaches beyond the page
+    { size: [200, 100], cropBox: [-50, -20, 150, 300] },
+    // one given from its top-right corner
+    { size: [200, 100], cropBox: [150, 60, 20, 10] },
+    // one that misses the page: a reader shows the whole page
+    { size: [200, 100], cropBox: [300, 300, 400, 400] },
+    { size: [200, 100], cropBox: [-50, 0, 150, 100], rotate: 90 },
+    // a reader doesn't turn a page by 45°, and takes 450° for 90°
+    { size: [200, 100], rotate: 45 },
+    { size: [200, 100], rotate: 450 },
+  ])
+
+  const added = await server.upload(await newDraft(server), pdf, "Plan.pdf", "application/pdf")
+
+  assert.deepEqual((await added.json() as { pages: unknown }).pages, [
+    { width: 150, height: 100 },
+    { width: 130, height: 50 },
+    { width: 200, height: 100 },
+    { width: 100, height: 150 },
+    { width: 200, height: 100 },
+    { width: 100, height: 200 },
+  ])
+})
+
 test("a photo returns its pixel size and EXIF orientation", async t => {
   const server = await startTestServer()
   t.after(server.close)

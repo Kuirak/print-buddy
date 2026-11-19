@@ -94,6 +94,30 @@ test("a page prints the way a reader shows it: turned by its own rotation, cut t
   ])
 })
 
+test("the part of a page that prints is the part a reader shows: the CropBox only as far as it lies on the page, turned by quarter turns only", async t => {
+  const server = await start(t)
+  // the pages of the upload intake test with the same name
+  const pages: PdfPageSpec[] = [
+    { size: [200, 100], cropBox: [-50, -20, 150, 300] },
+    { size: [200, 100], cropBox: [150, 60, 20, 10] },
+    { size: [200, 100], cropBox: [300, 300, 400, 400] },
+    { size: [200, 100], cropBox: [-50, 0, 150, 100], rotate: 90 },
+    { size: [200, 100], rotate: 45 },
+    { size: [200, 100], rotate: 450 },
+  ]
+
+  const sheets = await printPdf(server, pages, { ...actualSize, selection: [1, 2, 3, 4, 5, 6] })
+
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(({ size, box }) => ({ size, box }))), [
+    [{ size: [150, 100], box: { left: 0, top: 0, width: 150, height: 100 } }],
+    [{ size: [130, 50], box: { left: 0, top: 0, width: 130, height: 50 } }],
+    [{ size: [200, 100], box: { left: 0, top: 0, width: 200, height: 100 } }],
+    [{ size: [150, 100], box: { left: 0, top: 0, width: 100, height: 150 } }],
+    [{ size: [200, 100], box: { left: 0, top: 0, width: 200, height: 100 } }],
+    [{ size: [200, 100], box: { left: 0, top: 0, width: 100, height: 200 } }],
+  ])
+})
+
 test("Print size and Position place a page where the layout module says", async t => {
   const server = await start(t, "printer")
   const cases: { options: Partial<PrintOptions>; box: { left: number; top: number; width: number; height: number } }[] = [

@@ -4,7 +4,7 @@ import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { FileFacts, PdfFacts, PhotoFacts, Refusal, RefusalType } from "../shared/api.ts"
 import type { Now } from "./clock.ts"
-import { openSourcePdf } from "./source-pdf.ts"
+import { openSourcePdf, shownPart } from "./source-pdf.ts"
 
 export interface DraftFile {
   path: string
@@ -125,9 +125,9 @@ async function pdfFacts(bytes: Uint8Array): Promise<PdfFacts | undefined> {
   try {
     const doc = await openSourcePdf(bytes)
     const pages = doc.getPages().map(page => {
-      const { width, height } = page.getCropBox()
-      const sideways = page.getRotation().angle % 180 !== 0
-      return sideways ? { width: height, height: width } : { width, height }
+      const { box, rotation } = shownPart(page)
+      const [width, height] = [box.right - box.left, box.top - box.bottom]
+      return rotation % 180 === 0 ? { width, height } : { width: height, height: width }
     })
     return { kind: "pdf", pageCount: pages.length, pages }
   } catch {

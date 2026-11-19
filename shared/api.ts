@@ -15,7 +15,7 @@ export type FileFacts = PdfFacts | PhotoFacts
 export type PdfFacts = {
   kind: "pdf"
   pageCount: number
-  /** Each page's size in points as a reader shows it: the CropBox, with the page's own rotation applied. */
+  /** Each page's size in points as a reader shows it: the part of the CropBox that lies on the page, with the page's own rotation applied. */
   pages: { width: number; height: number }[]
 }
 

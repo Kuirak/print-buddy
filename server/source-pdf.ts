@@ -15,6 +15,35 @@ export function openSourcePdf(bytes: Uint8Array): Promise<PDFDocument> {
   })
 }
 
+/** A rectangle on a page in points, in the page's own coordinates (y counts upwards). */
+export type PageBox = { left: number; bottom: number; right: number; top: number }
+
+/**
+ * The part of a page a reader shows and the clockwise turn it shows it with, by the rules of pdf.js, which
+ * draws the preview: the CropBox as far as it lies inside the MediaBox (the whole MediaBox when nothing of it
+ * does), and the page's own rotation when that is a quarter turn (no turn otherwise).
+ */
+export function shownPart(page: PDFPage): { box: PageBox; rotation: 0 | 90 | 180 | 270 } {
+  const media = normalBox(page.getMediaBox())
+  const crop = normalBox(page.getCropBox())
+  const shared = {
+    left: Math.max(crop.left, media.left),
+    bottom: Math.max(crop.bottom, media.bottom),
+    right: Math.min(crop.right, media.right),
+    top: Math.min(crop.top, media.top),
+  }
+  const { angle } = page.getRotation()
+  return {
+    box: shared.right > shared.left && shared.top > shared.bottom ? shared : media,
+    rotation: angle % 90 === 0 ? (((angle % 360) + 360) % 360) as 0 | 90 | 180 | 270 : 0,
+  }
+}
+
+/** A box may be given from any of its corners. */
+function normalBox({ x, y, width, height }: { x: number; y: number; width: number; height: number }): PageBox {
+  return { left: Math.min(x, x + width), bottom: Math.min(y, y + height), right: Math.max(x, x + width), top: Math.max(y, y + height) }
+}
+
 /** Annotation flags (`/F`), as bit values. */
 const INVISIBLE = 1
 const HIDDEN = 2
