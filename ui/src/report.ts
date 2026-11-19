@@ -18,7 +18,7 @@ export type ReportSubject =
     options?: PrintOptions
   }
 
-export type ReportInput = {
+type ReportInput = {
   /** When the report is made, in ms since the epoch. */
   now: number
   userAgent: string
@@ -72,7 +72,7 @@ function browserLine(userAgent: string) {
 }
 
 /** The report as plain text. Sections are separated by an empty line. */
-export function buildReport({ now, userAgent, facts, about }: ReportInput): string {
+function buildReport({ now, userAgent, facts, about }: ReportInput): string {
   const sections: string[][] = [["Print Buddy Bericht", `Erstellt: ${time(now)}`]]
   if ("job" in about) {
     sections.push(jobLines(about.job, about.status), printerLines(facts))

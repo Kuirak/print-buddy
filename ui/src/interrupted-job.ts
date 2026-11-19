@@ -5,7 +5,7 @@
 import type { JobSubmitted } from "../../shared/api.ts"
 import { parsePrintOptions, type PrintOptions } from "../../shared/print-options.ts"
 
-export type InterruptedJob =
+type InterruptedJob =
   /** Before the Print Job was sent. `options`: what the person last tapped Drucken with, if they had got that far. */
   | { options?: PrintOptions; job?: undefined }
   /** On the status screen of the Print Job `job`, which was sent with `options` at `since` (the phone's clock). */

@@ -12,10 +12,13 @@ export type DraftCreated = { draftId: string }
 /** POST /api/drafts/:draftId/files (multipart, field `file`, one file per request): 201 with the file's facts. */
 export type FileFacts = PdfFacts | PhotoFacts
 
+/** The two file types a Print Job can hold: one PDF, or photos. */
+export type FileKind = FileFacts["kind"]
+
 export type PdfFacts = {
   kind: "pdf"
   pageCount: number
-  /** Each page's size in points as a reader shows it: the CropBox, with the page's own rotation applied. */
+  /** Each page's size in points as a reader shows it: the part of the CropBox that lies on the page, with the page's own rotation applied. */
   pages: { width: number; height: number }[]
 }
 
@@ -76,7 +79,7 @@ export type JobStatus = {
 
 /** What a Print Job was made from. Never a file name: Print Buddy doesn't keep one. */
 export type JobFile = {
-  kind: FileFacts["kind"]
+  kind: FileKind
   /** Size of the uploaded file, or of all photos together. */
   bytes: number
   /** Pages of the PDF, or photos in the job, whether selected or not. */

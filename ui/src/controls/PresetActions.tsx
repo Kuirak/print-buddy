@@ -2,7 +2,7 @@ import { createSignal, Match, Show, Switch } from "solid-js"
 import { isBuiltIn, type Preset, type Presets, type PresetValues } from "../presets.ts"
 
 /**
- * Save the current settings as an own Preset, star the Preset they match, or delete it.
+ * Save the current Print Options as an own Preset, star the Preset they match, or delete it.
  * Starring needs a matching Preset and deleting an own one, so those buttons come and go.
  */
 export function PresetActions(props: { presets: Presets; options: PresetValues; onPick: (preset: Preset) => void }) {

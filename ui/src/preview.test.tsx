@@ -1,9 +1,8 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test, vi } from "vitest"
+import { expect, test } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
-import { openPdf, type PdfPreview } from "./pdf-preview.ts"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
 import { openDetails, printAndConfirm } from "./testing/options-screen.ts"
 import { printerInfo } from "./testing/printer-info.ts"
@@ -239,36 +238,23 @@ test("the preview draws the first page of the picked PDF through pdf.js", async 
   await openOptions()
 
   const page = await screen.findByRole("img", { name: "Vorschau Seite 1" })
-  expect(openPdf).toHaveBeenCalledOnce()
-  expect(new TextDecoder().decode(vi.mocked(openPdf).mock.calls[0]![0])).toBe("%PDF-1.4")
-  const pdf: PdfPreview = await vi.mocked(openPdf).mock.results[0]!.value
-  // the thumbnails are drawn through pdf.js too, far smaller than the preview
-  const large = vi.mocked(pdf.renderPage).mock.calls.flatMap(([pageNumber, longSide], call) => (longSide >= 1000 ? [{ pageNumber, call }] : []))
-  expect(large.map(({ pageNumber }) => pageNumber)).toEqual([1])
-  expect(page).toContainElement(await vi.mocked(pdf.renderPage).mock.results[large[0]!.call]!.value)
+  expect(page.querySelector("canvas")!.dataset).toMatchObject({ pdf: "%PDF-1.4", page: "1" })
   expect(screen.queryByRole("img", { name: "Vorschau Seite 2" })).not.toBeInTheDocument()
 })
 
 test("the preview shows the first of the picked photos", async () => {
-  const made = vi.spyOn(URL, "createObjectURL")
-  try {
-    const { files } = await openOptions(landscapePhoto, { count: 2 })
+  await openOptions(landscapePhoto, { count: 2 })
 
-    const photo = await screen.findByRole("img", { name: "Vorschau Foto 1" })
-    const first = made.mock.calls.findIndex(([blob]) => blob === files[0])
-    expect(photo).toHaveAttribute("src", made.mock.results[first]!.value)
-    expect(screen.queryByRole("img", { name: "Vorschau Foto 2" })).not.toBeInTheDocument()
-    expect(openPdf).not.toHaveBeenCalled()
-  } finally {
-    made.mockRestore()
-  }
+  expect(await screen.findByRole("img", { name: "Vorschau Foto 1" })).toHaveAttribute("src", "blob:Strand 1.jpg")
+  expect(screen.queryByRole("img", { name: "Vorschau Foto 2" })).not.toBeInTheDocument()
+  // photos don't go through pdf.js
+  expect(document.querySelector("canvas")).toBeNull()
 })
 
 test("Ansicht zooms into the preview in four steps and back, and leaves the Print size alone", async () => {
   const { tap, print } = await openOptions()
-  const pdf: PdfPreview = await vi.mocked(openPdf).mock.results[0]!.value
-  /** How many pixels pdf.js was asked to draw the page in the preview with at most. The thumbnails are far smaller. */
-  const sharpness = () => Math.max(...vi.mocked(pdf.renderPage).mock.calls.map(([, longSide]) => longSide))
+  /** How many pixels pdf.js was asked to draw the page in the preview with. */
+  const sharpness = () => screen.getByRole("img", { name: "Vorschau Seite 1" }).querySelector("canvas")!.width
   await screen.findByRole("img", { name: "Vorschau Seite 1" })
   const unzoomed = sharpness()
 
@@ -280,7 +266,7 @@ test("Ansicht zooms into the preview in four steps and back, and leaves the Prin
   }
   expect(screen.getByRole("button", { name: "Ansicht vergrößern" })).toBeDisabled()
   // zoomed in, the page is drawn again with more pixels, so details stay sharp
-  expect(sharpness()).toBeGreaterThan(unzoomed)
+  await expect.poll(sharpness).toBeGreaterThan(unzoomed)
 
   await tap("Ansicht verkleinern")
   expect(screen.getByText("Ansicht 200%")).toBeInTheDocument()

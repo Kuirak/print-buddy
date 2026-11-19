@@ -155,7 +155,7 @@ test.each([
   [{ refusal: "too-large", limitMb: 8 }, 413, "Die Datei ist zu groß (höchstens 8 MB)."],
   [{ refusal: "too-many-photos" }, 409, "Höchstens 20 Fotos auf einmal"],
   [{ refusal: "one-pdf-only" }, 409, "Bitte jeweils nur eine Datei teilen"],
-  [{ refusal: "mixed-types" }, 409, "Bitte jeweils nur eine Datei teilen"],
+  [{ refusal: "mixed-types" }, 409, "Bitte PDF und Fotos getrennt teilen"],
 ])("a refused file (%o) leads to the Refusal screen with its message", async (refusal, status, message) => {
   mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
@@ -184,7 +184,7 @@ test("after a refusal nothing more is uploaded, and Datei auswählen on the Refu
     new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }),
     photo("IMG_2.jpg"),
   ])
-  await screen.findByText("Bitte jeweils nur eine Datei teilen")
+  await screen.findByText("Bitte PDF und Fotos getrennt teilen")
   expect(api.calls.filter(call => call.path === "/api/drafts/d1/files")).toHaveLength(2)
 
   api.on("POST /api/drafts", () => json({ draftId: "d2" }, 201))

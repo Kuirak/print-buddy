@@ -37,7 +37,7 @@ function jobDetails(reply: IppMessage): CupsJobDetails {
 export class IppRefusal extends Error {}
 
 /** The Print Options CUPS acts on. Everything else is already drawn into the PDF. */
-export type JobOptions = Pick<PrintOptions, "copies" | "color" | "paper" | "quality">
+type JobOptions = Pick<PrintOptions, "copies" | "color" | "paper" | "quality">
 
 /** Used for every paper CUPS reports no margins for: the A4 ImageableArea of the Printer's PPD, in points. */
 const fallbackMargins: Margins = { top: 12, right: 9, bottom: 12, left: 9 }

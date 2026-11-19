@@ -7,8 +7,9 @@ GlobalWorkerOptions.workerSrc = workerUrl
 /** An open PDF, for drawing its pages on the screen. */
 export interface PdfPreview {
   /**
-   * Draws one page, counted from 1, the way a reader shows it (CropBox and the page's own rotation applied),
-   * onto a new canvas whose longer side has `longSide` pixels.
+   * Draws one page, counted from 1, the way a reader prints it (CropBox and the page's own rotation applied;
+   * form fields and annotations as far as they are meant for printing), onto a new canvas whose longer side
+   * has `longSide` pixels.
    */
   renderPage(pageNumber: number, longSide: number): Promise<HTMLCanvasElement>
   /** Frees the PDF. Call it when the file leaves the screen. */
@@ -34,7 +35,8 @@ export async function openPdf(data: ArrayBuffer): Promise<PdfPreview> {
       const canvas = document.createElement("canvas")
       canvas.width = Math.round(viewport.width)
       canvas.height = Math.round(viewport.height)
-      await page.render({ canvas, viewport }).promise
+      // "print" picks the form fields and annotations the server's renderer draws too (server/source-pdf.ts)
+      await page.render({ canvas, viewport, intent: "print" }).promise
       return canvas
     },
     destroy: () => task.destroy(),

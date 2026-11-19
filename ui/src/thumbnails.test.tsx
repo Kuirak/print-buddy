@@ -1,9 +1,8 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test, vi } from "vitest"
+import { expect, test } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
-import { openPdf, type PdfPreview } from "./pdf-preview.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
 import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
@@ -56,26 +55,24 @@ test("a PDF shows one thumbnail per page, all selected", async () => {
 })
 
 test("photos show one thumbnail per photo, in the order picked, all selected", async () => {
-  const made = vi.spyOn(URL, "createObjectURL")
-  try {
-    const { files, thumbnails, print } = await openOptions(photo, 3)
+  const { thumbnails, print } = await openOptions(photo, 3)
 
-    expect(thumbnails("Fotos")).toEqual({ names: ["Foto 1", "Foto 2", "Foto 3"], selected: ["Foto 1", "Foto 2", "Foto 3"] })
-    // each thumbnail is the picture of its own file
-    const pictures = within(screen.getByRole("group", { name: "Fotos" })).getAllByRole("button").map(thumbnail => thumbnail.querySelector("img")!.getAttribute("src"))
-    expect(pictures).toEqual(files.map(file => made.mock.results[made.mock.calls.findIndex(([blob]) => blob === file)]!.value))
-    expect(await print()).toMatchObject({ selection: [0, 1, 2] })
-  } finally {
-    made.mockRestore()
-  }
+  expect(thumbnails("Fotos")).toEqual({ names: ["Foto 1", "Foto 2", "Foto 3"], selected: ["Foto 1", "Foto 2", "Foto 3"] })
+  // each thumbnail is the picture of its own file
+  const pictures = within(screen.getByRole("group", { name: "Fotos" })).getAllByRole("button").map(thumbnail => thumbnail.querySelector("img")?.getAttribute("src"))
+  expect(pictures).toEqual(["blob:Strand 1.jpg", "blob:Strand 2.jpg", "blob:Strand 3.jpg"])
+  expect(await print()).toMatchObject({ selection: [0, 1, 2] })
 })
 
 test("a PDF's thumbnails are its pages, drawn small through pdf.js", async () => {
   await openOptions(pdfOf(3))
 
-  const pdf: PdfPreview = await vi.mocked(openPdf).mock.results[0]!.value
-  const small = vi.mocked(pdf.renderPage).mock.calls.filter(([, longSide]) => longSide < 1000).map(([pageNumber]) => pageNumber)
-  expect(small).toEqual([1, 2, 3])
+  /** What pdf.js was asked to draw in each thumbnail: the page, and with how many pixels. */
+  const drawn = () => within(screen.getByRole("group", { name: "Seiten" })).getAllByRole("button").map(thumbnail => {
+    const canvas = thumbnail.querySelector("canvas")
+    return canvas && { page: canvas.dataset.page, small: canvas.width < 500 }
+  })
+  await expect.poll(drawn).toEqual([{ page: "1", small: true }, { page: "2", small: true }, { page: "3", small: true }])
 })
 
 test("tapping a thumbnail leaves the page out, and the sheet count follows", async () => {

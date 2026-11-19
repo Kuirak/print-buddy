@@ -29,7 +29,7 @@ export function photoNaturalSize(pixels: Size): Size {
 }
 
 /** A photo as stored in its file: pixels, before its EXIF orientation is applied. */
-export type Photo = { width: number; height: number; orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 }
+type Photo = { width: number; height: number; orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 }
 
 export type LayoutInput = {
   /**
@@ -77,7 +77,7 @@ export type Sheet = {
 const TOLERANCE = 0.01
 
 /** How far along the printable area each Position sits: 0 is the left or top edge, 1 the right or bottom edge. */
-const ANCHORS: Record<PrintOptions["position"], [across: number, down: number]> = {
+const POSITIONS: Record<PrintOptions["position"], [across: number, down: number]> = {
   "top-left": [0, 0],
   top: [0.5, 0],
   "top-right": [1, 0],
@@ -202,7 +202,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
   const onSheet = (box: Box): Box =>
     sideways ? { left: sheet.width - box.top - box.height, top: box.left, width: box.height, height: box.width } : box
 
-  const [across, down] = ANCHORS[options.position]
+  const [across, down] = POSITIONS[options.position]
   const sheets: Sheet[] = []
   for (let first = 0; first < contents.length; first += areas.length) {
     const onThisSheet = contents.slice(first, first + areas.length)
@@ -248,6 +248,14 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
     sheets.push(result)
   }
   return sheets
+}
+
+/**
+ * How many sheets of paper a Print Job takes: the sheets of one copy, as `layout` returns them, for every copy.
+ * The confirmation and the server's record of the Print Job both count here, so they can't say different numbers.
+ */
+export function sheetCount(sheets: readonly Sheet[], copies: number): number {
+  return sheets.length * copies
 }
 
 function flipped({ width, height }: Size): Size {

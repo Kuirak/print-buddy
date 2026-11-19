@@ -3,13 +3,13 @@ import type { Preset, Presets, PresetValues } from "../presets.ts"
 
 /**
  * One chip per Preset in a row that scrolls sideways. The chip of the Preset the Print Options match
- * is marked, the starred one carries a star, and the last chip stands for settings that match none.
+ * is marked, the starred one carries a star, and the last chip stands for Print Options that match none.
  */
 export function PresetChips(props: {
   presets: Presets
   options: PresetValues
   onPick: (preset: Preset) => void
-  /** The last chip was tapped: it stands for settings no Preset has, so the detailed controls should open. */
+  /** The last chip was tapped: it stands for Print Options no Preset has, so the detailed controls should open. */
   onOwn: () => void
 }) {
   const active = () => props.presets.matching(props.options)

@@ -1,10 +1,10 @@
-import { EncryptedPDFError, PDFDocument } from "@cantoo/pdf-lib"
 import exifr from "exifr"
 import { randomUUID } from "node:crypto"
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { FileFacts, PdfFacts, PhotoFacts, Refusal, RefusalType } from "../shared/api.ts"
 import type { Now } from "./clock.ts"
+import { openSourcePdf, shownPart } from "./source-pdf.ts"
 
 export interface DraftFile {
   path: string
@@ -14,7 +14,7 @@ export interface DraftFile {
 }
 
 /** What became of an uploaded file. `unknown-draft` is a caller's mistake, not a Refusal. */
-export type AddFileResult =
+type AddFileResult =
   | { outcome: "added"; facts: FileFacts }
   | { outcome: "refused"; refusal: Refusal }
   | { outcome: "unknown-draft" }
@@ -123,15 +123,11 @@ function sniff(bytes: Uint8Array): "pdf" | "jpeg" | "png" | undefined {
 /** Undefined when the PDF can't be read: corrupt, or it needs a password to open. */
 async function pdfFacts(bytes: Uint8Array): Promise<PdfFacts | undefined> {
   try {
-    const doc = await PDFDocument.load(bytes).catch(err => {
-      if (!(err instanceof EncryptedPDFError)) throw err
-      // "owner password only" files open with an empty password; they are common and print fine
-      return PDFDocument.load(bytes, { password: "" })
-    })
+    const doc = await openSourcePdf(bytes)
     const pages = doc.getPages().map(page => {
-      const { width, height } = page.getCropBox()
-      const sideways = page.getRotation().angle % 180 !== 0
-      return sideways ? { width: height, height: width } : { width, height }
+      const { box, rotation } = shownPart(page)
+      const [width, height] = [box.right - box.left, box.top - box.bottom]
+      return rotation % 180 === 0 ? { width, height } : { width: height, height: width }
     })
     return { kind: "pdf", pageCount: pages.length, pages }
   } catch {

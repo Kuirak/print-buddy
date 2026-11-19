@@ -1,15 +1,16 @@
 import {
-  EncryptedPDFError, PDFDocument, clip, concatTransformationMatrix, drawObject, endPath, popGraphicsState, pushGraphicsState, rectangle,
+  PDFDocument, clip, concatTransformationMatrix, drawObject, endPath, popGraphicsState, pushGraphicsState, rectangle,
   type PDFRef,
 } from "@cantoo/pdf-lib"
 import { readFile } from "node:fs/promises"
 import type { Margins, PhotoFacts } from "../shared/api.ts"
-import { SHEET_SIZES, layout, photoNaturalSize, type LayoutInput, type Matrix } from "../shared/layout.ts"
+import { SHEET_SIZES, layout, photoNaturalSize, sheetCount, type LayoutInput, type Matrix } from "../shared/layout.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { DraftFile } from "./intake.ts"
+import { drawAnnotations, openSourcePdf, shownPart } from "./source-pdf.ts"
 
 export type RenderResult =
-  /** `sheets` is the number of sheets in `pdf`: what one copy takes. */
+  /** `sheets` is the sheets of paper the Print Job takes: the sheets in `pdf`, for every copy. */
   | { outcome: "rendered"; pdf: Uint8Array; sheets: number }
   /** The Print Options don't fit the draft's files. */
   | { outcome: "invalid-options" }
@@ -80,37 +81,31 @@ export async function render(files: readonly DraftFile[], options: PrintOptions,
       )
     }
   }
-  return { outcome: "rendered", pdf: await out.save(), sheets: sheets.length }
+  return { outcome: "rendered", pdf: await out.save(), sheets: sheetCount(sheets, options.copies) }
 }
 
 /**
  * Embeds the pages (numbers counted from 1) as reusable objects. pdf-lib embeds the MediaBox and ignores the
- * page's own rotation; a reader shows the CropBox, turned. So the CropBox is embedded and the turn is added here.
- * A page without content is not in the result: pdf-lib can't embed it.
+ * page's own rotation; a reader shows a part of the page, turned. So that part is embedded and the turn is added here.
+ * Only a page's content is embedded, so its form fields and annotations are drawn into the content first.
+ * A page that has no content even then is not in the result: pdf-lib can't embed it.
  */
 async function embedPages(out: PDFDocument, bytes: Uint8Array, pageNumbers: number[]): Promise<Map<number, Drawable>> {
-  const doc = await PDFDocument.load(bytes).catch(err => {
-    if (!(err instanceof EncryptedPDFError)) throw err
-    // as in upload intake: "owner password only" files open with an empty password
-    return PDFDocument.load(bytes, { password: "" })
-  })
+  const doc = await openSourcePdf(bytes)
+  await drawAnnotations(doc, pageNumbers.map(number => doc.getPage(number - 1)))
   const withContent = pageNumbers.filter(number => doc.getPage(number - 1).node.Contents() !== undefined)
   const pages = withContent.map(number => doc.getPage(number - 1))
-  const boxes = pages.map(page => {
-    const box = page.getCropBox()
-    return { left: box.x, bottom: box.y, right: box.x + box.width, top: box.y + box.height }
-  })
-  const embedded = await out.embedPages(pages, boxes)
+  const shown = pages.map(shownPart)
+  const embedded = await out.embedPages(pages, shown.map(part => part.box))
   return new Map(withContent.map((number, i) => {
     const { width, height } = embedded[i]!
-    const turns: Record<number, Matrix> = {
+    const turns: Record<0 | 90 | 180 | 270, Matrix> = {
       0: [1, 0, 0, 1, 0, 0],
       90: [0, -1, 1, 0, 0, width],
       180: [-1, 0, 0, -1, width, height],
       270: [0, 1, -1, 0, height, 0],
     }
-    const angle = ((pages[i]!.getRotation().angle % 360) + 360) % 360
-    return [number, { ref: embedded[i]!.ref, toContent: turns[angle] ?? turns[0]! }]
+    return [number, { ref: embedded[i]!.ref, toContent: turns[shown[i]!.rotation] }]
   }))
 }
 

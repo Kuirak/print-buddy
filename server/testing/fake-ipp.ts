@@ -28,6 +28,8 @@ export async function startFakeIpp(queue = "Test_Printer") {
   const requests: IppMessage[] = []
   const jobs = new Map<number, FakeJob>()
   let nextJobId = 1
+  /** Answers that `hold()` asked to keep back, each for the next request with its operation. */
+  const holds: { op: number; arrived: () => void; released: Promise<void> }[] = []
   const printer = {
     state: PrinterState.idle as number,
     reasons: ["none"],
@@ -69,8 +71,13 @@ export async function startFakeIpp(queue = "Test_Printer") {
       const reply = (code: number, groups: IppGroup[] = [], statusMessage?: string) => {
         const op = [attr("attributes-charset", v.charset("utf-8")), attr("attributes-natural-language", v.lang("en"))]
         if (statusMessage) op.push(attr("status-message", v.text(statusMessage)))
-        res.writeHead(200, { "content-type": "application/ipp" })
-        res.end(encodeIpp({ version: msg.version, code, requestId: msg.requestId, groups: [{ tag: Tag.operation, attributes: op }, ...groups], data: new Uint8Array(0) }))
+        const body = encodeIpp({ version: msg.version, code, requestId: msg.requestId, groups: [{ tag: Tag.operation, attributes: op }, ...groups], data: new Uint8Array(0) })
+        const send = () => { res.writeHead(200, { "content-type": "application/ipp" }).end(body) }
+        const hold = holds.findIndex(held => held.op === msg.code)
+        if (hold === -1) return send()
+        const [{ arrived, released }] = holds.splice(hold, 1) as [typeof holds[number]]
+        arrived()
+        void released.then(send)
       }
       if (printer.failNext !== undefined) { const s = printer.failNext; printer.failNext = undefined; res.writeHead(s).end(); return }
       if (req.url !== `/printers/${queue}`) return reply(Status.notFound, [], "The printer or class does not exist.")
@@ -116,6 +123,16 @@ export async function startFakeIpp(queue = "Test_Printer") {
     printer,
     setJob(id: number, state: number, reasons: string[] = ["none"], message = "", printerReasons: string[] = ["none"]) {
       Object.assign(jobs.get(id)!, { state, reasons, message, printerReasons })
+    },
+    /**
+     * Keeps back the answer to the next request with this operation, as a slow CUPS does. The answer says what was
+     * true when the request arrived, which is when `arrived` resolves, and is sent on `release()`.
+     */
+    hold(op: number) {
+      const arrived = Promise.withResolvers<void>()
+      const released = Promise.withResolvers<void>()
+      holds.push({ op, arrived: arrived.resolve, released: released.promise })
+      return { arrived: arrived.promise, release: () => released.resolve() }
     },
     close: () => new Promise<void>(r => { server.closeAllConnections(); server.close(() => r()) }),
   }

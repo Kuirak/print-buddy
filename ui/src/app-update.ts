@@ -5,7 +5,7 @@
 /** Sent to the waiting service worker to tell it to take over. */
 export const takeOverMessage = "take-over"
 
-export interface AppUpdate {
+interface AppUpdate {
   /** False over plain HTTP: no service worker there, so the app can't be installed or receive shares. */
   hasServiceWorker: boolean
   /** The app says whether a job is in progress. When one has ended, a version that waited takes over. */

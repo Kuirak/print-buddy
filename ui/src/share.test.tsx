@@ -49,7 +49,7 @@ test("shared photos are uploaded one per request in the order they were shared",
 
 test.each([
   ["several PDFs", [pdf("a.pdf"), pdf("b.pdf")], { refusal: "one-pdf-only" }, 409, "Bitte jeweils nur eine Datei teilen"],
-  ["a PDF mixed with photos", [photo("IMG_1.jpg"), pdf("a.pdf")], { refusal: "mixed-types" }, 409, "Bitte jeweils nur eine Datei teilen"],
+  ["a PDF mixed with photos", [photo("IMG_1.jpg"), pdf("a.pdf")], { refusal: "mixed-types" }, 409, "Bitte PDF und Fotos getrennt teilen"],
   [
     "more than 20 photos",
     Array.from({ length: 21 }, (_, i) => photo(`IMG_${i + 1}.jpg`)),
@@ -105,6 +105,7 @@ test("while shared files are on their way to the server, the Start screen's Date
 
   await expect.poll(() => accept).toBeDefined()
   expect(screen.getByRole("heading", { name: "Print Buddy" })).toBeInTheDocument()
+  expect(screen.getByText("Wird geladen …")).toBeInTheDocument()
   expect(screen.queryByLabelText("Datei auswählen")).not.toBeInTheDocument()
 
   accept(json({ draftId: "d1" }, 201))

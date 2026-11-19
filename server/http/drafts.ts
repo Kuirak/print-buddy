@@ -74,9 +74,12 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
       bytes: files.reduce((sum, upload) => sum + upload.bytes, 0),
       count: facts.kind === "pdf" ? facts.pageCount : files.length,
     }
-    const job = await deps.jobs.add({ cupsJobId, sheets: rendered.sheets * options.copies, file, options, details, pdf, uploads })
+    // CUPS has the job, so from here on the answer is the Print Job: after a 5xx the app offers "Erneut versuchen", and the job would print twice
+    const job = await deps.jobs.add({ cupsJobId, sheets: rendered.sheets, file, options, details, pdf, uploads })
     // the uploads are in the job folder now
-    await deps.intake.discard(draftId)
+    await deps.intake.discard(draftId).catch((err: unknown) => {
+      console.error(`Draft ${draftId} could not be deleted:`, err instanceof Error ? err.message : err)
+    })
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
   })
 

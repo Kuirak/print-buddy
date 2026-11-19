@@ -37,28 +37,69 @@ function buildPdf(objects: string[]): Uint8Array<ArrayBuffer> {
 export interface PdfPageSpec {
   /** MediaBox width and height in points. */
   size: [number, number]
-  /** `/Rotate`: clockwise quarter turns a reader applies when it shows the page. */
-  rotate?: 0 | 90 | 180 | 270
+  /** `/Rotate`: clockwise degrees a reader turns the page by when it shows it. Readers take quarter turns only. */
+  rotate?: number
   /** `/CropBox` as [left, bottom, right, top]. */
   cropBox?: [number, number, number, number]
   /** A page without `/Contents`: valid, and what a blank page often looks like. */
   blank?: true
+  /** Form fields and annotations on the page. */
+  annotations?: PdfAnnotationSpec[]
 }
 
-/** A valid PDF with the given pages. Each shows one small square, unless it is `blank`. */
-export function pdfWithPages(pages: PdfPageSpec[]): Uint8Array<ArrayBuffer> {
+/** A form field's widget, or an annotation such as a stamp or a highlight. */
+export interface PdfAnnotationSpec {
+  /** The annotation's dictionary without `/Type` and `/AP`, for example `/Subtype /Stamp /Rect [10 10 60 30] /F 4`. An entry `/FT` makes it a form field. */
+  entries: string
+  /** The normal appearance: one, or one per appearance state (`/AS` in `entries` names the state that shows). */
+  appearance?: PdfAppearanceSpec | Record<string, PdfAppearanceSpec>
+}
+
+export interface PdfAppearanceSpec {
+  /** `/BBox` as [left, bottom, right, top]. */
+  bbox: [number, number, number, number]
+  /** `/Matrix`. */
+  matrix?: [number, number, number, number, number, number]
+  /** The content stream. */
+  content: string
+}
+
+/**
+ * A valid PDF with the given pages. Each shows one small square, unless it is `blank`.
+ * `needAppearances` is the form's `/NeedAppearances`: a reader then draws the fields' values itself.
+ */
+export function pdfWithPages(pages: PdfPageSpec[], form: { needAppearances?: true } = {}): Uint8Array<ArrayBuffer> {
   const kids = pages.map((_, i) => `${i + 3} 0 R`).join(" ")
   const square = "0 0 10 10 re f"
+  // the annotations and their appearances come after the content stream
+  const more: string[] = []
+  const add = (body: string) => `${pages.length + 3 + more.push(body)} 0 R`
+  const stream = ({ bbox, matrix, content }: PdfAppearanceSpec) => add(
+    `<< /Type /XObject /Subtype /Form /BBox [${bbox.join(" ")}]${matrix ? ` /Matrix [${matrix.join(" ")}]` : ""} /Length ${content.length} >>\nstream\n${content}\nendstream`,
+  )
+  const fields: string[] = []
+  const annots = pages.map(page => (page.annotations ?? []).map(({ entries, appearance }) => {
+    const normal =
+      appearance === undefined ? undefined
+      : "content" in appearance ? stream(appearance as PdfAppearanceSpec)
+      : `<< ${Object.entries(appearance).map(([state, of]) => `/${state} ${stream(of)}`).join(" ")} >>`
+    const ref = add(`<< /Type /Annot ${entries}${normal === undefined ? "" : ` /AP << /N ${normal} >>`} >>`)
+    if (entries.includes("/FT")) fields.push(ref)
+    return ref
+  }))
+  const acroForm = fields.length === 0 ? "" : ` /AcroForm << /Fields [${fields.join(" ")}]${form.needAppearances ? " /NeedAppearances true" : ""} /DA (/Helv 12 Tf 0 g) >>`
   return buildPdf([
-    "<< /Type /Catalog /Pages 2 0 R >>",
+    `<< /Type /Catalog /Pages 2 0 R${acroForm} >>`,
     `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`,
-    ...pages.map(page =>
+    ...pages.map((page, i) =>
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.size[0]} ${page.size[1]}]` +
       (page.rotate === undefined ? "" : ` /Rotate ${page.rotate}`) +
       (page.cropBox === undefined ? "" : ` /CropBox [${page.cropBox.join(" ")}]`) +
       (page.blank ? "" : ` /Contents ${pages.length + 3} 0 R`) +
+      (annots[i]!.length === 0 ? "" : ` /Annots [${annots[i]!.join(" ")}]`) +
       " >>"),
     `<< /Length ${square.length} >>\nstream\n${square}\nendstream`,
+    ...more,
   ])
 }
 

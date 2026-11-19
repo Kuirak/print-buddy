@@ -24,7 +24,7 @@ export interface PrintJob {
   cancelled: boolean
 }
 
-export interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "file" | "options" | "details"> {
+interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "file" | "options" | "details"> {
   /** The PDF as it was sent to CUPS. */
   pdf: Uint8Array
   /** Paths of the uploaded files, in upload order. They are moved into the job folder. */
@@ -69,20 +69,27 @@ export async function openJobStore(deps: { jobsDir: string; now: Now }) {
   // one write at a time, in the order of the changes: two writes of one job.json at once could leave a mix of both
   let lastWrite: Promise<void> = Promise.resolve()
 
-  /** job.json is the record with its times as ISO 8601 text, so a person can read them. */
+  /**
+   * job.json is the record with its times as ISO 8601 text, so a person can read them.
+   * A write that fails is logged and not thrown: the job's status is read from memory, and stays readable.
+   */
   function writeRecord(job: PrintJob): Promise<void> {
     const record = {
       ...job,
       sentAt: new Date(job.sentAt).toISOString(),
       endedAt: job.endedAt === null ? null : new Date(job.endedAt).toISOString(),
     }
-    const write = lastWrite.then(() => writeFile(join(folderOf(job), "job.json"), JSON.stringify(record, null, 2) + "\n"))
-    lastWrite = write.catch(() => {})
-    return write
+    lastWrite = lastWrite
+      .then(() => writeFile(join(folderOf(job), "job.json"), JSON.stringify(record, null, 2) + "\n"))
+      .catch(err => console.error(`job.json of Print Job ${job.id} could not be written:`, err instanceof Error ? err.message : err))
+    return lastWrite
   }
 
   return {
-    /** Records a job CUPS has accepted and fills its folder. */
+    /**
+     * Records a job CUPS has accepted and fills its folder. CUPS prints the job whatever happens here, so it
+     * is known from now on even when its folder can't be filled: that is logged and not thrown.
+     */
     async add(job: NewPrintJob): Promise<PrintJob> {
       const record: PrintJob = {
         id: randomUUID(),
@@ -95,22 +102,27 @@ export async function openJobStore(deps: { jobsDir: string; now: Now }) {
         details: job.details,
         cancelled: false,
       }
-      const folder = folderOf(record)
-      await mkdir(folder, { recursive: true })
-      await writeFile(join(folder, "print.pdf"), job.pdf)
-      for (const [i, path] of job.uploads.entries()) await rename(path, join(folder, `upload-${i + 1}${extname(path)}`))
-      await writeRecord(record)
       jobs.set(record.id, record)
+      const folder = folderOf(record)
+      try {
+        await mkdir(folder, { recursive: true })
+        await writeFile(join(folder, "print.pdf"), job.pdf)
+        for (const [i, path] of job.uploads.entries()) await rename(path, join(folder, `upload-${i + 1}${extname(path)}`))
+      } catch (err) {
+        console.error(`The folder of Print Job ${record.id} (CUPS job ${record.cupsJobId}) is incomplete:`, err instanceof Error ? err.message : err)
+      }
+      await writeRecord(record)
       return record
     },
     get: (id: string): PrintJob | undefined => jobs.get(id),
     /**
-     * Records what was learned about a job since it was sent. job.json is written only when that changes
+     * Records what was learned about a job since it was sent, on top of what is recorded about it now: `job` may
+     * be an older copy, and what it says is not written back. job.json is written only when the changes change
      * something: the status screen asks every 2 s. A job that was deleted meanwhile stays deleted.
      */
     async update(job: PrintJob, changes: Partial<Pick<PrintJob, "details" | "endedAt" | "cancelled">>): Promise<PrintJob> {
-      const record: PrintJob = { ...job, ...changes }
       const known = jobs.get(job.id)
+      const record: PrintJob = { ...(known ?? job), ...changes }
       if (!known || isDeepStrictEqual(record, known)) return record
       jobs.set(record.id, record)
       await writeRecord(record)

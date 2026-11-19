@@ -1,11 +1,12 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test } from "vitest"
-import type { FileFacts } from "../../shared/api.ts"
+import { expect, onTestFinished, test, vi } from "vitest"
+import type { FileFacts, PrinterInfo } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { jobStatus } from "./testing/job-status.ts"
-import { json, mockApi } from "./testing/mock-api.ts"
+import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
 import { closeDetails, confirmation, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { printerInfo } from "./testing/printer-info.ts"
 
 /** A PDF of that many A4 pages. */
 const pdfOf = (pageCount: number): FileFacts => ({ kind: "pdf", pageCount, pages: Array.from({ length: pageCount }, () => ({ width: 595, height: 842 })) })
@@ -139,6 +140,48 @@ test("Drucken opens the confirmation instead of printing, and confirming sends t
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
   expect(submits()).toHaveLength(1)
   expect(JSON.parse(submits()[0]!.body as string)).toMatchObject({ copies: 1, selection: [1, 2] })
+})
+
+/** Opens the app and picks a one-page PDF, with `printer` answering the read of the printer info. Returns the options screen's Drucken. */
+async function pickWithPrinter(printer: ApiHandler, user = userEvent.setup({ applyAccept: false })) {
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json(pdfOf(1), 201),
+    "GET /api/printer": printer,
+  })
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Brief.pdf", { type: "application/pdf" }))
+  return { user, print: await screen.findByRole("button", { name: "Drucken" }) }
+}
+
+test("Drucken is not available before the printer info is there, so the confirmation never lacks its numbers", async () => {
+  const info = Promise.withResolvers<PrinterInfo>()
+  const { user, print } = await pickWithPrinter(() => info.promise)
+  expect(print).toBeDisabled()
+
+  info.resolve(printerInfo())
+
+  await expect.poll(() => print).toBeEnabled()
+  await user.click(print)
+  expect(within(confirmation()).getAllByRole("listitem").map(line => line.textContent)).toEqual([
+    "1 Seite × 1 Kopie = 1 Blatt",
+    "Schwarz-Weiß · A4 · Einpassen (97 %)",
+  ])
+})
+
+test("the printer info is read again when the read fails, so Drucken doesn't stay unavailable", async () => {
+  // the clock runs by itself, and the test can skip ahead to the next read
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  onTestFinished(() => { vi.useRealTimers() })
+  let reads = 0
+  const answer = () => (++reads === 1 ? json({ error: "bad-gateway" }, 502) : printerInfo())
+  const { print } = await pickWithPrinter(answer, userEvent.setup({ applyAccept: false, advanceTimers: vi.advanceTimersByTime }))
+  expect(print).toBeDisabled()
+
+  await vi.advanceTimersByTimeAsync(2_000)
+
+  expect(print).toBeEnabled()
+  expect(reads).toBe(2)
 })
 
 test("Abbrechen in the confirmation returns to the options screen with nothing changed", async () => {

@@ -5,7 +5,7 @@ import { Dialog } from "./Dialog.tsx"
 
 /**
  * "Jetzt drucken?": what will come out of the Printer, before any paper is used.
- * Nothing in here is computed: the sheet count, the percentage and the warning come from the layout.
+ * Nothing in here is computed: the sheet count, the percentage and the warning come from the layout module.
  */
 export function Confirmation(props: {
   fileName: string
@@ -13,8 +13,8 @@ export function Confirmation(props: {
   /** How many pages the PDF has, or how many photos were shared. */
   total: number
   options: PrintOptions
-  /** Sheets for one copy. `undefined` while the layout isn't known. */
-  sheets: number | undefined
+  /** Sheets of paper for all copies. */
+  sheets: number
   /** The percentage the content is printed at, as the Print size row shows it. */
   percent: number | undefined
   cutOff: boolean
@@ -39,10 +39,7 @@ export function Confirmation(props: {
       </div>
       <ul class="flex list-disc flex-col gap-1 pl-5">
         <li>
-          {content()} × {counted(props.options.copies, "Kopie", "Kopien")}
-          <Show when={props.sheets}>
-            {sheets => <> = <strong>{counted(sheets() * props.options.copies, "Blatt", "Blätter")}</strong></>}
-          </Show>
+          {content()} × {counted(props.options.copies, "Kopie", "Kopien")} = <strong>{counted(props.sheets, "Blatt", "Blätter")}</strong>
         </li>
         <li>
           {props.options.color === "color" ? "Farbe" : "Schwarz-Weiß"} · {paperNames[props.options.paper]} · {printSizeText(props.options.printSize, props.percent)}
