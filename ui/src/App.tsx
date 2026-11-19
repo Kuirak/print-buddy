@@ -212,6 +212,7 @@ export function App() {
               kind={fileKind(options().facts)}
               initial={options().initial}
               onPrint={chosen => void print(chosen, options().draftId)}
+              onBack={() => void leaveJob()}
             />
           )}
         </Match>

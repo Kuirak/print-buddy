@@ -28,6 +28,8 @@ export function OptionsScreen(props: {
   /** The Print Options the person had chosen for these files before the login ran out. */
   initial?: PrintOptions
   onPrint: (options: PrintOptions) => void
+  /** "Zurück": the person gives the job up. */
+  onBack: () => void
 }) {
   const presets = createPresets(untrack(() => props.kind))
   // the files never change while their options screen is open
@@ -138,7 +140,12 @@ export function OptionsScreen(props: {
     <>
     {/* nothing behind an open dialog can be tapped or reached with the keyboard */}
     <main class="flex min-h-dvh flex-col gap-4 p-4" inert={over() !== undefined}>
-      <h1 class="truncate font-bold">{props.fileName}</h1>
+      <div class="flex items-center gap-2">
+        <button type="button" class="-ml-2 min-h-11 shrink-0 cursor-pointer rounded-lg px-2 font-semibold text-brand" onClick={() => props.onBack()}>
+          <span aria-hidden="true">‹ </span>Zurück
+        </button>
+        <h1 class="truncate font-bold">{props.fileName}</h1>
+      </div>
       <PresetChips presets={presets} options={options} onPick={apply} onOwn={() => setOver("details")} />
       <div class="flex flex-col gap-2">
         <div class="flex items-center justify-between gap-2">
