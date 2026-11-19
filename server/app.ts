@@ -5,6 +5,7 @@ import type { Now } from "./clock.ts"
 import type { Config } from "./config.ts"
 import { draftRoutes } from "./http/drafts.ts"
 import { healthRoutes } from "./http/health.ts"
+import { jobRoutes } from "./http/jobs.ts"
 import { sessionRoutes } from "./http/session.ts"
 import { printerRoutes } from "./http/printer.ts"
 import { uiRoutes } from "./http/ui.ts"
@@ -33,6 +34,7 @@ export async function createApp(deps: AppDeps) {
   app.route("/", healthRoutes())
   app.route("/", sessionRoutes())
   app.route("/", draftRoutes({ intake, jobs, printer }))
+  app.route("/", jobRoutes({ jobs, printer, now: deps.now }))
   app.route("/", printerRoutes({ printer }))
   // keep these two last: they catch what no route above answered
   app.all("/api/*", c => c.json<ApiError>({ error: "not-found" }, 404))

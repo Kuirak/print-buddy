@@ -8,15 +8,16 @@ import { RefusalScreen } from "./screens/RefusalScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
 
+/** The server's copy of picked files: `facts[i]` is what it found out about `files[i]`. */
+type Draft = { draftId: string; facts: FileFacts[] }
+
 type Screen =
   | { name: "start" }
-  /**
-   * One PDF, or photos in the order they were picked. The phone keeps `files`; `draftId` is the server's
-   * copy of them, and `facts[i]` is what the server found out about `files[i]`.
-   */
-  | { name: "options"; files: File[]; facts: FileFacts[]; draftId: string }
+  /** One PDF, or photos in the order they were picked. The phone keeps `files` until the person leaves the job. */
+  | ({ name: "options"; files: File[] } & Draft)
   | { name: "refusal"; refusal: Refusal }
-  | { name: "status"; job: JobSubmitted }
+  /** `files` and `options` are what was sent, kept for "Nochmal drucken". */
+  | { name: "status"; files: File[]; options: PrintOptions; job: JobSubmitted }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -26,25 +27,40 @@ export function App() {
     return current.name === name ? (current as Extract<Screen, { name: N }>) : undefined
   }
 
-  async function pick(files: File[]) {
+  /** Uploads the files into a new draft. Resolves with the Refusal when the server won't take one of them. */
+  async function upload(files: File[]): Promise<Draft | Refusal> {
     const { draftId } = await createDraft()
     const facts: FileFacts[] = []
     // one at a time, so the server holds the photos in the order they were picked
     for (const file of files) {
       const answer = await addFile(draftId, file)
-      if ("refusal" in answer) return setScreen({ name: "refusal", refusal: answer })
+      if ("refusal" in answer) return answer
       facts.push(answer)
     }
-    setScreen({ name: "options", files, facts, draftId })
+    return { draftId, facts }
+  }
+
+  async function pick(files: File[]) {
+    const draft = await upload(files)
+    setScreen("refusal" in draft ? { name: "refusal", refusal: draft } : { name: "options", files, ...draft })
   }
 
   // a second tap while the first is on its way must not print twice
   let sending = false
-  async function print(draftId: string, options: PrintOptions) {
+  /** Sends the draft as a Print Job. Without a draft ("Nochmal drucken") the phone's copy is uploaded again first. */
+  async function print(files: File[], options: PrintOptions, draftId?: string) {
     if (sending) return
     sending = true
     try {
-      setScreen({ name: "status", job: await submitDraft(draftId, options) })
+      if (draftId === undefined) {
+        const draft = await upload(files)
+        if ("refusal" in draft) {
+          setScreen({ name: "refusal", refusal: draft })
+          return
+        }
+        draftId = draft.draftId
+      }
+      setScreen({ name: "status", files, options, job: await submitDraft(draftId, options) })
     } finally {
       sending = false
     }
@@ -65,11 +81,20 @@ export function App() {
               fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
               kind={fileKind(options().facts)}
               facts={options().facts}
-              onPrint={chosen => void print(options().draftId, chosen)}
+              onPrint={chosen => void print(options().files, chosen, options().draftId)}
             />
           )}
         </Match>
-        <Match when={on("status")}>{status => <StatusScreen job={status().job} />}</Match>
+        {/* keyed: a new Print Job gets a new status screen */}
+        <Match when={on("status")} keyed>
+          {status => (
+            <StatusScreen
+              job={status.job}
+              onClose={() => setScreen({ name: "start" })}
+              onPrintAgain={() => void print(status.files, status.options)}
+            />
+          )}
+        </Match>
       </Switch>
     </div>
   )

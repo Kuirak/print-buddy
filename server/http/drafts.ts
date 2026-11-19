@@ -49,8 +49,8 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
     if (!options) return c.json<ApiError>({ error: "invalid-options" }, 400)
     const rendered = await render(files, options, deps.printer.margins()[options.paper])
     if (rendered.outcome === "invalid-options") return c.json<ApiError>({ error: "invalid-options" }, 400)
-    const { cupsJobId } = await deps.printer.printJob(rendered.pdf, options)
-    const job = deps.jobs.add({ cupsJobId })
+    const { cupsJobId, details } = await deps.printer.printJob(rendered.pdf, options)
+    const job = deps.jobs.add({ cupsJobId, sheets: rendered.sheets * options.copies, details })
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
   })
 

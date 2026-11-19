@@ -116,8 +116,9 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   clock.ts           The injectable clock type.
   intake.ts          Upload intake (drafts).
   job-store.ts       Job store.
+  status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts and the IPP codec.
-  http/              One file per API resource: drafts, session, health, ui (static files).
+  http/              One file per API resource: drafts, jobs, printer, session, health, ui (static files).
   testing/           Seam 1 helpers: harness, fake IPP printer, fixtures.
   *.test.ts          Seam 1 tests, next to the sources.
 ui/                Vite root.
@@ -170,8 +171,9 @@ test("…", async t => {
   - `opts.options`: extra keys for the options file, for example `{ upload_limit_mb: 1 }`.
   - `opts.now`: start time of the fake clock. `opts.ui`: files of a stand-in UI build.
   - `opts.beforeStart(printer)`: runs before the server starts, to script what the fake printer answers to the startup read of the margins.
-  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
+  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `print(overrides?, files?)`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
   - `submit` posts `samplePrintOptions` from `server/testing/fixtures.ts` (one copy, black and white, A4, page 1), changed by `overrides`. A submit without valid Print Options is a 400.
+  - `print` sends a whole Print Job (new draft, one upload per file, submit) and returns `{ jobId, cupsJobId }`. Without `files` it sends `samplePdf()`.
   - `startupRequests` holds the IPP requests the server made while starting. They are taken out of `printer.requests`, so that list starts empty and holds only what the test caused.
 - `server.clock` is the server's only source of time: `clock.now()` and `clock.advance(ms)`. Server code takes `now` from its dependencies and never calls `Date.now()` itself. For anything that runs on a schedule, expose a function the test can call after `clock.advance(…)`, instead of faking timers.
 - `server.printer` is the fake IPP printer from `server/testing/fake-ipp.ts`. It answers like cupsd 2.4.10.
@@ -214,6 +216,7 @@ test("…", async () => {
 - `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test.
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
+- A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
 - Never import `pdfjs-dist` in a component. Wrap it in one module of ours and mock that module with `vi.mock`.
 
 ### The layout module
@@ -254,7 +257,7 @@ const sheets = layout({
 - **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
 - **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
 - **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on (`init: false`). Anything that must finish before the process ends belongs in the server's `close()`.
-- **What the skeleton leaves open.** Submit sends the upload as it is (renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed submit shows nothing in the app (failures). The status screen shows only that CUPS accepted the job.
+- **What the skeleton leaves open.** Submit sends the upload as it is (renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed submit shows nothing in the app (failures).
 
 ### Print Options and printer info
 
@@ -283,3 +286,14 @@ const sheets = layout({
 - **Photos can't print yet.** Submit still sends the draft's first file as it is, so Drucken on a photo draft sends a JPEG or PNG labelled as PDF. The renderer (ticket 07) ends that.
 - **In the app.** The options screen state holds `files` (the phone's copies, in picked order) and `facts` (same order). `ui/src/controls/FilePicker.tsx` is the one "Datei auswählen"; the start and Refusal screens share it.
 - **Fixtures.** `server/testing/fixtures.ts` has `pdfWithPages()` (sizes, `/Rotate`, CropBox), `sampleJpeg()` (40×30), `withExifOrientation()`, `samplePng(w, h)` and `encryptedPdf()`. Make test files different in size, so a test can tell them apart in a rendered PDF.
+
+### Notes from the status screen (ticket 05)
+
+- **Reading a Print Job.** `GET /api/jobs/:jobId` answers `JobStatus` (`shared/api.ts`): `state`, `reason`, `details`, `cupsJobId`, `sentAt`, `endedAt` and `sheets`. `state` is a `ScreenState` key (`waiting`, `printing`, `done`, `cancelled`, `error`); the German words are in `ui/src/screens/StatusScreen.tsx`. `reason` is a German sentence, or null when there is nothing to explain. `details` is what CUPS said: `jobState` as the IPP keyword, `jobStateReasons` and `printerMessage` (`job-printer-state-message`).
+- **Each read asks CUPS** with Get-Job-Attributes, until the job has ended. The first read that sees the end sets `endedAt` from the server's clock, so it can be up to one poll late. After that the stored state is answered and CUPS is not asked again. When CUPS can't answer, or no longer knows the job, the read answers the last state seen, with a warning in the log.
+- **Status mapper.** `mapStatus(details, cancelledByPrintBuddy)` in `server/status-mapper.ts` is the one place that decides state and reason. A `processing` job whose printer message says the Printer isn't connected yet (`notConnectedMessages`) is Wartet, and `processing-stopped` is Wartet too. It reads no printer state and no reason keywords yet: Fehler has one generic sentence, and one for a job somebody else cancelled.
+- **Cancel.** `POST /api/jobs/:jobId/cancel` answers the new `JobStatus`, or 409 `{ error: "not-cancellable" }`. It is allowed exactly while the job reads as Wartet. The job store's `cancelled` flag records Print Buddy's own cancel, because CUPS marks every cancelled job the same way. `printer.cancelJob()` resolves false when CUPS refuses (`IppRefusal`: a bare HTTP status or an IPP error status) and throws only when CUPS can't be reached.
+- **Sheet count.** `sheets` is set at submit: pages of the PDF, or the number of photos, times `copies`. It ignores `selection` and `pagesPerSheet` until the renderer reports the real count.
+- **Job store.** `jobs.update(job, changes)` returns the changed record; records are never changed in place. `details`, `endedAt` and `cancelled` are the fields that change after `add`.
+- **Status screen.** It assumes Wartet until the first answer. It polls with a timeout chain, 2 s after each answer, and stops once `endedAt` is set. The running timer counts from when the screen opened, on the phone's clock; "gedauert" is `endedAt - sentAt` from the server. The 60 s hint shows while the state is Wartet and the timer is at 60 s or more. Every ended state offers "Schließen" and "Nochmal drucken"; Fehler also shows `reason`.
+- **Nochmal drucken.** The status screen state in `App.tsx` keeps `files` and `options`. `print(files, options)` without a draft id uploads the files into a new draft and submits it with the same Print Options, without going back to the options screen.

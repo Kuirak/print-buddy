@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { App } from "./App.tsx"
+import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
 
 /** Opens the app, picks a file of the given type and waits for the options screen. */
@@ -13,6 +14,7 @@ async function openOptions(kind: "pdf" | "photo" = "pdf") {
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
     "POST /api/drafts/d1/files": () => json(facts, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus(),
   })
   const user = userEvent.setup({ applyAccept: false })
   render(() => <App />)
@@ -25,7 +27,7 @@ async function openOptions(kind: "pdf" | "photo" = "pdf") {
   /** Taps Drucken and returns the Print Options the app submitted. */
   async function print() {
     await user.click(screen.getByRole("button", { name: "Drucken" }))
-    await screen.findByText("An den Drucker gesendet")
+    await screen.findByText("Auftrag Nr. 42")
     return JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as Record<string, unknown>
   }
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
