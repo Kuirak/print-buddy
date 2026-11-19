@@ -7,6 +7,7 @@ import { phoneFiles } from "./phone-files.ts"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { logInAgain, loginExpired } from "./testing/login.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 import { share } from "./testing/share.ts"
 
 test("the app asks the session check when it opens, and a 401 shows Anmeldung abgelaufen with Neu anmelden", async () => {
@@ -58,7 +59,7 @@ test("a 401 when the person taps Drucken shows Anmeldung abgelaufen, not Drucken
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
 
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
 
   expect(await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })).toBeInTheDocument()
   expect(screen.queryByRole("heading", { name: "Drucken hat nicht geklappt" })).not.toBeInTheDocument()
@@ -66,6 +67,8 @@ test("a 401 when the person taps Drucken shows Anmeldung abgelaufen, not Drucken
 })
 
 const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
+/** The summary line of the options screen, which begins with copies, colour, paper and quality. */
+const summary = () => screen.getByRole("status", { name: "Gewählte Einstellungen" })
 
 test("after the login the options screen opens with the same file and the same Print Options, and Drucken sends them", async () => {
   let drafts = 0
@@ -81,27 +84,26 @@ test("after the login the options screen opens with the same file and the same P
   const file = pdf("Rechnung.pdf")
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), file)
-  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
   await user.click(choice("Farbe", "Farbe"))
   await user.click(choice("Papier", "A5"))
   await user.click(choice("Qualität", "Toner sparen"))
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await closeDetails(user)
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
 
   await logInAgain(user)
   render(() => <App />)
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
-  expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("2")
-  expect(choice("Farbe", "Farbe")).toBeChecked()
-  expect(choice("Papier", "A5")).toBeChecked()
-  expect(choice("Qualität", "Toner sparen")).toBeChecked()
+  expect(summary()).toHaveTextContent(/^2× · Farbe · A5 · Toner sparen · /)
   // the file comes from the phone's copy: nobody shared or picked it again
   expect((api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData).get("file")).toBe(file)
   // a reload must not take this for another return from the login
   expect(location.search).toBe("")
 
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
 
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
   expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toEqual({
@@ -122,8 +124,10 @@ test("when the phone's copy is gone after the login, the app says Bitte nochmal 
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
-  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await closeDetails(user)
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
   // the browser may drop the phone's storage while the person is away at the login
   await phoneFiles.clear()
@@ -142,7 +146,7 @@ test("when the phone's copy is gone after the login, the app says Bitte nochmal 
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Neu.pdf"))
 
   expect(await screen.findByText("Neu.pdf")).toBeInTheDocument()
-  expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
+  expect(summary()).toHaveTextContent(/^1× · /)
 })
 
 test("a share that went to the server, as one lost to the login does, says Bitte nochmal teilen and never opens what an earlier job left", async () => {
@@ -180,8 +184,10 @@ test("a 401 while the status screen follows a Print Job shows Anmeldung abgelauf
   const file = pdf("Rechnung.pdf")
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), file)
-  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await closeDetails(user)
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Wartet" })
 
   loggedIn = false
@@ -233,7 +239,7 @@ test("back on the status screen after the login, läuft seit still counts from w
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Wartet" })
   loggedIn = false
   await vi.advanceTimersByTimeAsync(2_000)
@@ -320,8 +326,10 @@ async function loseLoginAtDrucken() {
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
-  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await closeDetails(user)
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
 }
 
@@ -353,5 +361,5 @@ test("a file shared after the login ran out on another one starts with its own P
   render(() => <App />)
 
   expect(await screen.findByText("Neu.pdf")).toBeInTheDocument()
-  expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
+  expect(summary()).toHaveTextContent(/^1× · /)
 })

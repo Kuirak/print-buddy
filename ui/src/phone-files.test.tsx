@@ -197,7 +197,7 @@ test("Schließen on Drucken hat nicht geklappt leads back to Start, and the phon
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })
   expect(await names()).toEqual(["Rechnung.pdf"])
 
