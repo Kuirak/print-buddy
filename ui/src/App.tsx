@@ -1,9 +1,10 @@
 import { createSignal, Match, onSettled, Switch } from "solid-js"
 import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
+import { sharedParam } from "../../shared/share-target.ts"
 import { addFile, createDraft, submitDraft } from "./api.ts"
+import { startAppUpdate } from "./app-update.ts"
 import { phoneFiles } from "./phone-files.ts"
-import { sharedParam } from "./share-target.ts"
 import { OpeningScreen } from "./screens/OpeningScreen.tsx"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
@@ -31,6 +32,9 @@ export function App() {
     const current = screen()
     return current.name === name ? (current as Extract<Screen, { name: N }>) : undefined
   }
+  // a share opens the app in the middle of a job; from Start, a job begins with "Datei auswählen"
+  const update = startAppUpdate()
+  update.setJobInProgress(shared)
 
   onSettled(() => {
     if (shared) {
@@ -44,13 +48,23 @@ export function App() {
   })
 
   /**
+   * The person leaves the job, or there is none after all: back to Start. The phone forgets the files,
+   * and a new version of the app that waited may take over.
+   */
+  async function leaveJob() {
+    await phoneFiles.clear()
+    setScreen({ name: "start" })
+    update.setJobInProgress(false)
+  }
+
+  /**
    * Uploads the phone's copy to a new draft and opens the options screen with it. Every way into a job
    * goes through here: a share, "Datei auswählen", and printing the same files again.
    */
   async function openHeld() {
     const files = await phoneFiles.held()
     // Chrome can deliver a share without its files (crbug 563075800); "Datei auswählen" is the way in then
-    if (files.length === 0) return setScreen({ name: "start" })
+    if (files.length === 0) return leaveJob()
     const { draftId } = await createDraft()
     const facts: FileFacts[] = []
     // one at a time, so the server holds the photos in the order they were shared or picked
@@ -67,6 +81,7 @@ export function App() {
   }
 
   async function pick(files: File[]) {
+    update.setJobInProgress(true)
     await phoneFiles.keep(files)
     await openHeld()
   }
@@ -87,7 +102,7 @@ export function App() {
     <div class="mx-auto min-h-dvh max-w-[480px] bg-white">
       <Switch>
         <Match when={on("start")}>
-          <StartScreen onPick={files => void pick(files)} />
+          <StartScreen canReceiveShares={update.hasServiceWorker} onPick={files => void pick(files)} />
         </Match>
         <Match when={on("opening")}>
           <OpeningScreen />

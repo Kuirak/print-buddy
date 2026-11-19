@@ -4,6 +4,7 @@ import pageHtml from "../index.html?raw"
 import manifestText from "../public/manifest.webmanifest?raw"
 import { App } from "./App.tsx"
 import { handledBy } from "./share-target.ts"
+import { fakeServiceWorker } from "./testing/fake-service-worker.ts"
 import { json, mockApi, type ApiCall } from "./testing/mock-api.ts"
 import { share } from "./testing/share.ts"
 
@@ -164,4 +165,25 @@ test.each([
   [post("/"), "network"],
 ] as const)("the service worker answers %o as %s", (request, expected) => {
   expect(handledBy(request)).toBe(expected)
+})
+
+const shareHint = "Teile ein PDF oder Fotos aus einer anderen App mit Print Buddy."
+
+test("where the app can be installed, the Start screen says that files can be shared with Print Buddy", () => {
+  mockApi({})
+  fakeServiceWorker()
+
+  render(() => <App />)
+
+  expect(screen.getByText(shareHint)).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+})
+
+test("over plain HTTP nothing can be shared, so the Start screen offers only Datei auswählen", () => {
+  mockApi({})
+
+  render(() => <App />)
+
+  expect(screen.queryByText(shareHint)).not.toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
 })

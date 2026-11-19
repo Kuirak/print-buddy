@@ -3,6 +3,7 @@ import { userEvent } from "@testing-library/user-event"
 import { expect, test } from "vitest"
 import { App } from "./App.tsx"
 import { phoneFiles } from "./phone-files.ts"
+import { receiveShare } from "./share-target.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
 import { share } from "./testing/share.ts"
 
@@ -83,4 +84,20 @@ test("opening the app directly drops what an earlier job left on the phone", asy
 
   expect(await screen.findByLabelText("Datei auswählen")).toBeInTheDocument()
   await expect.poll(names).toEqual([])
+})
+
+test("a share whose files can't be read leaves nothing on the phone, not even an earlier job's files", async () => {
+  await phoneFiles.keep([pdf("Gestern.pdf")])
+  // Chrome 153 on Android 17 can deliver a share with an empty body
+  const request = new Request(new URL("/share-target", location.href), {
+    method: "POST",
+    headers: { "Content-Type": "multipart/form-data; boundary=----share" },
+    body: "",
+  })
+
+  const response = await receiveShare(request)
+
+  expect(response.status).toBe(303)
+  expect(response.headers.get("Location")).toBe("/?shared=1")
+  expect(await names()).toEqual([])
 })
