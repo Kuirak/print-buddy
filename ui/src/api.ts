@@ -14,6 +14,20 @@ export class ApiFailure extends Error {
   }
 }
 
+let loginExpired = () => {}
+
+/**
+ * `listener` is called whenever Cloudflare Access answers a call with 401: the monthly login has run
+ * out. Every call reports it here, whoever made it, so no screen has to look for it. The call itself
+ * still fails with its ApiFailure.
+ */
+export function onLoginExpired(listener: () => void) {
+  loginExpired = listener
+}
+
+/** True for the failure of a call that Cloudflare Access answered with 401. `onLoginExpired` has heard of it by then. */
+export const isLoginExpired = (failure: unknown) => failure instanceof ApiFailure && failure.status === 401
+
 /** `body`: FormData goes out as multipart, anything else as JSON. */
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const json = body !== undefined && !(body instanceof FormData)
@@ -26,9 +40,13 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
     },
     body: json ? JSON.stringify(body) : body,
   })
+  if (res.status === 401) loginExpired()
   if (!res.ok) throw new ApiFailure(res.status, await res.json().catch(() => undefined))
   return await res.json() as T
 }
+
+/** The session check: it gets through to the server only while the login is valid. */
+export const checkSession = () => call<unknown>("GET", "/api/session")
 
 export const createDraft = () => call<DraftCreated>("POST", "/api/drafts")
 

@@ -19,11 +19,12 @@ export const json = (body: unknown, status = 200) => Response.json(body, { statu
 /**
  * Replaces `fetch` with a table of routes, keyed `"METHOD /path"`. A call to a route that is not in
  * the table rejects, so the test fails instead of hanging. The setup file removes the stub after each test.
- * The one exception is `GET /api/printer`, which every options screen reads: it answers `printerInfo()`
- * unless the table has its own handler.
+ * There are two exceptions, which answer unless the table has its own handler: `GET /api/session`, which
+ * the app asks every time it opens, answers as for a valid login, and `GET /api/printer`, which every
+ * options screen reads, answers `printerInfo()`.
  */
 export function mockApi(routes: Record<string, ApiHandler>) {
-  routes = { "GET /api/printer": () => printerInfo(), ...routes }
+  routes = { "GET /api/session": () => ({ ok: true }), "GET /api/printer": () => printerInfo(), ...routes }
   const calls: ApiCall[] = []
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const call: ApiCall = {

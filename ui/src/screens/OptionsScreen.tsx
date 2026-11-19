@@ -23,6 +23,8 @@ export function OptionsScreen(props: {
   files: File[]
   /** What the server found out about each of them. */
   facts: FileFacts[]
+  /** The Print Options the person had chosen for these files before the login ran out. */
+  initial?: PrintOptions
   onPrint: (options: PrintOptions) => void
 }) {
   const presets = createPresets(untrack(() => props.kind))
@@ -34,7 +36,7 @@ export function OptionsScreen(props: {
   /** Every page of the PDF, counted from 1, or every photo, counted from 0: what the thumbnails show and the selection picks from. */
   const refs = source.kind === "pdf" ? source.pages.map((_, index) => index + 1) : source.photos.map((_, index) => index)
   // a new file starts from the starred Preset, never from the settings of the job before, with every page or photo selected
-  const [options, setOptions] = createStore<PrintOptions>({
+  const [options, setOptions] = createStore<PrintOptions>(structuredClone(untrack(() => props.initial)) ?? {
     ...structuredClone(presets.starred().values),
     rotation: 0,
     selection: [...refs],

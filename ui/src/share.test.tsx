@@ -80,15 +80,16 @@ test.each([
   expect(screen.queryByRole("button", { name: "Drucken" })).not.toBeInTheDocument()
 })
 
-test("a share that arrives without files opens the Start screen and asks the server for nothing", async () => {
+test("a share that arrives without files says Bitte nochmal teilen, offers Datei auswählen and uploads nothing", async () => {
   const api = mockApi({})
 
   await share([])
   render(() => <App />)
 
-  expect(await screen.findByLabelText("Datei auswählen")).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "Bitte nochmal teilen" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
   await new Promise(resolve => setTimeout(resolve, 20))
-  expect(api.calls).toEqual([])
+  expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["GET /api/session"])
   expect(location.search).toBe("")
 })
 
@@ -162,6 +163,8 @@ test.each([
   [get("/icon-192.png"), "network"],
   // a share that was lost to the login comes back as a GET, which the server answers
   [get("/share-target"), "network"],
+  // the way to the Cloudflare login must reach Cloudflare: the app's page itself never does
+  [get("/login"), "network"],
   [post("/"), "network"],
 ] as const)("the service worker answers %o as %s", (request, expected) => {
   expect(handledBy(request)).toBe(expected)

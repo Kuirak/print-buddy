@@ -3,7 +3,7 @@ import { test } from "node:test"
 import { samplePdf } from "./testing/fixtures.ts"
 import { startTestServer } from "./testing/harness.ts"
 
-test("a share that reaches the server, because no service worker took it, is sent on into the app", async t => {
+test("a share that reaches the server, because no service worker took it, is not kept: the app is told that it was lost", async t => {
   const server = await startTestServer()
   t.after(server.close)
   const form = new FormData()
@@ -13,17 +13,17 @@ test("a share that reaches the server, because no service worker took it, is sen
 
   // 303, so that the browser follows with a GET and a reload doesn't send the files again
   assert.equal(res.status, 303)
-  assert.equal(res.headers.get("location"), "/?shared=1")
+  assert.equal(res.headers.get("location"), "/?shared=lost")
 })
 
-test("coming back to the share address after the login leads into the app as well", async t => {
+test("coming back to the share address after the login tells the app that the share was lost as well", async t => {
   const server = await startTestServer()
   t.after(server.close)
 
   const res = await server.request("/share-target", { redirect: "manual" })
 
   assert.equal(res.status, 303)
-  assert.equal(res.headers.get("location"), "/?shared=1")
+  assert.equal(res.headers.get("location"), "/?shared=lost")
 })
 
 test("the manifest and the service worker are served as what they are and re-checked on every open", async t => {
