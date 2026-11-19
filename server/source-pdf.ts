@@ -49,11 +49,14 @@ const INVISIBLE = 1
 const HIDDEN = 2
 const PRINT = 4
 
+/** The annotations that mark text. pdf.js draws one only if it says which text: `/QuadPoints`, eight numbers per stretch. */
+const TEXT_MARKUPS = ["Highlight", "Underline", "Squiggly", "StrikeOut"]
+
 /**
  * Draws the form fields and annotations of the given pages into the pages' content, since only the content
- * is embedded. What gets drawn is what a reader prints: each one's normal appearance, fitted to its rectangle,
- * if it is flagged for printing and not hidden. One without an appearance stream is left out, except that
- * text and choice fields get the appearance a reader would make up for them.
+ * is embedded. What gets drawn is what pdf.js draws in the preview, by the rules a reader prints by: each one's
+ * normal appearance, fitted to its rectangle, if it is flagged for printing and not hidden. One without an
+ * appearance stream is left out, except that text and choice fields get the appearance a reader would make up for them.
  */
 export async function drawAnnotations(doc: PDFDocument, pages: readonly PDFPage[]): Promise<void> {
   await completeFieldAppearances(doc)
@@ -66,7 +69,10 @@ export async function drawAnnotations(doc: PDFDocument, pages: readonly PDFPage[
       const bits = flags instanceof PDFNumber ? flags.asNumber() : 0
       const rect = numbers(annotation.lookup(PDFName.of("Rect")), 4) as Quad | undefined
       const appearance = normalAppearance(annotation)
-      if (!(bits & PRINT) || bits & (HIDDEN | INVISIBLE) || !rect || !appearance) continue
+      const subtype = annotation.lookup(PDFName.of("Subtype"))
+      const marked = numbers(annotation.lookup(PDFName.of("QuadPoints")))
+      const marksNothing = subtype instanceof PDFName && TEXT_MARKUPS.includes(subtype.decodeText()) && !(marked && marked.length > 0 && marked.length % 8 === 0)
+      if (!(bits & PRINT) || bits & (HIDDEN | INVISIBLE) || !rect || !appearance || marksNothing) continue
 
       const { dict } = doc.context.lookup(appearance, PDFStream)
       const [x0, y0, x1, y1] = (numbers(dict.lookup(PDFName.of("BBox")), 4) ?? [0, 0, 1, 1]) as Quad
@@ -105,10 +111,10 @@ function normalAppearance(annotation: PDFDict): PDFRef | undefined {
 
 type Quad = [number, number, number, number]
 
-/** The numbers of an array of exactly `count` numbers; undefined for anything else. */
-function numbers(object: PDFObject | undefined, count: number): number[] | undefined {
-  if (!(object instanceof PDFArray) || object.size() !== count) return undefined
-  const items = Array.from({ length: count }, (_, i) => object.lookup(i))
+/** The numbers of an array that holds nothing but numbers, `count` of them if that is given; undefined for anything else. */
+function numbers(object: PDFObject | undefined, count?: number): number[] | undefined {
+  if (!(object instanceof PDFArray) || (count !== undefined && object.size() !== count)) return undefined
+  const items = Array.from({ length: object.size() }, (_, i) => object.lookup(i))
   return items.every(item => item instanceof PDFNumber) ? items.map(item => item.asNumber()) : undefined
 }
 

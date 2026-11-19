@@ -361,7 +361,7 @@ test("an annotation prints with its appearance, fitted to its rectangle on the p
         // an appearance twice the size of its rectangle
         { entries: "/Subtype /Stamp /Rect [50 20 150 70] /F 4", appearance: { bbox: [0, 0, 200, 100], content: stamp } },
         // an appearance that lies on its side, and a rectangle given from its top-right corner
-        { entries: "/Subtype /Highlight /Rect [30 50 10 10] /F 4", appearance: { bbox: [0, 0, 40, 20], matrix: [0, 1, -1, 0, 0, 0], content: highlight } },
+        { entries: "/Subtype /Highlight /QuadPoints [10 50 30 50 10 10 30 10] /Rect [30 50 10 10] /F 4", appearance: { bbox: [0, 0, 40, 20], matrix: [0, 1, -1, 0, 0, 0], content: highlight } },
       ],
     },
     // the annotations turn and move with their page
@@ -393,6 +393,9 @@ test("an annotation that is hidden or not meant for printing is left out, and so
       { entries: "/Subtype /Link /Rect [60 0 70 10] /F 4" },
       // an appearance per state, and no state chosen
       { entries: "/Subtype /Widget /FT /Btn /T (Ja) /Rect [70 0 80 10] /F 4", appearance: { Yes: appearance("% no state") } },
+      // a highlight that doesn't say which text it marks: pdf.js doesn't draw it
+      { entries: "/Subtype /Highlight /Rect [80 0 90 10] /F 4", appearance: appearance("% marks nothing") },
+      { entries: "/Subtype /Underline /QuadPoints [80 10 90 10 80 0] /Rect [80 0 90 10] /F 4", appearance: appearance("% marks half a stretch") },
     ],
   }
 
