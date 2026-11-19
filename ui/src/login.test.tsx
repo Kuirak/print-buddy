@@ -217,3 +217,32 @@ test("a 401 while the status screen follows a Print Job shows Anmeldung abgelauf
   expect((api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData).get("file")).toBe(file)
   expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toMatchObject({ copies: 2, selection: [1] })
 })
+
+test("back on the status screen after the login, läuft seit still counts from when the Print Job was sent", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  onTestFinished(() => { vi.useRealTimers() })
+  let loggedIn = true
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json(pdfFacts, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => (loggedIn ? jobStatus() : loginExpired()),
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await screen.findByRole("heading", { name: "Wartet" })
+  loggedIn = false
+  await vi.advanceTimersByTimeAsync(2_000)
+  await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
+
+  // the PIN comes by email, so the login takes a while
+  await vi.advanceTimersByTimeAsync(70_000)
+  loggedIn = true
+  await logInAgain(user)
+  render(() => <App />)
+
+  expect(await screen.findByText(/^läuft seit 1:1\d$/)).toBeInTheDocument()
+  expect(screen.getByText("Schläft der Drucker oder ist er aus? Der Auftrag wartet weiter.")).toBeInTheDocument()
+})

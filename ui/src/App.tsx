@@ -33,8 +33,8 @@ type Screen =
   | { name: "refusal"; refusal: Refusal }
   /** The files of the job are no longer on the phone: "Bitte nochmal teilen". */
   | { name: "share-again" }
-  /** `options` is what was sent, kept for "Nochmal drucken". */
-  | { name: "status"; options: PrintOptions; job: JobSubmitted }
+  /** `options` is what was sent, kept for "Nochmal drucken". `since`: when CUPS accepted the job, by the phone's clock. */
+  | { name: "status"; options: PrintOptions; job: JobSubmitted; since: number }
   /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen". */
   | { name: "send-failed"; options: PrintOptions }
 
@@ -72,7 +72,7 @@ export function App() {
     if (loginExpired()) return
     // what the page load of the login would lose; the files are on the phone already
     const current = screen()
-    if (current.name === "status") interruptedJob.keep({ options: current.options, job: current.job })
+    if (current.name === "status") interruptedJob.keep({ options: current.options, job: current.job, since: current.since })
     else if (jobInProgress) interruptedJob.keep({ options: lastSent })
     setLoginExpired(true)
   })
@@ -166,7 +166,7 @@ export function App() {
     try {
       draftId ??= (await uploadHeld())?.draftId
       if (draftId === undefined) return
-      setScreen({ name: "status", options, job: await submitDraft(draftId, options) })
+      setScreen({ name: "status", options, job: await submitDraft(draftId, options), since: Date.now() })
     } catch (failure) {
       if (!isLoginExpired(failure)) setScreen({ name: "send-failed", options })
     } finally {
@@ -207,7 +207,12 @@ export function App() {
         {/* keyed: a new Print Job gets a new status screen */}
         <Match when={on("status")} keyed>
           {status => (
-            <StatusScreen job={status.job} onClose={() => void leaveJob()} onPrintAgain={() => void print(status.options)} />
+            <StatusScreen
+              job={status.job}
+              since={status.since}
+              onClose={() => void leaveJob()}
+              onPrintAgain={() => void print(status.options)}
+            />
           )}
         </Match>
         <Match when={on("send-failed")}>

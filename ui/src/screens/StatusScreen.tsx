@@ -1,4 +1,4 @@
-import { createSignal, onSettled, Show } from "solid-js"
+import { createSignal, onSettled, Show, untrack } from "solid-js"
 import type { JobStatus, JobSubmitted, ScreenState } from "../../../shared/api.ts"
 import { cancelJob, readJob } from "../api.ts"
 import { Collapsible } from "../controls/Collapsible.tsx"
@@ -22,13 +22,18 @@ function minutesSeconds(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
 
-/** Follows one Print Job until it has ended. */
-export function StatusScreen(props: { job: JobSubmitted; onClose: () => void; onPrintAgain: () => void }) {
+/**
+ * Follows one Print Job until it has ended.
+ * `since`: when CUPS accepted the job, by the phone's clock. Left out it is now, because the screen
+ * opens as soon as the job is sent. The way back from the login brings the earlier time.
+ */
+export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose: () => void; onPrintAgain: () => void }) {
   // CUPS has just accepted the job, so it waits until the server says otherwise
   const [status, setStatus] = createSignal<JobStatus>()
   const state = () => status()?.state ?? "waiting"
   const running = () => state() === "waiting" || state() === "printing"
-  /** Seconds since this screen opened, which is when CUPS accepted the job. */
+  const since = untrack(() => props.since) ?? Date.now()
+  /** Seconds since CUPS accepted the job. */
   const [elapsed, setElapsed] = createSignal(0)
 
   let ticking: ReturnType<typeof setInterval> | undefined
@@ -62,8 +67,9 @@ export function StatusScreen(props: { job: JobSubmitted; onClose: () => void; on
   }
 
   onSettled(() => {
-    const opened = Date.now()
-    ticking = setInterval(() => setElapsed(Math.floor((Date.now() - opened) / 1000)), 1000)
+    const tick = () => setElapsed(Math.floor((Date.now() - since) / 1000))
+    tick()
+    ticking = setInterval(tick, 1000)
     void poll()
     return stop
   })

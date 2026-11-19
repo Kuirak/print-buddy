@@ -8,8 +8,8 @@ import { parsePrintOptions, type PrintOptions } from "../../shared/print-options
 export type InterruptedJob =
   /** Before the Print Job was sent. `options`: what the person last tapped Drucken with, if they had got that far. */
   | { options?: PrintOptions; job?: undefined }
-  /** On the status screen of the Print Job `job`, which was sent with `options`. */
-  | { options: PrintOptions; job: JobSubmitted }
+  /** On the status screen of the Print Job `job`, which was sent with `options` at `since` (the phone's clock). */
+  | { options: PrintOptions; job: JobSubmitted; since: number }
 
 const storageKey = "print-buddy.interrupted-job"
 
@@ -38,7 +38,8 @@ export const interruptedJob = {
       // Print Options this version doesn't understand are left out: the options screen then starts anew
       const options = "options" in raw ? parsePrintOptions(raw.options) : undefined
       const job = "job" in raw ? parseJob(raw.job) : undefined
-      return options && job ? { options, job } : { options }
+      const since = "since" in raw && typeof raw.since === "number" ? raw.since : undefined
+      return options && job && since !== undefined ? { options, job, since } : { options }
     } catch {
       return undefined
     }
