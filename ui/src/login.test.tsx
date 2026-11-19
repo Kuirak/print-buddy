@@ -108,3 +108,37 @@ test("after the login the options screen opens with the same file and the same P
   })
   expect((await phoneFiles.held()).map(held => held.name)).toEqual(["Rechnung.pdf"])
 })
+
+test("when the phone's copy is gone after the login, the app says Bitte nochmal teilen and offers Datei auswählen", async () => {
+  let drafts = 0
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
+    "POST /api/drafts/d1/files": () => json(pdfFacts, 201),
+    "POST /api/drafts/d1/submit": loginExpired,
+    "POST /api/drafts/d2/files": () => json(pdfFacts, 201),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
+  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
+  // the browser may drop the phone's storage while the person is away at the login
+  await phoneFiles.clear()
+
+  await logInAgain(user)
+  render(() => <App />)
+
+  expect(await screen.findByRole("heading", { name: "Bitte nochmal teilen" })).toBeInTheDocument()
+  expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual([
+    "/api/drafts",
+    "/api/drafts/d1/files",
+    "/api/drafts/d1/submit",
+  ])
+
+  // the file picked now is a new one: it doesn't get the Print Options of the lost one
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Neu.pdf"))
+
+  expect(await screen.findByText("Neu.pdf")).toBeInTheDocument()
+  expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
+})

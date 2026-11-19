@@ -80,13 +80,14 @@ test.each([
   expect(screen.queryByRole("button", { name: "Drucken" })).not.toBeInTheDocument()
 })
 
-test("a share that arrives without files opens the Start screen and uploads nothing", async () => {
+test("a share that arrives without files says Bitte nochmal teilen, offers Datei auswählen and uploads nothing", async () => {
   const api = mockApi({})
 
   await share([])
   render(() => <App />)
 
-  expect(await screen.findByLabelText("Datei auswählen")).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "Bitte nochmal teilen" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["GET /api/session"])
   expect(location.search).toBe("")

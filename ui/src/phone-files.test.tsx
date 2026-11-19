@@ -166,7 +166,7 @@ test("Erneut versuchen uploads the picked photos again from the phone's copy", a
   expect(await names()).toEqual(["IMG_2.jpg", "IMG_1.jpg"])
 })
 
-test("when the phone no longer holds the files, Nochmal drucken leads back to Start and sends nothing", async () => {
+test("when the phone no longer holds the files, Nochmal drucken says Bitte nochmal teilen and sends nothing", async () => {
   const api = mockApi(printTwiceRoutes())
   const user = userEvent.setup()
   render(() => <App />)
@@ -178,7 +178,8 @@ test("when the phone no longer holds the files, Nochmal drucken leads back to St
 
   await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
 
-  expect(await screen.findByLabelText("Datei auswählen")).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "Bitte nochmal teilen" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
   expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual([
     "/api/drafts",
     "/api/drafts/d1/files",

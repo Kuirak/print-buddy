@@ -13,6 +13,7 @@ import { OpeningScreen } from "./screens/OpeningScreen.tsx"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
 import { SendFailedScreen } from "./screens/SendFailedScreen.tsx"
+import { ShareAgainScreen } from "./screens/ShareAgainScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
 
@@ -30,6 +31,8 @@ type Screen =
    */
   | ({ name: "options"; initial?: PrintOptions } & Draft)
   | { name: "refusal"; refusal: Refusal }
+  /** The files of the job are no longer on the phone: "Bitte nochmal teilen". */
+  | { name: "share-again" }
   /** `options` is what was sent, kept for "Nochmal drucken". */
   | { name: "status"; options: PrintOptions; job: JobSubmitted }
   /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen". */
@@ -78,11 +81,12 @@ export function App() {
   })
 
   /**
-   * The person leaves the job, or there is none after all: back to Start. The phone forgets the files,
-   * and a new version of the app that waited may take over.
+   * The person leaves the job, or there is none after all: back to Start, or to "Bitte nochmal teilen"
+   * when it was the files that went missing. The phone forgets the files, and a new version of the app
+   * that waited may take over.
    */
-  function leaveJob() {
-    setScreen({ name: "start" })
+  function leaveJob(to: "start" | "share-again" = "start") {
+    setScreen({ name: to })
     jobInProgress = false
     lastSent = undefined
     update.setJobInProgress(false)
@@ -92,15 +96,16 @@ export function App() {
   /**
    * Uploads the phone's copy into a new draft. Every upload goes through here: after a share, after
    * "Datei auswählen", and for "Nochmal drucken" and "Erneut versuchen".
-   * Resolves with nothing when there is nothing to print, and has then moved on itself: to Start when
-   * the phone holds no files, to the Refusal when the server won't take one of them. The same when the
-   * login has run out: "Anmeldung abgelaufen" shows by then, and the files stay on the phone.
+   * Resolves with nothing when there is nothing to print, and has then moved on itself: to "Bitte
+   * nochmal teilen" when the phone holds no files, to the Refusal when the server won't take one of
+   * them. The same when the login has run out: "Anmeldung abgelaufen" shows by then, and the files stay
+   * on the phone.
    */
   async function uploadHeld(): Promise<Draft | undefined> {
     const files = await phoneFiles.held()
-    // Chrome can deliver a share without its files (crbug 563075800), and a browser may drop its storage
+    // a share can arrive without its files (lost to the login, or crbug 563075800), and a browser may drop its storage
     if (files.length === 0) {
-      await leaveJob()
+      await leaveJob("share-again")
       return undefined
     }
     try {
@@ -177,6 +182,9 @@ export function App() {
         </Match>
         <Match when={on("refusal")}>
           {refused => <RefusalScreen refusal={refused().refusal} onPick={files => void pick(files)} />}
+        </Match>
+        <Match when={on("share-again")}>
+          <ShareAgainScreen onPick={files => void pick(files)} />
         </Match>
         <Match when={on("options")}>
           {options => (
