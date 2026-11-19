@@ -4,6 +4,7 @@ import { expect, test } from "vitest"
 import { App } from "./App.tsx"
 import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 /** Opens the app, picks a PDF and waits for the options screen. */
 async function openOptions() {
@@ -16,11 +17,13 @@ async function openOptions() {
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
-  await screen.findByRole("button", { name: "Drucken" })
+  // copies, colour, paper and quality are behind "Ändern"
+  await openDetails(user)
 
-  /** Taps Drucken and returns the Print Options the app submitted. */
+  /** Closes the detailed controls, taps Drucken, confirms, and returns the Print Options the app submitted. */
   async function print() {
-    await user.click(screen.getByRole("button", { name: "Drucken" }))
+    await closeDetails(user)
+    await printAndConfirm(user)
     await screen.findByText("Auftrag Nr. 42")
     const call = api.calls.find(call => call.path === "/api/drafts/d1/submit")!
     expect(call.headers.get("Content-Type")).toBe("application/json")

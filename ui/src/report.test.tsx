@@ -7,6 +7,7 @@ import { App } from "./App.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
+import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 const chromeOnAndroid = "Mozilla/5.0 (Linux; Android 17; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.7204.63 Mobile Safari/537.36"
 
@@ -129,7 +130,7 @@ test("the report of a Print Job never holds the file name or anything from the f
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), secretPdf())
   expect(await screen.findByText("Kündigung Anna.pdf")).toBeInTheDocument()
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Wartet" })
 
   const report = await copyReport(user)
@@ -162,8 +163,10 @@ test("Bericht kopieren on Drucken hat nicht geklappt says what the server answer
   render(() => <App />)
   const file = secretPdf()
   await user.upload(screen.getByLabelText("Datei auswählen"), file)
-  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await closeDetails(user)
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })
 
   const report = await copyReport(user)
@@ -182,7 +185,7 @@ test("when the server can't be reached at all, the report still copies and says 
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), secretPdf())
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })
 
   const report = await copyReport(user)
@@ -221,7 +224,7 @@ test("Start shows the last Print Job from this phone with its current state, als
   render(() => <App />)
   expect(screen.queryByText(/Letzter Druck/)).not.toBeInTheDocument()
   await user.upload(screen.getByLabelText("Datei auswählen"), secretPdf())
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Wartet" })
 
   // the person closes the app while the job waits, and opens it again when the Printer is done
@@ -248,7 +251,7 @@ test("only the last Print Job is kept on the phone, and nothing about its file",
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), secretPdf())
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await user.click(await screen.findByRole("button", { name: "Nochmal drucken" }))
   await screen.findByRole("heading", { name: "Fehler" })
 
@@ -268,7 +271,7 @@ test("a last Print Job the server no longer has leaves Start without the line, f
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), secretPdf())
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Wartet" })
 
   // more than 7 days later the job folder is gone
@@ -297,7 +300,7 @@ test("while the server can't say how the last Print Job is doing, Start still of
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), secretPdf())
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Wartet" })
 
   cleanup()

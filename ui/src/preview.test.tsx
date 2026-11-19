@@ -5,6 +5,7 @@ import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { openPdf, type PdfPreview } from "./pdf-preview.ts"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
+import { openDetails, printAndConfirm } from "./testing/options-screen.ts"
 import { printerInfo } from "./testing/printer-info.ts"
 
 /** Two pages of US Letter: a little wider and a little shorter than A4 (595 × 842 pt). */
@@ -36,7 +37,7 @@ async function openOptions(facts: FileFacts = letterPdf, { count = 1, routes = {
 
   /** Taps Drucken and returns the Print Options the app submitted. */
   async function print() {
-    await user.click(screen.getByRole("button", { name: "Drucken" }))
+    await printAndConfirm(user)
     await screen.findByText("Auftrag Nr. 42")
     return JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as Record<string, unknown>
   }
@@ -225,6 +226,7 @@ test("the Print size follows the Printer's margins for the chosen paper", async 
   expect(await percent()).toHaveTextContent("94 %")
 
   // A5 is 419.53 pt wide. Without 2 × 36 pt that leaves 347.53 pt, and 347.53 / 612 = 0.568
+  await openDetails(user)
   await user.click(choice("Papier", "A5"))
   expect(await percent()).toHaveTextContent("57 %")
 

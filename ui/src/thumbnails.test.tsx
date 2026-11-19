@@ -5,6 +5,7 @@ import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { openPdf, type PdfPreview } from "./pdf-preview.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 /** A PDF of that many A4 pages. */
 const pdfOf = (pageCount: number): FileFacts => ({ kind: "pdf", pageCount, pages: Array.from({ length: pageCount }, () => ({ width: 595, height: 842 })) })
@@ -28,7 +29,7 @@ async function openOptions(facts: FileFacts, count = 1) {
 
   /** Taps Drucken and returns the Print Options the app submitted. */
   async function print() {
-    await user.click(screen.getByRole("button", { name: "Drucken" }))
+    await printAndConfirm(user)
     await screen.findByText("Auftrag Nr. 42")
     return JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as Record<string, unknown>
   }
@@ -176,12 +177,14 @@ test("Drehen turns the photo shown, not the first one, when the first is left ou
 
 test("a PDF can be printed with two pages per sheet, and the preview shows both halves", async () => {
   const { user, choice, sheet, print } = await openOptions(pdfOf(5))
+  await openDetails(user)
   expect(choice("Seiten pro Blatt", "1")).toBeChecked()
   expect(sheet()).toBe("Seite 1 · 1/5")
 
   await user.click(choice("Seiten pro Blatt", "2"))
 
   expect(choice("Seiten pro Blatt", "2")).toBeChecked()
+  await closeDetails(user)
   expect(sheet()).toBe("Seiten 1 und 2 · 1/3")
   expect(await screen.findByRole("img", { name: "Vorschau Seite 1" })).toBeInTheDocument()
   expect(await screen.findByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
@@ -190,7 +193,9 @@ test("a PDF can be printed with two pages per sheet, and the preview shows both 
 
 test("with two pages per sheet the sheet count follows the selection", async () => {
   const { user, tap, choice, sheet, print } = await openOptions(pdfOf(5))
+  await openDetails(user)
   await user.click(choice("Seiten pro Blatt", "2"))
+  await closeDetails(user)
 
   // pages 1, 3, 4 and 5 are left: two sheets
   await tap("Seite 2")
@@ -208,10 +213,13 @@ test("with two pages per sheet the sheet count follows the selection", async () 
 })
 
 test("two pages per sheet are not offered for photos", async () => {
-  const { print } = await openOptions(photo, 2)
+  const { user, print } = await openOptions(photo, 2)
 
+  await openDetails(user)
+  expect(screen.getByRole("radiogroup", { name: "Papier" })).toBeInTheDocument()
   expect(screen.queryByRole("radiogroup", { name: "Seiten pro Blatt" })).not.toBeInTheDocument()
   expect(screen.queryByText("Seiten pro Blatt")).not.toBeInTheDocument()
+  await closeDetails(user)
   expect(await print()).toMatchObject({ pagesPerSheet: 1 })
 })
 

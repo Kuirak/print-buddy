@@ -5,6 +5,7 @@ import { App } from "./App.tsx"
 import { fakeServiceWorker } from "./testing/fake-service-worker.ts"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { printAndConfirm } from "./testing/options-screen.ts"
 import { share } from "./testing/share.ts"
 
 const pdf = () => new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" })
@@ -71,7 +72,7 @@ test("a new version does not take over while a job is in progress: from Datei au
   worker.newVersionInstalled()
   expect(worker.messages).toEqual([])
 
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByText("Auftrag Nr. 42")
   worker.newVersionInstalled()
   expect(worker.messages).toEqual([])
@@ -139,7 +140,7 @@ test("over plain HTTP there is no service worker, and Datei auswählen is the wa
 
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf())
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
 
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
 })
@@ -151,7 +152,7 @@ test("a new version that waited through a job takes over once the person taps Sc
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf())
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   await screen.findByRole("heading", { name: "Fertig" })
   worker.newVersionInstalled()
   expect(worker.messages).toEqual([])
