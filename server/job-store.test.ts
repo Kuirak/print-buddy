@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
 import { JobState } from "./printer/ipp-codec.ts"
-import { sampleJpeg, samplePdf, samplePng } from "./testing/fixtures.ts"
+import { sampleJpeg, samplePdf, samplePng, samplePrintOptions } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 
 /** What lies in the jobs directory besides the drafts. */
@@ -47,6 +47,7 @@ test("job.json holds the Print Options, sheet count, CUPS job number, times and 
     sentAt: "2026-11-19T08:30:00.000Z",
     endedAt: null,
     sheets: 2,
+    file: { kind: "pdf", bytes: samplePdf().length, count: 1 },
     options: {
       copies: 2, color: "color", paper: "A4", quality: "normal",
       printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
@@ -150,6 +151,8 @@ test("a Print Job can still be read, and still follows CUPS, after the server re
     sentAt,
     endedAt: null,
     sheets: 3,
+    file: { kind: "pdf", bytes: samplePdf().length, count: 1 },
+    options: { ...samplePrintOptions, copies: 3 },
   })
 
   server.clock.advance(20_000)

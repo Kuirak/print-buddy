@@ -6,8 +6,10 @@ import { lostShare, sharedParam } from "../../shared/share-target.ts"
 import { addFile, checkSession, createDraft, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
 import { interruptedJob } from "./interrupted-job.ts"
+import { lastJob } from "./last-job.ts"
 import { phoneFiles } from "./phone-files.ts"
 import { fileKind } from "./presets.ts"
+import { sendFailure } from "./report.ts"
 import { LoginExpiredScreen } from "./screens/LoginExpiredScreen.tsx"
 import { OpeningScreen } from "./screens/OpeningScreen.tsx"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
@@ -30,13 +32,14 @@ type Screen =
    * starts with after the login, when the person had chosen them before it ran out.
    */
   | ({ name: "options"; initial?: PrintOptions } & Draft)
-  | { name: "refusal"; refusal: Refusal }
+  /** `file` is the one the server refused. */
+  | { name: "refusal"; refusal: Refusal; file: File }
   /** The files of the job are no longer on the phone: "Bitte nochmal teilen". */
   | { name: "share-again" }
   /** `options` is what was sent, kept for "Nochmal drucken". `since`: when CUPS accepted the job, by the phone's clock. */
   | { name: "status"; options: PrintOptions; job: JobSubmitted; since: number }
-  /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen". */
-  | { name: "send-failed"; options: PrintOptions }
+  /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen"; `error` is what went wrong. */
+  | { name: "send-failed"; options: PrintOptions; error: unknown }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -124,7 +127,7 @@ export function App() {
         if ("refusal" in answer) {
           // nothing prints, so there is no job to keep the files for
           await phoneFiles.clear()
-          setScreen({ name: "refusal", refusal: answer })
+          setScreen({ name: "refusal", refusal: answer, file })
           return undefined
         }
         facts.push(answer)
@@ -166,9 +169,11 @@ export function App() {
     try {
       draftId ??= (await uploadHeld())?.draftId
       if (draftId === undefined) return
-      setScreen({ name: "status", options, job: await submitDraft(draftId, options), since: Date.now() })
-    } catch (failure) {
-      if (!isLoginExpired(failure)) setScreen({ name: "send-failed", options })
+      const job = await submitDraft(draftId, options)
+      lastJob.remember(job)
+      setScreen({ name: "status", options, job, since: Date.now() })
+    } catch (error) {
+      if (!isLoginExpired(error)) setScreen({ name: "send-failed", options, error })
     } finally {
       sending = false
     }
@@ -188,7 +193,7 @@ export function App() {
           <OpeningScreen />
         </Match>
         <Match when={on("refusal")}>
-          {refused => <RefusalScreen refusal={refused().refusal} onPick={files => void pick(files)} />}
+          {refused => <RefusalScreen refusal={refused().refusal} file={refused().file} onPick={files => void pick(files)} />}
         </Match>
         <Match when={on("share-again")}>
           <ShareAgainScreen onPick={files => void pick(files)} />
@@ -197,8 +202,9 @@ export function App() {
           {options => (
             <OptionsScreen
               fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
-              kind={fileKind(options().facts)}
+              files={options().files}
               facts={options().facts}
+              kind={fileKind(options().facts)}
               initial={options().initial}
               onPrint={chosen => void print(chosen, options().draftId)}
             />
@@ -216,7 +222,13 @@ export function App() {
           )}
         </Match>
         <Match when={on("send-failed")}>
-          {failed => <SendFailedScreen onRetry={() => void print(failed().options)} onClose={() => void leaveJob()} />}
+          {failed => (
+            <SendFailedScreen
+              report={{ happened: sendFailure(failed().error), files: phoneFiles.held, options: failed().options }}
+              onRetry={() => void print(failed().options)}
+              onClose={() => void leaveJob()}
+            />
+          )}
         </Match>
       </Switch>
     </div>

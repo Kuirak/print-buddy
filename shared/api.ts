@@ -69,6 +69,18 @@ export type JobStatus = {
   /** When Print Buddy first saw that the job had ended, in ms since the epoch; null while it runs. */
   endedAt: number | null
   sheets: number
+  file: JobFile
+  /** The Print Options the job was sent with. */
+  options: PrintOptions
+}
+
+/** What a Print Job was made from. Never a file name: Print Buddy doesn't keep one. */
+export type JobFile = {
+  kind: FileFacts["kind"]
+  /** Size of the uploaded file, or of all photos together. */
+  bytes: number
+  /** Pages of the PDF, or photos in the job, whether selected or not. */
+  count: number
 }
 
 export type CupsJobDetails = {
@@ -105,3 +117,10 @@ export type PrinterStatus = {
 
 /** GET /api/printer */
 export type PrinterInfo = PrinterStatus & { margins: PaperMargins }
+
+/** GET /api/report: the server's part of a "Bericht kopieren" report. */
+export type ReportFacts = {
+  /** The Print Buddy version, `YYYY.MM.N`. */
+  version: string
+  printer: PrinterStatus
+}

@@ -1,11 +1,12 @@
 import { For } from "solid-js"
 
 /** One of a few choices, all visible as buttons side by side. No dropdown. */
-export function ChoiceGroup<T extends string>(props: {
+export function ChoiceGroup<T extends string | number>(props: {
   /** Names the group for screen readers, for example "Papier". */
   label: string
   choices: readonly { value: T; label: string }[]
-  value: T
+  /** `undefined` when none of the choices applies: then none is marked. */
+  value: T | undefined
   onChange: (value: T) => void
 }) {
   return (

@@ -17,6 +17,8 @@ export function jobRoutes(deps: { jobs: JobStore; printer: PrinterClient; now: N
     sentAt: job.sentAt,
     endedAt: job.endedAt,
     sheets: job.sheets,
+    file: job.file,
+    options: job.options,
   })
 
   /**

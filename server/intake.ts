@@ -8,6 +8,8 @@ import type { Now } from "./clock.ts"
 
 export interface DraftFile {
   path: string
+  /** Size of the file as it was uploaded. */
+  bytes: number
   facts: FileFacts
 }
 
@@ -96,7 +98,7 @@ export function createIntake(deps: { draftsDir: string; uploadLimitMb: number; n
       if (files.length >= maxPhotos) return refused("too-many-photos")
 
       const extension = facts.kind === "pdf" ? "pdf" : facts.format === "jpeg" ? "jpg" : "png"
-      const file: DraftFile = { path: join(deps.draftsDir, draftId, `${files.length + 1}.${extension}`), facts }
+      const file: DraftFile = { path: join(deps.draftsDir, draftId, `${files.length + 1}.${extension}`), bytes: bytes.length, facts }
       files.push(file)
       try {
         await writeFile(file.path, bytes)

@@ -113,7 +113,7 @@ Needs Node 26 and pnpm 12. Run `pnpm install` once.
 | `pnpm dev` | Builds the UI and starts the app on http://localhost:9217 against a fake printer, with a temporary jobs directory. Nothing reaches a real printer. |
 | `pnpm test:server`, `pnpm test:ui` | One half of `pnpm test`. A single file: `node --test server/print.test.ts`, `pnpm vitest run src/App.test.tsx`. |
 | `pnpm dev:ui` | Vite dev server with hot reload; `/api` is proxied to port 9217, so run `pnpm dev` beside it. |
-| `pnpm build` | Builds the UI into `dist/ui`, and after it the service worker `dist/ui/sw.js`. |
+| `pnpm build` | Copies the files pdf.js fetches while drawing into `ui/public/pdfjs`, builds the UI into `dist/ui`, and after it the service worker `dist/ui/sw.js`. |
 | `pnpm start` | Starts the server the way the add-on does (`node server/main.ts`). |
 
 The server reads these environment variables, for tests and local runs only:
@@ -146,20 +146,25 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   renderer.ts        Renderer: builds the PDF that goes to CUPS.
   status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts and the IPP codec.
-  http/              One file per API resource: drafts, jobs, printer, session, health, share-target, ui (static files).
+  http/              One file per API resource: drafts, jobs, printer, report, session, health, share-target, ui (static files).
   testing/           Seam 1 helpers: harness, fake IPP printer, fixtures.
   *.test.ts          Seam 1 tests, next to the sources.
 ui/                Vite root.
-  public/            Served as they are: manifest.webmanifest and the icons.
+  public/            Served as they are: manifest.webmanifest and the icons. `pdfjs/` is copied in by the build and not in git.
   src/App.tsx        App shell: which screen shows.
   src/api.ts         One function per API operation. The only place that calls fetch.
   src/phone-files.ts The phone's copy of the files of the job in progress.
   src/interrupted-job.ts  What else of a job survives the page load of the login.
+  src/report.ts      The report builder: the plain text behind "Bericht kopieren".
+  src/last-job.ts    The last Print Job from this phone, for the line on Start.
+  src/pdf-preview.ts The only module that imports pdfjs-dist: opens a PDF and draws a page onto a canvas.
   src/sw.ts          The service worker. Built into /sw.js; its logic is in share-target.ts and app-update.ts.
   src/screens/       One screen per file.
+  src/controls/      One hand-built control per file: stepper, Position grid, preset chips, preview and so on.
   src/testing/       Seam 3 helpers.
   src/*.test.tsx     Seam 3 tests.
 scripts/dev.ts     What `pnpm dev` runs.
+scripts/pdfjs-assets.ts  Runs before every build: copies pdf.js's decoders, fonts and character maps into ui/public/pdfjs.
 print-buddy/       The Home Assistant add-on folder: config.yaml, DOCS.md, CHANGELOG.md, translations.
 repository.yaml    Makes the repository an add-on repository.
 Dockerfile         The add-on image. Built by .github/workflows/release.yaml, never by Home Assistant.
@@ -247,11 +252,12 @@ test("…", async () => {
 - `mockApi(routes)` in `ui/src/testing/mock-api.ts` replaces `fetch` with a table keyed `"METHOD /path"`. A handler returns a `Response` (use `json(body, status)`), or a plain value that is sent as JSON with status 200. It may return a promise, to hold an answer back.
 - `api.calls` lists every call with `method`, `path`, `headers` and `body`. `api.on(route, handler)` changes a route while the test runs.
 - A call to a route that isn't in the table rejects, so a forgotten route fails the test. The one exception is `GET /api/session`, which the app asks every time it opens: it answers as for a valid login unless the table has its own handler. So `api.calls[0]` of a rendered `<App />` is the session check; find other calls by their path.
-- `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test. It also gives every test an empty phone storage (see the Share-to-print notes below).
+- `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test. It also gives every test an empty phone storage (see the Share-to-print notes below) and a stand-in for pdf.js (see the preview notes below).
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
 - A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
-- Never import `pdfjs-dist` in a component. Wrap it in one module of ours and mock that module with `vi.mock`.
+- Never import `pdfjs-dist` in a component. `ui/src/pdf-preview.ts` wraps it, and the setup file mocks that module for every test.
+- Every options screen reads `GET /api/printer`. `mockApi` answers it with `printerInfo()` from `ui/src/testing/printer-info.ts` unless the table has its own handler, so `api.calls` holds that GET too: filter the calls you assert on.
 
 ### The layout module
 
@@ -321,7 +327,7 @@ const sheets = layout({
 
 ### Notes from the status screen (ticket 05)
 
-- **Reading a Print Job.** `GET /api/jobs/:jobId` answers `JobStatus` (`shared/api.ts`): `state`, `reason`, `details`, `cupsJobId`, `sentAt`, `endedAt` and `sheets`. `state` is a `ScreenState` key (`waiting`, `printing`, `done`, `cancelled`, `error`); the German words are in `ui/src/screens/StatusScreen.tsx`. `reason` is a German sentence, or null when there is nothing to explain. `details` is what CUPS said: `jobState` as the IPP keyword, `jobStateReasons`, `printerStateReasons` (`job-printer-state-reasons`) and `printerMessage` (`job-printer-state-message`).
+- **Reading a Print Job.** `GET /api/jobs/:jobId` answers `JobStatus` (`shared/api.ts`): `state`, `reason`, `details`, `cupsJobId`, `sentAt`, `endedAt` and `sheets`. `state` is a `ScreenState` key (`waiting`, `printing`, `done`, `cancelled`, `error`); the German words are in `ui/src/state-words.ts`. `reason` is a German sentence, or null when there is nothing to explain. `details` is what CUPS said: `jobState` as the IPP keyword, `jobStateReasons`, `printerStateReasons` (`job-printer-state-reasons`) and `printerMessage` (`job-printer-state-message`).
 - **Each read asks CUPS** with Get-Job-Attributes, until the job has ended. The first read that sees the end sets `endedAt` from the server's clock, so it can be up to one poll late. After that the stored state is answered and CUPS is not asked again. When CUPS can't answer, or no longer knows the job, the read answers the last state seen, with a warning in the log.
 - **Status mapper.** `mapStatus(details, cancelledByPrintBuddy)` in `server/status-mapper.ts` is the one place that decides state and reason. A `processing` job whose printer message says the Printer isn't connected yet (`notConnectedMessages`) is Wartet, and `processing-stopped` is Wartet too. The reasons are described under "Notes from failures" below.
 - **Cancel.** `POST /api/jobs/:jobId/cancel` answers the new `JobStatus`, or 409 `{ error: "not-cancellable" }`. It is allowed exactly while the job reads as Wartet. The job store's `cancelled` flag records Print Buddy's own cancel, because CUPS marks every cancelled job the same way. `printer.cancelJob()` resolves false when CUPS refuses (`IppRefusal`: a bare HTTP status or an IPP error status) and throws only when CUPS can't be reached.
@@ -347,6 +353,30 @@ const sheets = layout({
 - **Fixtures.** Pages of `pdfWithPages()` now have a content stream, because pdf-lib can't embed a page without one. `{ blank: true }` makes a page without `/Contents`; it prints as an empty sheet.
 - **Margins in tests.** The printer client rounds margins to 0.01 pt (9.01 and 11.99 pt for the fake printer), and the renderer uses exactly those, like the preview does through `GET /api/printer`.
 - **PNG memory.** Photos are embedded one after the other, and each selected photo once. pdf-lib unpacks a PNG to raw pixels (about 360 MB for 4000×3000 on a Mac), so a large PNG batch is slow on the Pi; not measured there.
+
+### Notes from the preview (ticket 08)
+
+- **One layout for the whole screen.** `OptionsScreen` reads the margins once with `readPrinter()` and calls `layout()` in one memo, `sheets`. The preview, the percentage in the Print size row and the cut-off warning all read that memo; none of them computes a size or a place. Until the margins are there nothing is laid out: the paper is empty, Drehen is off and the − / + buttons are left out.
+- **The preview** is `ui/src/controls/Preview.tsx`. It gets one `Sheet` of the layout module, the paper size and the margins, and only turns points into percent of the sheet: for each placement the `clip` box, in it the placement's box, in it the upright picture turned by `rotation`. It draws every placement of the sheet, so two pages per sheet show as the layout module puts them. A `sideways` sheet is shown turned 90° counter-clockwise, edge and all.
+- **Which sheet.** `shown()` in `OptionsScreen` is the sheet the person stepped to (see the thumbnail notes below). Drehen turns the whole PDF, or the photo of the first placement of the shown sheet (`photoRotations`).
+- **The pictures.** For a PDF, `openPdf(bytes)` in `ui/src/pdf-preview.ts` gives `renderPage(pageNumber, longSide)`, a canvas with the page as a reader shows it. For photos the preview shows the phone's copies (`files` prop) through object URLs, which the screen revokes when it goes; an `<img>` applies the EXIF orientation itself. Thumbnails can use the same two sources.
+- **Black and white, paper, edge.** Black and white is a CSS `grayscale` filter on the picture. The sheet has the paper's aspect ratio and always fills the same panel, so A4 and A5 look alike except for the wider edge. The unprintable edge is a dashed frame at the margins with a pale veil outside it; content under the veil or beyond the paper is what the warning is about.
+- **Ansicht** (`ViewZoom`) is 100, 150, 200 or 300 %, on the screen only; the panel then scrolls in both directions. A PDF page is drawn again with more pixels (long side 1500 px × zoom, at most 3000).
+- **Print size row** (`PrintSize`). − and + move in steps of 5 from the percentage shown and switch to a percentage; the range is 10 to 400 %, taken from the prototype. `100 %` is marked only at exactly 100.
+- **Files pdf.js fetches.** `scripts/pdfjs-assets.ts` copies `wasm`, `standard_fonts`, `cmaps` and `iccs` from `node_modules/pdfjs-dist` into `ui/public/pdfjs` (4 MB, not in git), and Vite takes them into `dist/ui/pdfjs`. pdf.js fetches one from `/pdfjs/…` only when a PDF needs it: a scanned page (JBIG2, JPEG 2000), a font that isn't embedded. They are not in the service worker's app shell and always come from the server. The pdf.js worker is a file under `/assets` and is in the shell. `pnpm build`, `pnpm dev` and `pnpm dev:ui` run the script first; a bare `vite build` leaves them out. The Dockerfile runs `pnpm run build`.
+- **Tests.** The stand-in for `pdf-preview.ts` opens any bytes as a PDF and gives an empty canvas per page; read what was asked of it with `vi.mocked(openPdf)`. Tests don't assert on styling, so grey, the paper's shape and the edge are not covered by them.
+- **Checked by hand in Chromium on localhost** (412 × 915, fake printer): a US Letter PDF and a landscape photo, with and without EXIF orientation 6. Grey and colour, A4, A5 and both envelopes, Füllen and 100 % with the warning and the cut content, all turns, Position, the edge at every zoom step, sharp small text at 300 %, and a PDF with Symbol and ZapfDingbats, which fetched its fonts from `/pdfjs/standard_fonts/`.
+
+### Notes from thumbnails and sheet stepping (ticket 09)
+
+- **Selection.** `OptionsScreen` starts with every page or photo selected and `toggle(ref)` is the one place that changes a single entry. `selection` is always in the file's order: a page brought back goes to its place, never to the end. Nothing reorders photos.
+- **Thumbnails** (`ui/src/controls/Thumbnails.tsx`) are the `group` named "Seiten" or "Fotos". Each is a button named "Seite 2" or "Foto 2" with `aria-pressed`; its picture is decoration. "Alle" and "Keine" sit below. A thumbnail shows the page or photo upright as it is in the file, in grey when black and white is chosen; it doesn't follow rotation, Print size or paper.
+- **Pictures.** `ui/src/controls/PdfPage.tsx` draws one PDF page through pdf.js, for the preview (`fit="fill"`, with a label) and for the thumbnails (`fit="contain"`, 176 px). All thumbnails of a PDF are drawn when it opens, one request per page, not only the visible ones. Photo thumbnails are the same object URLs as the preview.
+- **Stepping.** `SheetSteps` shows "‹ Seite 3 · 2/4 ›": the page on the sheet, then which sheet of how many, for one copy. The second number is the sheet count of the selection. With two pages per sheet it reads "Seiten 3 und 4 · 2/2", for photos "Foto 2/3". It is the `status` named "Blatt in der Vorschau"; the buttons are "Vorheriges Blatt" and "Nächstes Blatt". The step is kept past the end and clamped when read (`current()`), so leaving out the last page shows the sheet before it. Bringing a page back shows its sheet; "Alle" and "Keine" go to the first.
+- **Nothing selected.** The status reads "Keine Seiten ausgewählt" or "Keine Fotos ausgewählt", and the Drucken button is disabled and reads "Keine Seiten gewählt" or "Keine Fotos gewählt". A test that looks for the button named "Drucken" won't find it then.
+- **Seiten pro Blatt** is a row with `1` and `2`, for PDFs only. `ChoiceGroup` takes numbers as values now.
+- **Tests.** `ui/src/thumbnails.test.tsx`. pdf.js is asked for thumbnails too, so a test that counts `renderPage` calls has to tell them apart by the pixels asked for (preview 1500 and more, thumbnails 176).
+- **Checked by hand in Chromium on localhost** (412 × 915, fake printer), with a five-page A4 PDF and three PNG photos (two landscape, one portrait): thumbnails with their numbers, a left-out one pale with a grey number, stepping to both ends, two pages per sheet shown side by side on a landscape sheet, Drehen on that sheet, "Keine" and "Alle", Drehen on the second photo only, and leaving out the first photo. The job folders held `selection: [1,3,4,5]` with `pagesPerSheet: 2` and 2 sheets, and `selection: [1,2]` with `photoRotations: {"1":90}`.
 
 ### Notes from job folders and cleanup (ticket 12)
 
@@ -374,10 +404,21 @@ const sheets = layout({
 - **Left to wire.**
   - Every new way out of a job has to call `leaveJob()`, and every new way in has to go through `phoneFiles.keep()` and `openHeld()`.
   - `OpeningScreen` shows only the app's name while shared files upload. A progress text needs wording first.
-  - The preview (ticket 08) can take `files` from the options screen state.
 - **Tests.** `share(files)` in `ui/src/testing/share.ts` sends the request the manifest declares through `receiveShare()` and follows the redirect; render `<App />` after it. `fakeServiceWorker()` in `ui/src/testing/fake-service-worker.ts` stands in for `navigator.serviceWorker`: `newVersionInstalled()`, `takeOver()`, and `messages` for what the app told the waiting version. Without it a test runs as over plain HTTP. `ui/src/testing/fake-indexeddb.ts` is the phone's storage; it keeps values as they are, so an uploaded file is the same object as the picked one. Assert on the phone's copy with `phoneFiles.held()`.
 - **Icons.** `ui/public/icon.svg` and `icon-maskable.svg` are the sources. The PNGs are made with `rsvg-convert -w 512 -h 512 icon.svg -o icon-512.png` (192 for the small one). Never rename the manifest, `/sw.js` or an icon: Android keeps the addresses of an installed app, and the Bypass fallback lists them.
 - **Checked by hand in Chromium on localhost**, with a form that posts files to `/share-target` in place of Android: the service worker registers, answers the share without the network and the app opens the options screen; a new build waits during a job and takes over on Start; over `http://<LAN address>` there is no service worker and no error. Chromium rejects `formData()` on an empty multipart body, which happy-dom does not. The install and the share sheet themselves are only in the on-device checks above.
+
+### Notes from the report and the last job (ticket 13)
+
+- **Report builder.** `ui/src/report.ts`. `buildReport(input)` is a pure function that makes the text; `copyReport(subject)` reads what it needs and writes the clipboard. A `ReportSubject` is either `{ job }` (the two numbers from submit) or `{ happened, files, options? }` for a report without a Print Job. `happened` is one German sentence; `files` is a function, called when the report is made.
+- **Where the facts come from.** For a Print Job everything is read from the server when the button is tapped: `GET /api/jobs/:jobId` (which asks CUPS, so the state is live) and `GET /api/report` (`ReportFacts`: the Print Buddy version and the Printer's state now). `JobStatus` carries `file` (`kind`, `bytes`, `count`: pages of the PDF or photos in the job) and `options` for this; both are stored in `job.json` at submit. A server that doesn't answer doesn't stop the report: it then says "unbekannt (Server nicht erreichbar)".
+- **No file name.** The server never keeps one. Of the phone's files the builder reads only `type` and `size`. A new line in the report must not come from a `File`'s name, from file contents or from an error message the browser made up. The Print Options are written with their keys as they are in `shared/print-options.ts`, so a new option shows up by itself.
+- **The button.** `<ReportButton subject={…} />` in `ui/src/controls/`. It says "Kopiert", or "Kopieren hat nicht geklappt" when the browser refuses the clipboard, in an element with role `status`. A new screen where something can go wrong (the expired login, for example) adds this one line with a `{ happened, files }` subject.
+- **Send failures.** The `send-failed` screen state keeps what `print()` caught as `error`; `sendFailure(error)` in `report.ts` turns it into the sentence. The Refusal screen state keeps the refused `file`, because the phone's copy is cleared on a Refusal.
+- **Last job.** `lastJob` in `ui/src/last-job.ts` keeps `{ jobId, cupsJobId }` of the last submit in `localStorage` under `print-buddy.last-job`; `print()` in `App.tsx` writes it. `LastJobLine` (in `controls/`, shown by `StartScreen`) reads the job once when Start shows: "Letzter Druck: {Zustand}" with the report button. A 404 (the job folder is gone after 7 days) forgets the job; any other failure shows "Letzter Druck: unbekannt" and still offers the report.
+- **Tests.** `ui/src/report.test.tsx`. `userEvent.setup()` puts a working clipboard on `navigator`, so a test reads the report with `navigator.clipboard.readText()`. A test that taps "Bericht kopieren" needs a `GET /api/report` route, or the report says the server was not reachable. A test that goes back to Start after a Print Job causes one more `GET /api/jobs/<id>`.
+- **Who printed.** `server/report.test.ts` sends the Cloudflare Access headers with every request of a Print Job and checks that nothing of them reaches CUPS, the job folder, the answers or the log. Never read `Cf-Access-*` headers or the `CF_Authorization` cookie into anything that is stored or logged.
+- **Not checked on a phone:** that Chrome on Android lets the app write the clipboard after the two reads (it does so for a focused page; the reads take a moment when CUPS is silent).
 
 ### Notes from the expired login (ticket 15)
 

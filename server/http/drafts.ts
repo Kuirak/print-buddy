@@ -1,6 +1,6 @@
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
-import type { ApiError, DraftCreated, FileFacts, JobSubmitted, Refusal, RefusalType, SubmitFailure } from "../../shared/api.ts"
+import type { ApiError, DraftCreated, FileFacts, JobFile, JobSubmitted, Refusal, RefusalType, SubmitFailure } from "../../shared/api.ts"
 import { parsePrintOptions } from "../../shared/print-options.ts"
 import type { Intake } from "../intake.ts"
 import type { JobStore } from "../job-store.ts"
@@ -68,7 +68,13 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
     if (sent instanceof Response) return sent
     const { cupsJobId, details } = sent
     const uploads = files.map(file => file.path)
-    const job = await deps.jobs.add({ cupsJobId, sheets: rendered.sheets * options.copies, options, details, pdf, uploads })
+    const facts = files[0]!.facts
+    const file: JobFile = {
+      kind: facts.kind,
+      bytes: files.reduce((sum, upload) => sum + upload.bytes, 0),
+      count: facts.kind === "pdf" ? facts.pageCount : files.length,
+    }
+    const job = await deps.jobs.add({ cupsJobId, sheets: rendered.sheets * options.copies, file, options, details, pdf, uploads })
     // the uploads are in the job folder now
     await deps.intake.discard(draftId)
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
