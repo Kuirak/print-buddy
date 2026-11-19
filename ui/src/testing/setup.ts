@@ -4,15 +4,27 @@ import { afterEach, beforeEach, vi } from "vitest"
 import type { PdfPreview } from "../pdf-preview.ts"
 import { fakeIndexedDb } from "./fake-indexeddb.ts"
 
-// pdf.js needs a worker and a canvas that draws, and happy-dom has neither. Every test gets this stand-in:
-// any bytes open as a PDF, and every page is an empty canvas. A test reads what was asked of it with
-// `vi.mocked(openPdf)`.
+// pdf.js needs a worker and a canvas that draws, and happy-dom has neither. Like `fetch`, it is a boundary
+// that every test gets a stand-in for: any bytes open as a PDF, and a page is "drawn" as an empty canvas that
+// says what it was asked to show. `data-pdf` is the file's bytes as text, `data-page` the page number, and the
+// canvas is as wide as the pixels asked for. A test reads these from the canvases on the screen.
 vi.mock("../pdf-preview.ts", () => ({
-  openPdf: vi.fn(async (): Promise<PdfPreview> => ({
-    renderPage: vi.fn(async () => document.createElement("canvas")),
-    destroy: vi.fn(async () => {}),
-  })),
+  async openPdf(data: ArrayBuffer): Promise<PdfPreview> {
+    const pdf = new TextDecoder().decode(data)
+    return {
+      async renderPage(pageNumber, longSide) {
+        const canvas = document.createElement("canvas")
+        Object.assign(canvas.dataset, { pdf, page: String(pageNumber) })
+        canvas.width = longSide
+        return canvas
+      },
+      async destroy() {},
+    }
+  },
 }))
+
+// happy-dom makes up an address for a file's picture. This one says which file it shows: "blob:Strand 1.jpg".
+URL.createObjectURL = file => `blob:${(file as File).name}`
 
 beforeEach(() => {
   // every test starts with an empty phone storage
