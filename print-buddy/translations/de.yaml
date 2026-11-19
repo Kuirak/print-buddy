@@ -1,7 +1,7 @@
 configuration:
-  printer_uri:
-    name: "Drucker-Adresse"
-    description: "IPP-Adresse der CUPS-Warteschlange. Muss eine IP-Adresse enthalten, keinen Hostnamen."
+  printer_name:
+    name: "Druckername"
+    description: "Name der CUPS-Warteschlange, wie er im CUPS-Add-on steht."
   upload_limit_mb:
     name: "Upload-Limit (MB)"
     description: "Maximale Größe einer Datei."

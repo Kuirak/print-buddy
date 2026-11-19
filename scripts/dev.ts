@@ -10,12 +10,13 @@ import { startFakeIpp } from "../server/testing/fake-ipp.ts"
 const dir = await mkdtemp(join(tmpdir(), "print-buddy-dev-"))
 const printer = await startFakeIpp()
 const optionsFile = join(dir, "options.json")
-await writeFile(optionsFile, JSON.stringify({ printer_uri: printer.uri }))
+await writeFile(optionsFile, JSON.stringify({ printer_name: printer.queue }))
 
 const config = await loadConfig({
   PRINT_BUDDY_OPTIONS_FILE: optionsFile,
   PRINT_BUDDY_JOBS_DIR: join(dir, "jobs"),
   PRINT_BUDDY_PORT: process.env.PRINT_BUDDY_PORT,
+  PRINT_BUDDY_CUPS: printer.cups,
 })
 await startServer(config)
 

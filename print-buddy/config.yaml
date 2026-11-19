@@ -18,9 +18,8 @@ map:
   - type: share
     read_only: false
 options:
-  printer_uri: "ipp://172.30.32.1:631/printers/Printer"
   upload_limit_mb: 50
 schema:
-  printer_uri: "match(^ipps?://.+$)"
+  printer_name: "str"
   upload_limit_mb: "int(1,100)"
 watchdog: "http://[HOST]:[PORT:9217]/health"

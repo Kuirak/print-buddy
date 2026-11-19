@@ -14,7 +14,7 @@ test("SIGTERM stops the server cleanly, even with a connection still open", asyn
   // a printer that answers: without one the server waits 5 s for the margins before it listens
   const printer = await startFakeIpp()
   t.after(printer.close)
-  await writeFile(join(dir, "options.json"), JSON.stringify({ printer_uri: printer.uri }))
+  await writeFile(join(dir, "options.json"), JSON.stringify({ printer_name: printer.queue }))
 
   const child = spawn(process.execPath, [join(import.meta.dirname, "main.ts")], {
     env: {
@@ -22,6 +22,7 @@ test("SIGTERM stops the server cleanly, even with a connection still open", asyn
       PRINT_BUDDY_OPTIONS_FILE: join(dir, "options.json"),
       PRINT_BUDDY_JOBS_DIR: join(dir, "jobs"),
       PRINT_BUDDY_PORT: "0",
+      PRINT_BUDDY_CUPS: printer.cups,
     },
     stdio: ["ignore", "pipe", "inherit"],
   })

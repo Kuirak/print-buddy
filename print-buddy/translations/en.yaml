@@ -1,7 +1,7 @@
 configuration:
-  printer_uri:
-    name: "Printer address"
-    description: "IPP address of the CUPS queue. Must contain an IP address, not a hostname."
+  printer_name:
+    name: "Printer name"
+    description: "Name of the CUPS queue, as the CUPS add-on lists it."
   upload_limit_mb:
     name: "Upload limit (MB)"
     description: "Largest accepted file."

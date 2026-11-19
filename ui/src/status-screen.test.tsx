@@ -236,17 +236,7 @@ test("Fehler has Details, closed at first, with what CUPS said and the CUPS job 
   expect(screen.queryByText("Job aborted after 5 unsuccessful attempts.")).not.toBeInTheDocument()
 })
 
-test("Fehler links to the CUPS web page on the Household network", async () => {
-  mockApi({
-    "GET /api/jobs/j1": () => jobStatus({ state: "error", reason: "Beim Drucken ist ein Fehler aufgetreten.", endedAt: sentAt + 9_000 }),
-  })
-  renderStatusScreen()
-  await vi.advanceTimersByTimeAsync(0)
-
-  expect(screen.getByRole("link", { name: "CUPS-Seite öffnen (nur im Heimnetz)" })).toHaveAttribute("href", "http://homeassistant.local:631")
-})
-
-test("Details and the CUPS link are for Fehler only", async () => {
+test("Details are for Fehler only", async () => {
   let answer = jobStatus()
   mockApi({ "GET /api/jobs/j1": () => answer })
   renderStatusScreen()
@@ -261,6 +251,5 @@ test("Details and the CUPS link are for Fehler only", async () => {
     await vi.advanceTimersByTimeAsync(2_000)
     expect(screen.getByRole("heading")).toHaveTextContent(word)
     expect(screen.queryByRole("button", { name: "Details" }), word).not.toBeInTheDocument()
-    expect(screen.queryByRole("link"), word).not.toBeInTheDocument()
   }
 })

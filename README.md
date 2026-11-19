@@ -8,7 +8,7 @@ This repository is also the Home Assistant add-on repository: `repository.yaml` 
 
 1. The CUPS add-on must be running, with a queue that prints a test page.
 2. Settings > Apps > Install app > ⋮ > Repositories: add `https://github.com/Kuirak/print-buddy`. Always enter it exactly like this. Home Assistant derives the add-on's internal hostname from the text of this URL.
-3. Install **Print Buddy** from the store. Check the two options (`printer_uri`, `upload_limit_mb`), turn on **Watchdog** and **Start on boot**, then start it. The Documentation tab (`print-buddy/DOCS.md`) explains the options, the optional LAN port and where the job files are.
+3. Install **Print Buddy** from the store. Enter `printer_name` (the name of the CUPS queue; Home Assistant asks for it before the first start) and check `upload_limit_mb`, turn on **Watchdog** and **Start on boot**, then start it. The Documentation tab (`print-buddy/DOCS.md`) explains the options, the optional LAN port and where the job files are.
 
 ## Cloudflare setup
 
@@ -120,7 +120,8 @@ The server reads these environment variables, for tests and local runs only:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `PRINT_BUDDY_OPTIONS_FILE` | `/data/options.json` | The add-on options file (`printer_uri`, `upload_limit_mb`). A missing file or key gives the spec's default. |
+| `PRINT_BUDDY_OPTIONS_FILE` | `/data/options.json` | The add-on options file (`printer_name`, `upload_limit_mb`). A missing key gives the spec's default; a missing `printer_name` stops the start. |
+| `PRINT_BUDDY_CUPS` | `172.30.32.1:631` | Host and port of CUPS. The queue address is `ipp://<this>/printers/<printer_name>`. |
 | `PRINT_BUDDY_JOBS_DIR` | `/share/print-buddy/jobs` | Where Print Job folders live. Drafts are in `drafts/` below it. |
 | `PRINT_BUDDY_PORT` | `9217` | Port to listen on. `0` picks a free one. |
 
@@ -215,7 +216,7 @@ test("…", async t => {
 })
 ```
 
-- `startTestServer(opts)` in `server/testing/harness.ts` starts the real server on a free port. It writes an options file that points `printer_uri` at the fake printer, and uses a temporary directory in place of `/share` and `/data`. `close()` stops everything and deletes the directory.
+- `startTestServer(opts)` in `server/testing/harness.ts` starts the real server on a free port. It writes an options file that sets `printer_name` and `PRINT_BUDDY_CUPS` to the fake printer, and uses a temporary directory in place of `/share` and `/data`. `close()` stops everything and deletes the directory.
   - `opts.options`: extra keys for the options file, for example `{ upload_limit_mb: 1 }`.
   - `opts.now`: start time of the fake clock. `opts.ui`: files of a stand-in UI build.
   - `opts.beforeStart(printer)`: runs before the server starts, to script what the fake printer answers to the startup read of the margins.
@@ -355,7 +356,7 @@ const sheets = layout({
 
 - **Reasons.** `reasonTexts` in `server/status-mapper.ts` maps reason keywords to German sentences. The mapper looks through the job's reasons, then the Printer's, and takes the first keyword it knows, with a trailing `-report`, `-warning` or `-error` removed. After that it checks the backend message (`messageTexts`). To teach it a new reason, add a line to one of the two tables and a case to the table test in `server/status.test.ts`.
 - **Which states have a reason.** Fehler always has one: the known reason, or "Beim Drucken ist ein Fehler aufgetreten.", or the sentence for a job somebody else cancelled. Wartet and Wird gedruckt have one only when CUPS names a known reason. Fertig and Abgebrochen have none.
-- **Fehler on the status screen.** It adds "Details" (`ui/src/controls/Collapsible.tsx`, a button with `aria-expanded`; the content is in the page only while open) and the link to the CUPS web page. The address is the constant `cupsWebPage` in `StatusScreen.tsx`.
+- **Fehler on the status screen.** It adds "Details" (`ui/src/controls/Collapsible.tsx`, a button with `aria-expanded`; the content is in the page only while open).
 - **A submit that can't be sent.** `POST /api/drafts/:draftId/submit` answers `SubmitFailure` (`shared/api.ts`): 502 `cups-unreachable` or `cups-rejected`, 500 `render-failed`. No Print Job is created and the draft stays, so the same submit can be repeated. The cause goes to the server log. Once CUPS has accepted the job, the answer is always the Print Job (see the job folder notes below).
 - **"Drucken hat nicht geklappt".** Anything that throws inside `print()` in `App.tsx` (upload or submit, an error status or no network) leads to `SendFailedScreen`. Its screen state keeps `options`. "Erneut versuchen" calls `print(options)` without a draft id, so the phone's copy is uploaded into a new draft, as with "Nochmal drucken". A screen that must come before it for one kind of failure (the expired login) has to catch that failure first.
 

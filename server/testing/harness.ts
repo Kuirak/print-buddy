@@ -10,7 +10,7 @@ import { startFakeIpp, type FakeIpp } from "./fake-ipp.ts"
 import { samplePdf, samplePrintOptions } from "./fixtures.ts"
 
 export interface TestServerOptions {
-  /** Extra or overriding keys for the add-on options file. `printer_uri` defaults to the fake printer. */
+  /** Extra or overriding keys for the add-on options file. `printer_name` defaults to the fake printer's queue. */
   options?: Record<string, unknown>
   /** Start time of the fake clock, in ms since the epoch. */
   now?: number
@@ -29,7 +29,7 @@ export async function startTestServer(opts: TestServerOptions = {}) {
 
   const optionsFile = join(dir, "data", "options.json")
   await mkdir(join(dir, "data"))
-  await writeFile(optionsFile, JSON.stringify({ printer_uri: printer.uri, ...opts.options }))
+  await writeFile(optionsFile, JSON.stringify({ printer_name: printer.queue, ...opts.options }))
 
   const uiDir = join(dir, "ui")
   for (const [path, content] of Object.entries({ "index.html": "<!doctype html><title>Print Buddy</title>", ...opts.ui })) {
@@ -48,6 +48,7 @@ export async function startTestServer(opts: TestServerOptions = {}) {
     PRINT_BUDDY_OPTIONS_FILE: optionsFile,
     PRINT_BUDDY_JOBS_DIR: jobsDir,
     PRINT_BUDDY_PORT: "0",
+    PRINT_BUDDY_CUPS: printer.cups,
   })
   // what the server asks the printer while starting is set aside, so `printer.requests` holds only what a test caused
   const startupRequests: typeof printer.requests = []

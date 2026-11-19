@@ -6,7 +6,7 @@ Print Buddy is a small web app for printing PDFs and photos from Android phones 
 
 | Option | Default | Meaning |
 |---|---|---|
-| `printer_uri` | `ipp://172.30.32.1:631/printers/Printer` | IPP address of the CUPS queue. Use the IP address: CUPS rejects requests that name it by an internal hostname. |
+| `printer_name` | none, required | Name of the CUPS queue. Print Buddy sends jobs to `ipp://172.30.32.1:631/printers/<queue>`; 172.30.32.1 is the Home Assistant host on its internal network on every install. Without it Print Buddy doesn't start. |
 | `upload_limit_mb` | `50` | Largest file a phone may send, in MB (1 to 100). |
 
 Restart Print Buddy after changing an option.

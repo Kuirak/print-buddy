@@ -115,8 +115,12 @@ export async function startFakeIpp(queue = "Test_Printer") {
   await new Promise<void>(r => server.listen(0, "127.0.0.1", r))
   const port = (server.address() as AddressInfo).port
   return {
-    /** Use as `printer_uri`. */
+    /** The queue's full address, as the server builds it from `cups` and `queue`. */
     uri: `ipp://127.0.0.1:${port}/printers/${queue}`,
+    /** Use as `PRINT_BUDDY_CUPS`. */
+    cups: `127.0.0.1:${port}`,
+    /** Use as `printer_name`. */
+    queue,
     /** Every IPP request received, in order. */
     requests,
     jobs,

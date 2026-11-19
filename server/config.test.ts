@@ -13,40 +13,44 @@ async function optionsFile(t: TestContext, content: string) {
   return file
 }
 
-test("printer_uri and upload_limit_mb come from the add-on options file", async t => {
-  const file = await optionsFile(t, JSON.stringify({ printer_uri: "ipp://10.0.0.5:631/printers/Other", upload_limit_mb: 20 }))
+test("printer_name and upload_limit_mb come from the add-on options file", async t => {
+  const file = await optionsFile(t, JSON.stringify({ printer_name: "Office", upload_limit_mb: 20 }))
 
   const config = await loadConfig({ PRINT_BUDDY_OPTIONS_FILE: file })
 
-  assert.equal(config.printerUri, "ipp://10.0.0.5:631/printers/Other")
+  assert.equal(config.printerUri, "ipp://172.30.32.1:631/printers/Office")
   assert.equal(config.uploadLimitMb, 20)
 })
 
-test("a missing options file gives the spec's defaults", async () => {
-  const config = await loadConfig({ PRINT_BUDDY_OPTIONS_FILE: join(tmpdir(), "print-buddy-no-such-dir", "options.json") })
+test("a missing options file stops the start, because printer_name has no default", async () => {
+  await assert.rejects(loadConfig({ PRINT_BUDDY_OPTIONS_FILE: join(tmpdir(), "print-buddy-no-such-dir", "options.json") }), /printer_name/)
+})
+
+test("a missing printer_name stops the start", async t => {
+  const file = await optionsFile(t, JSON.stringify({ upload_limit_mb: 5 }))
+
+  await assert.rejects(loadConfig({ PRINT_BUDDY_OPTIONS_FILE: file }), /printer_name is missing/)
+})
+
+test("every other key has the spec's default", async t => {
+  const file = await optionsFile(t, JSON.stringify({ printer_name: "Office" }))
+
+  const config = await loadConfig({ PRINT_BUDDY_OPTIONS_FILE: file })
 
   assert.deepEqual(config, {
-    printerUri: "ipp://172.30.32.1:631/printers/Printer",
+    printerUri: "ipp://172.30.32.1:631/printers/Office",
     uploadLimitMb: 50,
     jobsDir: "/share/print-buddy/jobs",
     port: 9217,
   })
 })
 
-test("a missing key gives that key's default", async t => {
-  const file = await optionsFile(t, JSON.stringify({ upload_limit_mb: 5 }))
+test("the CUPS host, the jobs directory and the port can be pointed elsewhere", async t => {
+  const file = await optionsFile(t, JSON.stringify({ printer_name: "Office" }))
 
-  const config = await loadConfig({ PRINT_BUDDY_OPTIONS_FILE: file })
+  const config = await loadConfig({ PRINT_BUDDY_OPTIONS_FILE: file, PRINT_BUDDY_CUPS: "127.0.0.1:6310", PRINT_BUDDY_JOBS_DIR: "/tmp/pb-jobs", PRINT_BUDDY_PORT: "4000" })
 
-  assert.equal(config.printerUri, "ipp://172.30.32.1:631/printers/Printer")
-  assert.equal(config.uploadLimitMb, 5)
-})
-
-test("the jobs directory and the port can be pointed elsewhere", async t => {
-  const file = await optionsFile(t, "{}")
-
-  const config = await loadConfig({ PRINT_BUDDY_OPTIONS_FILE: file, PRINT_BUDDY_JOBS_DIR: "/tmp/pb-jobs", PRINT_BUDDY_PORT: "4000" })
-
+  assert.equal(config.printerUri, "ipp://127.0.0.1:6310/printers/Office")
   assert.equal(config.jobsDir, "/tmp/pb-jobs")
   assert.equal(config.port, 4000)
 })

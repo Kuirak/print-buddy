@@ -5,9 +5,6 @@ import { Collapsible } from "../controls/Collapsible.tsx"
 import { ReportButton } from "../controls/ReportButton.tsx"
 import { stateWords } from "../state-words.ts"
 
-/** The CUPS web page. It answers on the Household network only, so the link is of no use on the road. */
-const cupsWebPage = "http://homeassistant.local:631"
-
 const pollEveryMs = 2_000
 const hintAfterSeconds = 60
 
@@ -96,9 +93,6 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
               </dl>
               <p class="mt-1 text-sm">CUPS-Auftrag Nr. {failed().cupsJobId}</p>
             </Collapsible>
-            <a class="text-brand underline" href={cupsWebPage} target="_blank" rel="noreferrer">
-              CUPS-Seite öffnen (nur im Heimnetz)
-            </a>
           </>
         )}
       </Show>

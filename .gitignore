@@ -2,3 +2,5 @@ node_modules
 dist
 # copied from pdfjs-dist by scripts/pdfjs-assets.ts
 ui/public/pdfjs
+.scratch/
+.wayfinder/

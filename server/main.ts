@@ -2,7 +2,13 @@ import { loadConfig } from "./config.ts"
 import { startServer } from "./server.ts"
 import { version } from "./version.ts"
 
-const config = await loadConfig(process.env)
+let config
+try {
+  config = await loadConfig(process.env)
+} catch (err) {
+  console.error(`Print Buddy can't start: ${(err as Error).message}`)
+  process.exit(1)
+}
 const server = await startServer(config)
 console.log(`Print Buddy ${version} listening on port ${new URL(server.url).port}, printing to ${config.printerUri}`)
 

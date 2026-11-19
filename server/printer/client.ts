@@ -84,7 +84,7 @@ function marginsOf(database: IppCollection[], paper: Paper): Margins | undefined
 export type PrinterClient = ReturnType<typeof createPrinterClient>
 
 /**
- * The Printer client: IPP against `printer_uri`, hand-written because `@sealsystems/ipp`
+ * The Printer client: IPP against the CUPS queue `printer_name`, hand-written because `@sealsystems/ipp`
  * drops the PPD keywords (see the README's development notes).
  */
 export function createPrinterClient(printerUri: string) {
