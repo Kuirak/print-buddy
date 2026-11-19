@@ -240,8 +240,10 @@ test("the preview draws the first page of the picked PDF through pdf.js", async 
   expect(openPdf).toHaveBeenCalledOnce()
   expect(new TextDecoder().decode(vi.mocked(openPdf).mock.calls[0]![0])).toBe("%PDF-1.4")
   const pdf: PdfPreview = await vi.mocked(openPdf).mock.results[0]!.value
-  expect(vi.mocked(pdf.renderPage).mock.calls.map(([pageNumber]) => pageNumber)).toEqual([1])
-  expect(page).toContainElement(await vi.mocked(pdf.renderPage).mock.results[0]!.value)
+  // the thumbnails are drawn through pdf.js too, far smaller than the preview
+  const large = vi.mocked(pdf.renderPage).mock.calls.flatMap(([pageNumber, longSide], call) => (longSide >= 1000 ? [{ pageNumber, call }] : []))
+  expect(large.map(({ pageNumber }) => pageNumber)).toEqual([1])
+  expect(page).toContainElement(await vi.mocked(pdf.renderPage).mock.results[large[0]!.call]!.value)
   expect(screen.queryByRole("img", { name: "Vorschau Seite 2" })).not.toBeInTheDocument()
 })
 
@@ -263,8 +265,8 @@ test("the preview shows the first of the picked photos", async () => {
 test("Ansicht zooms into the preview in four steps and back, and leaves the Print size alone", async () => {
   const { tap, print } = await openOptions()
   const pdf: PdfPreview = await vi.mocked(openPdf).mock.results[0]!.value
-  /** How many pixels pdf.js was last asked to draw the page with. */
-  const sharpness = () => vi.mocked(pdf.renderPage).mock.lastCall![1]
+  /** How many pixels pdf.js was asked to draw the page in the preview with at most. The thumbnails are far smaller. */
+  const sharpness = () => Math.max(...vi.mocked(pdf.renderPage).mock.calls.map(([, longSide]) => longSide))
   await screen.findByRole("img", { name: "Vorschau Seite 1" })
   const unzoomed = sharpness()
 
