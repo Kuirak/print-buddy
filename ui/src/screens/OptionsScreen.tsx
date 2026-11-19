@@ -8,8 +8,11 @@ import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
 import { PresetActions } from "../controls/PresetActions.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
+import { Preview } from "../controls/Preview.tsx"
 import { PrintSize } from "../controls/PrintSize.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
+import { ViewZoom } from "../controls/ViewZoom.tsx"
+import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type FileKind, type Preset } from "../presets.ts"
 
 const colors = [
@@ -41,12 +44,15 @@ function Row(props: { label: string; children: JSX.Element }) {
 export function OptionsScreen(props: {
   fileName: string
   kind: FileKind
-  /** What the server found out about each file of the Print Job, in order. */
+  /** The phone's copies of the files of the Print Job, in order. */
+  files: File[]
+  /** What the server found out about each of them. */
   facts: FileFacts[]
   onPrint: (options: PrintOptions) => void
 }) {
   const presets = createPresets(untrack(() => props.kind))
-  // a file never changes while its options screen is open
+  // the files never change while their options screen is open
+  const files = untrack(() => props.files)
   const facts = untrack(() => props.facts)
   const source: LayoutInput["source"] =
     facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
@@ -58,8 +64,26 @@ export function OptionsScreen(props: {
   })
 
   const [margins, setMargins] = createSignal<PaperMargins>()
+  // what the preview draws: the PDF's pages through pdf.js, or the photos straight from the phone's copies
+  const [pdf, setPdf] = createSignal<PdfPreview>()
+  const photoUrls = source.kind === "photos" ? files.map(file => URL.createObjectURL(file)) : []
+  const [zoom, setZoom] = createSignal(1)
   onSettled(() => {
+    let left = false
+    let opened: PdfPreview | undefined
     void readPrinter().then(printer => setMargins(printer.margins))
+    if (source.kind === "pdf") {
+      void (async () => {
+        opened = await openPdf(await files[0]!.arrayBuffer())
+        if (left) void opened.destroy()
+        else setPdf(opened)
+      })()
+    }
+    return () => {
+      left = true
+      void opened?.destroy()
+      for (const url of photoUrls) URL.revokeObjectURL(url)
+    }
   })
   /** Where everything sits, sheet by sheet. The preview, the percentage and the cut-off warning all read this. */
   const sheets = createMemo(() => {
@@ -94,15 +118,26 @@ export function OptionsScreen(props: {
     <main class="flex min-h-dvh flex-col gap-4 p-4">
       <h1 class="truncate font-bold">{props.fileName}</h1>
       <PresetChips presets={presets} options={options} onPick={apply} />
-      <div class="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          class="min-h-11 cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:cursor-default disabled:opacity-40"
-          disabled={!shown()}
-          onClick={turn}
-        >
-          <span aria-hidden="true">⟳ </span>Drehen
-        </button>
+      <div class="flex flex-col gap-2">
+        <div class="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            class="min-h-11 cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:cursor-default disabled:opacity-40"
+            disabled={!shown()}
+            onClick={turn}
+          >
+            <span aria-hidden="true">⟳ </span>Drehen
+          </button>
+          <ViewZoom value={zoom()} onChange={setZoom} />
+        </div>
+        <Preview
+          paper={SHEET_SIZES[options.paper]}
+          margins={margins()?.[options.paper]}
+          sheet={shown()}
+          source={source.kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+          grey={options.color === "mono"}
+          zoom={zoom()}
+        />
       </div>
       <div class="flex flex-col gap-1">
         <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />

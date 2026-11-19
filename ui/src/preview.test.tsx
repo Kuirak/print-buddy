@@ -1,9 +1,11 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
+import { openPdf, type PdfPreview } from "./pdf-preview.ts"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
+import { printerInfo } from "./testing/printer-info.ts"
 
 /** Two pages of US Letter: a little wider and a little shorter than A4 (595 × 842 pt). */
 const letterPdf: FileFacts = { kind: "pdf", pageCount: 2, pages: [{ width: 612, height: 792 }, { width: 612, height: 792 }] }
@@ -11,8 +13,11 @@ const letterPdf: FileFacts = { kind: "pdf", pageCount: 2, pages: [{ width: 612, 
 /** One landscape photo of 4000 × 3000 pixels: 960 × 720 pt at 300 dpi. */
 const landscapePhoto: FileFacts = { kind: "photo", format: "jpeg", width: 4000, height: 3000, orientation: 1 }
 
-/** Opens the app, picks a file with these facts and waits for the options screen with its preview. */
-async function openOptions(facts: FileFacts = letterPdf, routes: Record<string, ApiHandler> = {}) {
+/**
+ * Opens the app, picks a file with these facts and waits for the options screen with its preview.
+ * `count` picks that many photos, all with the same facts. `routes` change what the server answers.
+ */
+async function openOptions(facts: FileFacts = letterPdf, { count = 1, routes = {} }: { count?: number; routes?: Record<string, ApiHandler> } = {}) {
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
     "POST /api/drafts/d1/files": () => json(facts, 201),
@@ -21,10 +26,10 @@ async function openOptions(facts: FileFacts = letterPdf, routes: Record<string, 
   })
   const user = userEvent.setup({ applyAccept: false })
   render(() => <App />)
-  const file = facts.kind === "pdf"
+  const files = Array.from({ length: count }, (_, index) => facts.kind === "pdf"
     ? new File(["%PDF-1.4"], "Brief.pdf", { type: "application/pdf" })
-    : new File(["\xff\xd8\xff"], "Strand.jpg", { type: "image/jpeg" })
-  await user.upload(screen.getByLabelText("Datei auswählen"), file)
+    : new File(["\xff\xd8\xff"], `Strand ${index + 1}.jpg`, { type: "image/jpeg" }))
+  await user.upload(screen.getByLabelText("Datei auswählen"), files)
   await screen.findByRole("button", { name: "Drucken" })
   // the margins have arrived and the file is laid out
   await screen.findByRole("status", { name: "Druckgröße in Prozent" })
@@ -39,7 +44,7 @@ async function openOptions(facts: FileFacts = letterPdf, routes: Record<string, 
   const tap = (name: string) => user.click(screen.getByRole("button", { name }))
   /** The percentage the Print size row shows. */
   const percent = () => screen.findByRole("status", { name: "Druckgröße in Prozent" })
-  return { api, user, file, print, choice, tap, percent }
+  return { api, user, files, print, choice, tap, percent }
 }
 
 test("a new file starts at Einpassen, and the Print size row shows the percentage that gives", async () => {
@@ -210,4 +215,70 @@ test("a landscape PDF page is never turned on its own", async () => {
 
   // 577.28 / 792 = 0.729. Turned, the page would come out at 94 %
   expect(await percent()).toHaveTextContent("73 %")
+})
+
+test("the Print size follows the Printer's margins for the chosen paper", async () => {
+  const wide = { top: 36, right: 36, bottom: 36, left: 36 }
+  const { user, choice, percent } = await openOptions(letterPdf, {
+    routes: { "GET /api/printer": () => printerInfo({ margins: { ...printerInfo().margins, A5: wide } }) },
+  })
+  expect(await percent()).toHaveTextContent("94 %")
+
+  // A5 is 419.53 pt wide. Without 2 × 36 pt that leaves 347.53 pt, and 347.53 / 612 = 0.568
+  await user.click(choice("Papier", "A5"))
+  expect(await percent()).toHaveTextContent("57 %")
+
+  // Umschlag DL is 311.81 pt wide, with 9 pt left and right: 293.81 / 612 = 0.480
+  await user.click(choice("Papier", "Umschlag DL"))
+  expect(await percent()).toHaveTextContent("48 %")
+})
+
+test("the preview draws the first page of the picked PDF through pdf.js", async () => {
+  await openOptions()
+
+  const page = await screen.findByRole("img", { name: "Vorschau Seite 1" })
+  expect(openPdf).toHaveBeenCalledOnce()
+  expect(new TextDecoder().decode(vi.mocked(openPdf).mock.calls[0]![0])).toBe("%PDF-1.4")
+  const pdf: PdfPreview = await vi.mocked(openPdf).mock.results[0]!.value
+  expect(vi.mocked(pdf.renderPage).mock.calls.map(([pageNumber]) => pageNumber)).toEqual([1])
+  expect(page).toContainElement(await vi.mocked(pdf.renderPage).mock.results[0]!.value)
+  expect(screen.queryByRole("img", { name: "Vorschau Seite 2" })).not.toBeInTheDocument()
+})
+
+test("the preview shows the first of the picked photos", async () => {
+  const made = vi.spyOn(URL, "createObjectURL")
+  try {
+    const { files } = await openOptions(landscapePhoto, { count: 2 })
+
+    const photo = await screen.findByRole("img", { name: "Vorschau Foto 1" })
+    const first = made.mock.calls.findIndex(([blob]) => blob === files[0])
+    expect(photo).toHaveAttribute("src", made.mock.results[first]!.value)
+    expect(screen.queryByRole("img", { name: "Vorschau Foto 2" })).not.toBeInTheDocument()
+    expect(openPdf).not.toHaveBeenCalled()
+  } finally {
+    made.mockRestore()
+  }
+})
+
+test("Ansicht zooms into the preview in four steps and back, and leaves the Print size alone", async () => {
+  const { tap, print } = await openOptions()
+  const pdf: PdfPreview = await vi.mocked(openPdf).mock.results[0]!.value
+  /** How many pixels pdf.js was last asked to draw the page with. */
+  const sharpness = () => vi.mocked(pdf.renderPage).mock.lastCall![1]
+  await screen.findByRole("img", { name: "Vorschau Seite 1" })
+  const unzoomed = sharpness()
+
+  expect(screen.getByText("Ansicht 100%")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Ansicht verkleinern" })).toBeDisabled()
+  for (const label of ["Ansicht 150%", "Ansicht 200%", "Ansicht 300%"]) {
+    await tap("Ansicht vergrößern")
+    expect(screen.getByText(label)).toBeInTheDocument()
+  }
+  expect(screen.getByRole("button", { name: "Ansicht vergrößern" })).toBeDisabled()
+  // zoomed in, the page is drawn again with more pixels, so details stay sharp
+  expect(sharpness()).toBeGreaterThan(unzoomed)
+
+  await tap("Ansicht verkleinern")
+  expect(screen.getByText("Ansicht 200%")).toBeInTheDocument()
+  expect(await print()).toMatchObject({ printSize: { kind: "fit" } })
 })
