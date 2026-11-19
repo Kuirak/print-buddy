@@ -1,10 +1,11 @@
-import { createMemo, createSignal, createStore, onSettled, snapshot, untrack } from "solid-js"
+import { createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { JSX } from "@solidjs/web"
 import type { FileFacts, PaperMargins } from "../../../shared/api.ts"
 import { layout, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import { maxCopies, type PrintOptions } from "../../../shared/print-options.ts"
+import { maxCopies, type PrintOptions, type Rotation } from "../../../shared/print-options.ts"
 import { readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
+import { PositionGrid } from "../controls/PositionGrid.tsx"
 import { PresetActions } from "../controls/PresetActions.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
 import { PrintSize } from "../controls/PrintSize.tsx"
@@ -65,6 +66,7 @@ export function OptionsScreen(props: {
     const known = margins()
     return known && layout({ source, options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
   })
+  /** The sheet in the preview. */
   const shown = () => sheets()?.[0]
   const percent = () => {
     if (options.printSize.kind === "percent") return options.printSize.value
@@ -78,12 +80,41 @@ export function OptionsScreen(props: {
     setOptions(o => { Object.assign(o, structuredClone(preset.values)) })
   }
 
+  /** A quarter turn clockwise: of the whole PDF, or of the photo in the preview. */
+  function turn() {
+    const photo = shown()?.placements[0]?.ref
+    const quarterOn = (rotation: Rotation = 0) => ((rotation + 90) % 360) as Rotation
+    setOptions(o => {
+      if (source.kind === "pdf") o.rotation = quarterOn(o.rotation)
+      else if (photo !== undefined) o.photoRotations = { ...o.photoRotations, [photo]: quarterOn(o.photoRotations?.[photo]) }
+    })
+  }
+
   return (
     <main class="flex min-h-dvh flex-col gap-4 p-4">
       <h1 class="truncate font-bold">{props.fileName}</h1>
       <PresetChips presets={presets} options={options} onPick={apply} />
-      <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
+      <div class="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          class="min-h-11 cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:cursor-default disabled:opacity-40"
+          disabled={!shown()}
+          onClick={turn}
+        >
+          <span aria-hidden="true">⟳ </span>Drehen
+        </button>
+      </div>
+      <div class="flex flex-col gap-1">
+        <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
+        {/* a Print Job is cut off when any of its sheets is */}
+        <Show when={sheets()?.some(sheet => sheet.cutOff)}>
+          <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
+        </Show>
+      </div>
       <section>
+        <Row label="Position">
+          <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
+        </Row>
         <Row label="Kopien">
           <Stepper
             label="Kopien"
