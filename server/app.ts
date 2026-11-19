@@ -8,6 +8,7 @@ import { healthRoutes } from "./http/health.ts"
 import { jobRoutes } from "./http/jobs.ts"
 import { sessionRoutes } from "./http/session.ts"
 import { printerRoutes } from "./http/printer.ts"
+import { reportRoutes } from "./http/report.ts"
 import { uiRoutes } from "./http/ui.ts"
 import { createIntake } from "./intake.ts"
 import { openJobStore } from "./job-store.ts"
@@ -37,6 +38,7 @@ export async function createApp(deps: AppDeps) {
   app.route("/", draftRoutes({ intake, jobs, printer }))
   app.route("/", jobRoutes({ jobs, printer, now: deps.now }))
   app.route("/", printerRoutes({ printer }))
+  app.route("/", reportRoutes({ printer }))
   // keep these two last: they catch what no route above answered
   app.all("/api/*", c => c.json<ApiError>({ error: "not-found" }, 404))
   app.route("/", uiRoutes({ uiDir: deps.uiDir }))

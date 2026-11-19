@@ -105,3 +105,10 @@ export type PrinterStatus = {
 
 /** GET /api/printer */
 export type PrinterInfo = PrinterStatus & { margins: PaperMargins }
+
+/** GET /api/report: the server's part of a "Bericht kopieren" report. */
+export type ReportFacts = {
+  /** The Print Buddy version, `YYYY.MM.N`. */
+  version: string
+  printer: PrinterStatus
+}
