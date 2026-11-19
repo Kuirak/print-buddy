@@ -4,11 +4,17 @@ import { expect, test } from "vitest"
 import { App } from "./App.tsx"
 import { json, mockApi } from "./testing/mock-api.ts"
 
+/** What the server finds out about the picked file: a PDF with one page, or one photo. */
+const facts = {
+  pdf: { kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] },
+  photo: { kind: "photo", format: "jpeg", width: 4000, height: 3000, orientation: 1 },
+}
+
 /** Opens the app, picks a file of the given type and waits for the options screen. */
 async function openOptions(kind: "pdf" | "photo" = "pdf") {
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind }, 201),
+    "POST /api/drafts/d1/files": () => json(facts[kind], 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
   })
   const user = userEvent.setup({ applyAccept: false })
@@ -71,7 +77,8 @@ test.each([
   expect(chip(name)).toBeChecked()
   expect(await print()).toEqual({
     copies: 1, ...values,
-    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [],
+    // the one page of the PDF, or the one photo
+    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [kind === "pdf" ? 1 : 0],
   })
 })
 
@@ -144,7 +151,7 @@ test("a Preset sets Print size, Position, pages per sheet and copies, and is tol
 
   expect(await print()).toEqual({
     ...documentMono, copies: 3, printSize: { kind: "percent", value: 85 }, position: "top-left", pagesPerSheet: 2,
-    rotation: 0, selection: [],
+    rotation: 0, selection: [1],
   })
 })
 
@@ -171,7 +178,7 @@ test("the current settings can be saved as an own Preset, which is still there a
   expect(chip("★ Dokument s/w")).toBeChecked()
   await user.click(chip("Bastelpapier"))
   expect(chip("Bastelpapier")).toBeChecked()
-  expect(await print()).toEqual({ ...documentMono, paper: "A5", copies: 2, rotation: 0, selection: [] })
+  expect(await print()).toEqual({ ...documentMono, paper: "A5", copies: 2, rotation: 0, selection: [1] })
 })
 
 test("saving without a name, or backing out, saves nothing", async () => {
@@ -290,5 +297,5 @@ test("a new file never starts from the settings of the previous Print Job", asyn
 
   const second = await reopen()
   expect(second.chip("★ Dokument s/w")).toBeChecked()
-  expect(await second.print()).toEqual({ ...documentMono, rotation: 0, selection: [] })
+  expect(await second.print()).toEqual({ ...documentMono, rotation: 0, selection: [1] })
 })

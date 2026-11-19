@@ -21,10 +21,10 @@ test("pick a PDF, tap Drucken, and see the CUPS job number", async () => {
   expect(await screen.findByText("An den Drucker gesendet")).toBeInTheDocument()
   expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
 
-  expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual([
-    "POST /api/drafts",
-    "POST /api/drafts/d1/files",
-    "POST /api/drafts/d1/submit",
+  expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual([
+    "/api/drafts",
+    "/api/drafts/d1/files",
+    "/api/drafts/d1/submit",
   ])
   expect((api.calls[1]!.body as FormData).get("file")).toBe(pdf)
   for (const call of api.calls) expect(call.headers.get("X-Requested-With")).toBe("XMLHttpRequest")

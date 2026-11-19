@@ -1,9 +1,13 @@
-import { createStore, snapshot, untrack } from "solid-js"
+import { createMemo, createSignal, createStore, onSettled, snapshot, untrack } from "solid-js"
 import type { JSX } from "@solidjs/web"
+import type { FileFacts, PaperMargins } from "../../../shared/api.ts"
+import { layout, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import { maxCopies, type PrintOptions } from "../../../shared/print-options.ts"
+import { readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { PresetActions } from "../controls/PresetActions.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
+import { PrintSize } from "../controls/PrintSize.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
 import { createPresets, type FileKind, type Preset } from "../presets.ts"
 
@@ -33,10 +37,40 @@ function Row(props: { label: string; children: JSX.Element }) {
   )
 }
 
-export function OptionsScreen(props: { fileName: string; kind: FileKind; onPrint: (options: PrintOptions) => void }) {
+export function OptionsScreen(props: {
+  fileName: string
+  kind: FileKind
+  /** What the server found out about each file of the Print Job, in order. */
+  facts: FileFacts[]
+  onPrint: (options: PrintOptions) => void
+}) {
   const presets = createPresets(untrack(() => props.kind))
-  // a new file starts from the starred Preset, never from the settings of the job before
-  const [options, setOptions] = createStore<PrintOptions>({ ...structuredClone(presets.starred().values), rotation: 0, selection: [] })
+  // a file never changes while its options screen is open
+  const facts = untrack(() => props.facts)
+  const source: LayoutInput["source"] =
+    facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
+  // a new file starts from the starred Preset, never from the settings of the job before, with every page or photo selected
+  const [options, setOptions] = createStore<PrintOptions>({
+    ...structuredClone(presets.starred().values),
+    rotation: 0,
+    selection: facts[0]?.kind === "pdf" ? Array.from({ length: facts[0].pageCount }, (_, index) => index + 1) : facts.map((_, index) => index),
+  })
+
+  const [margins, setMargins] = createSignal<PaperMargins>()
+  onSettled(() => {
+    void readPrinter().then(printer => setMargins(printer.margins))
+  })
+  /** Where everything sits, sheet by sheet. The preview, the percentage and the cut-off warning all read this. */
+  const sheets = createMemo(() => {
+    const known = margins()
+    return known && layout({ source, options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
+  })
+  const shown = () => sheets()?.[0]
+  const percent = () => {
+    if (options.printSize.kind === "percent") return options.printSize.value
+    const first = shown()?.placements[0]
+    return first && Math.round(first.scale * 100)
+  }
 
   /** Sets what the Preset stores. Page selection and rotation stay as they are. */
   function apply(preset: Preset) {
@@ -48,6 +82,7 @@ export function OptionsScreen(props: { fileName: string; kind: FileKind; onPrint
     <main class="flex min-h-dvh flex-col gap-4 p-4">
       <h1 class="truncate font-bold">{props.fileName}</h1>
       <PresetChips presets={presets} options={options} onPick={apply} />
+      <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
       <section>
         <Row label="Kopien">
           <Stepper

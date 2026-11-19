@@ -1,5 +1,5 @@
 // The app's only way to the server: one function per API operation.
-import type { DraftCreated, FileFacts, JobSubmitted, Refusal, SubmitRequest } from "../../shared/api.ts"
+import type { DraftCreated, FileFacts, JobSubmitted, PrinterInfo, Refusal, SubmitRequest } from "../../shared/api.ts"
 
 /** The server (or Cloudflare Access, with 401) answered with an error status. */
 export class ApiFailure extends Error {
@@ -46,3 +46,6 @@ export async function addFile(draftId: string, file: File): Promise<FileFacts | 
 }
 
 export const submitDraft = (draftId: string, options: SubmitRequest) => call<JobSubmitted>("POST", `/api/drafts/${draftId}/submit`, options)
+
+/** The printable margins of each paper, and the Printer's state. */
+export const readPrinter = () => call<PrinterInfo>("GET", "/api/printer")
