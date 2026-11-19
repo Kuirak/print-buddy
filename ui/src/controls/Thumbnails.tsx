@@ -22,7 +22,7 @@ export function Thumbnails(props: {
   onNone: () => void
 }) {
   const pdf = () => props.source.kind === "pdf"
-  const small = "min-h-11 cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-semibold"
+  const small = "min-h-10 cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-semibold"
   return (
     <div class="flex flex-col gap-2">
       <div role="group" aria-label={pdf() ? "Seiten" : "Fotos"} class="flex gap-2 overflow-x-auto pb-1">

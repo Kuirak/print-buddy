@@ -10,7 +10,7 @@ export function SheetSteps(props: {
   text: string
   onChange: (index: number) => void
 }) {
-  const button = "size-11 cursor-pointer rounded-lg border border-gray-300 text-xl font-semibold disabled:cursor-default disabled:opacity-40"
+  const button = "size-10 cursor-pointer rounded-lg border border-gray-300 text-xl font-semibold disabled:cursor-default disabled:opacity-40"
   return (
     <div class="flex items-center justify-center gap-3">
       <button type="button" class={button} aria-label="Vorheriges Blatt" disabled={props.index <= 0} onClick={() => props.onChange(props.index - 1)}>

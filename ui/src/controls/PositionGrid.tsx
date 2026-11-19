@@ -16,7 +16,7 @@ export function PositionGrid(props: { value: Position; onChange: (value: Positio
             role="radio"
             aria-label={spot.label}
             aria-checked={props.value === spot.value ? "true" : "false"}
-            class={`grid size-11 cursor-pointer place-items-center rounded-lg border ${props.value === spot.value ? "border-brand bg-brand" : "border-gray-300 bg-white"}`}
+            class={`grid size-8 cursor-pointer place-items-center rounded-md border ${props.value === spot.value ? "border-brand bg-brand" : "border-gray-300 bg-white"}`}
             onClick={() => props.onChange(spot.value)}
           >
             <span class={`size-2 rounded-full ${props.value === spot.value ? "bg-white" : "bg-gray-400"}`} />

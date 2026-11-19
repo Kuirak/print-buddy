@@ -161,8 +161,8 @@ export function OptionsScreen(props: {
   return (
     <>
     {/* nothing behind an open dialog can be tapped or reached with the keyboard */}
-    <main class="flex min-h-dvh flex-col gap-4 p-4" inert={over() !== undefined}>
-      <div class="flex items-center gap-2">
+    <main class="flex min-h-dvh flex-col gap-3 px-4 pt-2" inert={over() !== undefined}>
+      <div class="flex items-center gap-1">
         <button type="button" class="-ml-2 min-h-11 shrink-0 cursor-pointer rounded-lg px-2 font-semibold text-brand" onClick={() => props.onBack()}>
           <span aria-hidden="true">‹ </span>Zurück
         </button>
@@ -173,7 +173,7 @@ export function OptionsScreen(props: {
         <div class="flex items-center justify-between gap-2">
           <button
             type="button"
-            class="min-h-11 cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-semibold disabled:cursor-default disabled:opacity-40"
+            class="min-h-10 cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 font-semibold disabled:cursor-default disabled:opacity-40"
             disabled={!shown()}
             onClick={turn}
           >
@@ -193,16 +193,20 @@ export function OptionsScreen(props: {
           {laidOut => <SheetSteps index={current()} count={laidOut().length} text={sheetText()} onChange={setStep} />}
         </Show>
       </div>
-      <div class="flex flex-col gap-1">
-        <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
-        <Show when={cutOff()}>
-          <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
-        </Show>
+      {/* Print size and Position side by side, so that both fit on the screen with the preview */}
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="text-xs font-semibold text-muted">Druckgröße</span>
+          <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
+        </div>
+        <div class="flex shrink-0 flex-col items-center gap-1">
+          <span class="text-xs font-semibold text-muted">Position</span>
+          <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
+        </div>
       </div>
-      <div class="flex items-center justify-between gap-4">
-        <span class="shrink-0">Position</span>
-        <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
-      </div>
+      <Show when={cutOff()}>
+        <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
+      </Show>
       <Thumbnails
         source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
         refs={refs()}
@@ -213,7 +217,8 @@ export function OptionsScreen(props: {
         onNone={() => select([])}
       />
       <SummaryLine kind={kind} total={refs().length} options={options} percent={percent()} onChange={() => setOver("details")} />
-      <div class="sticky bottom-0 mt-auto bg-white py-3">
+      {/* the last thing on the screen, so that at the end of the page nothing lies under it */}
+      <div class="sticky bottom-0 z-10 -mx-4 mt-auto border-t border-gray-200 bg-white px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {/* not before the layout is known: the confirmation says how many sheets, at what size, and whether something
             is cut off; and not before the upload is done, so that it says it from the server's facts */}
         <button

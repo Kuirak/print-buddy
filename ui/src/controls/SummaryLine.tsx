@@ -34,7 +34,7 @@ export function SummaryLine(props: {
   return (
     <div class="flex items-center justify-between gap-3">
       <span role="status" aria-label="Gewählte Einstellungen" class="text-sm text-muted">{parts().join(" · ")}</span>
-      <button type="button" class="min-h-11 shrink-0 cursor-pointer rounded-lg border border-gray-300 px-3 py-2 font-semibold" onClick={props.onChange}>Ändern</button>
+      <button type="button" class="min-h-10 shrink-0 cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 font-semibold" onClick={props.onChange}>Ändern</button>
     </div>
   )
 }

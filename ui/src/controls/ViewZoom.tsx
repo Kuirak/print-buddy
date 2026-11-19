@@ -3,7 +3,7 @@ const steps = [1, 1.5, 2, 3]
 
 /** "Ansicht": how far the preview is zoomed in on the screen. It changes nothing about the printout. */
 export function ViewZoom(props: { value: number; onChange: (value: number) => void }) {
-  const button = "size-11 cursor-pointer rounded-lg border border-gray-300 text-xl font-semibold disabled:cursor-default disabled:opacity-40"
+  const button = "size-10 cursor-pointer rounded-lg border border-gray-300 text-xl font-semibold disabled:cursor-default disabled:opacity-40"
   return (
     <div class="flex items-center gap-2">
       <button

@@ -14,10 +14,12 @@ export function Stepper(props: {
   /** Shown after the value, for example " %". */
   unit?: string
   onChange: (value: number) => void
+  /** Smaller buttons, for a stepper that shares its row with other controls. */
+  compact?: boolean
 }) {
-  const button = "size-11 cursor-pointer rounded-lg border border-gray-300 text-xl font-semibold disabled:cursor-default disabled:opacity-40"
+  const button = `${props.compact ? "size-10" : "size-11"} cursor-pointer rounded-lg border border-gray-300 text-xl font-semibold disabled:cursor-default disabled:opacity-40`
   return (
-    <div class="flex items-center gap-3">
+    <div class={`flex items-center ${props.compact ? "gap-2" : "gap-3"}`}>
       <button
         type="button"
         class={button}
@@ -27,7 +29,7 @@ export function Stepper(props: {
       >
         −
       </button>
-      <output class="min-w-8 text-center font-bold whitespace-nowrap" aria-label={props.label}>{props.value}{props.unit}</output>
+      <output class={`${props.compact ? "min-w-12" : "min-w-8"} text-center font-bold whitespace-nowrap`} aria-label={props.label}>{props.value}{props.unit}</output>
       <button
         type="button"
         class={button}

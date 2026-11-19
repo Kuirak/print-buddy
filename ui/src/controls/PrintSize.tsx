@@ -24,12 +24,13 @@ export function PrintSize(props: {
   onChange: (value: PrintSizeMode) => void
 }) {
   return (
-    <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-col items-start gap-2">
       <ChoiceGroup
         label="Druckgröße"
         choices={shortcuts}
         value={props.value.kind !== "percent" ? props.value.kind : props.value.value === 100 ? "100" : undefined}
         onChange={picked => props.onChange(picked === "100" ? { kind: "percent", value: 100 } : { kind: picked })}
+        compact
       />
       <Show when={props.percent}>
         {percent => (
@@ -43,6 +44,7 @@ export function PrintSize(props: {
             step={5}
             unit=" %"
             onChange={value => props.onChange({ kind: "percent", value })}
+            compact
           />
         )}
       </Show>
