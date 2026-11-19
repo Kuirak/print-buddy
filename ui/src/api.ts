@@ -25,6 +25,9 @@ export function onLoginExpired(listener: () => void) {
   loginExpired = listener
 }
 
+/** True for the failure of a call that Cloudflare Access answered with 401. `onLoginExpired` has heard of it by then. */
+export const isLoginExpired = (failure: unknown) => failure instanceof ApiFailure && failure.status === 401
+
 /** `body`: FormData goes out as multipart, anything else as JSON. */
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const json = body !== undefined && !(body instanceof FormData)

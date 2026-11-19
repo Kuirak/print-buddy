@@ -2,7 +2,7 @@ import { createSignal, Match, onSettled, Switch } from "solid-js"
 import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { sharedParam } from "../../shared/share-target.ts"
-import { addFile, checkSession, createDraft, onLoginExpired, submitDraft } from "./api.ts"
+import { addFile, checkSession, createDraft, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
 import { phoneFiles } from "./phone-files.ts"
 import { fileKind } from "./presets.ts"
@@ -74,7 +74,8 @@ export function App() {
    * Uploads the phone's copy into a new draft. Every upload goes through here: after a share, after
    * "Datei auswählen", and for "Nochmal drucken" and "Erneut versuchen".
    * Resolves with nothing when there is nothing to print, and has then moved on itself: to Start when
-   * the phone holds no files, to the Refusal when the server won't take one of them.
+   * the phone holds no files, to the Refusal when the server won't take one of them. The same when the
+   * login has run out: "Anmeldung abgelaufen" shows by then, and the files stay on the phone.
    */
   async function uploadHeld(): Promise<Draft | undefined> {
     const files = await phoneFiles.held()
@@ -83,20 +84,25 @@ export function App() {
       await leaveJob()
       return undefined
     }
-    const { draftId } = await createDraft()
-    const facts: FileFacts[] = []
-    // one at a time, so the server holds the photos in the order they were shared or picked
-    for (const file of files) {
-      const answer = await addFile(draftId, file)
-      if ("refusal" in answer) {
-        // nothing prints, so there is no job to keep the files for
-        await phoneFiles.clear()
-        setScreen({ name: "refusal", refusal: answer })
-        return undefined
+    try {
+      const { draftId } = await createDraft()
+      const facts: FileFacts[] = []
+      // one at a time, so the server holds the photos in the order they were shared or picked
+      for (const file of files) {
+        const answer = await addFile(draftId, file)
+        if ("refusal" in answer) {
+          // nothing prints, so there is no job to keep the files for
+          await phoneFiles.clear()
+          setScreen({ name: "refusal", refusal: answer })
+          return undefined
+        }
+        facts.push(answer)
       }
-      facts.push(answer)
+      return { draftId, files, facts }
+    } catch (failure) {
+      if (isLoginExpired(failure)) return undefined
+      throw failure
     }
-    return { draftId, files, facts }
   }
 
   /** Opens the options screen with the phone's copy. The way in for a share and for "Datei auswählen". */
@@ -115,7 +121,7 @@ export function App() {
   let sending = false
   /**
    * Sends the draft as a Print Job. Without a draft ("Nochmal drucken", "Erneut versuchen") the phone's copy is uploaded again first.
-   * When that doesn't work, for whatever reason, the person lands on "Drucken hat nicht geklappt".
+   * When that doesn't work, the person lands on "Drucken hat nicht geklappt", unless it was the login that ran out.
    */
   async function print(options: PrintOptions, draftId?: string) {
     if (sending) return
@@ -124,8 +130,8 @@ export function App() {
       draftId ??= (await uploadHeld())?.draftId
       if (draftId === undefined) return
       setScreen({ name: "status", options, job: await submitDraft(draftId, options) })
-    } catch {
-      setScreen({ name: "send-failed", options })
+    } catch (failure) {
+      if (!isLoginExpired(failure)) setScreen({ name: "send-failed", options })
     } finally {
       sending = false
     }
