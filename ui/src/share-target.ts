@@ -21,7 +21,12 @@ export function handledBy(request: Request): "share" | "shell" | "network" {
  * POST into a GET, so reloading the app doesn't share again.
  */
 export async function receiveShare(request: Request): Promise<Response> {
-  const form = await request.formData()
-  await phoneFiles.keep(form.getAll(shareFileField).filter(part => part instanceof File))
+  // Chrome 153 on Android 17 can deliver a share with an empty body (crbug 563075800), and Chrome can't
+  // read that as a form. The app then opens without files, on Start.
+  const files = await request.formData().then(
+    form => form.getAll(shareFileField).filter(part => part instanceof File),
+    () => [],
+  )
+  await phoneFiles.keep(files)
   return new Response(null, { status: 303, headers: { Location: afterSharePath } })
 }

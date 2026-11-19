@@ -86,14 +86,13 @@ test("opening the app directly drops what an earlier job left on the phone", asy
   await expect.poll(names).toEqual([])
 })
 
-test("a share whose files can't be read leaves nothing on the phone, not even an earlier job's files", async () => {
+test.each([
+  ["an empty body", { "Content-Type": "multipart/form-data; boundary=----share" }],
+  ["a body that is no form", { "Content-Type": "text/plain" }],
+])("a share with %s leaves nothing on the phone, not even an earlier job's files", async (_what, headers) => {
   await phoneFiles.keep([pdf("Gestern.pdf")])
-  // Chrome 153 on Android 17 can deliver a share with an empty body
-  const request = new Request(new URL("/share-target", location.href), {
-    method: "POST",
-    headers: { "Content-Type": "multipart/form-data; boundary=----share" },
-    body: "",
-  })
+  // Chrome 153 on Android 17 can deliver a share without its files (crbug 563075800)
+  const request = new Request(new URL("/share-target", location.href), { method: "POST", headers, body: "" })
 
   const response = await receiveShare(request)
 
