@@ -1,6 +1,6 @@
 import { createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, PaperMargins } from "../../../shared/api.ts"
-import { layout, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
+import { layout, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import type { PrintOptions, Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { Confirmation } from "../controls/Confirmation.tsx"
@@ -201,18 +201,21 @@ export function OptionsScreen(props: {
         onClose={() => setOver(undefined)}
       />
     </Show>
-    <Show when={over() === "confirmation"}>
-      <Confirmation
-        fileName={props.fileName}
-        kind={source.kind}
-        total={refs.length}
-        options={options}
-        sheets={sheets()?.length}
-        percent={percent()}
-        cutOff={cutOff()}
-        onConfirm={() => props.onPrint(snapshot(options))}
-        onBack={() => setOver(undefined)}
-      />
+    {/* Drucken waits for the layout, so it is known here */}
+    <Show when={over() === "confirmation" && sheets()}>
+      {laidOut => (
+        <Confirmation
+          fileName={props.fileName}
+          kind={source.kind}
+          total={refs.length}
+          options={options}
+          sheets={sheetCount(laidOut(), options.copies)}
+          percent={percent()}
+          cutOff={cutOff()}
+          onConfirm={() => props.onPrint(snapshot(options))}
+          onBack={() => setOver(undefined)}
+        />
+      )}
     </Show>
     </>
   )

@@ -4,13 +4,13 @@ import {
 } from "@cantoo/pdf-lib"
 import { readFile } from "node:fs/promises"
 import type { Margins, PhotoFacts } from "../shared/api.ts"
-import { SHEET_SIZES, layout, photoNaturalSize, type LayoutInput, type Matrix } from "../shared/layout.ts"
+import { SHEET_SIZES, layout, photoNaturalSize, sheetCount, type LayoutInput, type Matrix } from "../shared/layout.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { DraftFile } from "./intake.ts"
 import { drawAnnotations, openSourcePdf, shownPart } from "./source-pdf.ts"
 
 export type RenderResult =
-  /** `sheets` is the number of sheets in `pdf`: what one copy takes. */
+  /** `sheets` is the sheets of paper the Print Job takes: the sheets in `pdf`, for every copy. */
   | { outcome: "rendered"; pdf: Uint8Array; sheets: number }
   /** The Print Options don't fit the draft's files. */
   | { outcome: "invalid-options" }
@@ -81,7 +81,7 @@ export async function render(files: readonly DraftFile[], options: PrintOptions,
       )
     }
   }
-  return { outcome: "rendered", pdf: await out.save(), sheets: sheets.length }
+  return { outcome: "rendered", pdf: await out.save(), sheets: sheetCount(sheets, options.copies) }
 }
 
 /**

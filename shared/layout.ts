@@ -250,6 +250,14 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
   return sheets
 }
 
+/**
+ * How many sheets of paper a Print Job takes: the sheets of one copy, as `layout` returns them, for every copy.
+ * The confirmation and the server's record of the Print Job both count here, so they can't say different numbers.
+ */
+export function sheetCount(sheets: readonly Sheet[], copies: number): number {
+  return sheets.length * copies
+}
+
 function flipped({ width, height }: Size): Size {
   return { width: height, height: width }
 }

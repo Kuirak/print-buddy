@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { layout, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
+import { layout, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
 import type { PrintOptions } from "./print-options.ts"
 
 // A made-up sheet with round numbers: 600 × 800 pt, and a different margin on every side.
@@ -487,5 +487,41 @@ test("two pages per sheet on a portrait sheet: the halves lie side by side once 
     assert.equal(page!.sideways, false)
     const [photo] = two(photos([500, 1000]), { selection: [0] })
     assert.equal(photo!.sideways, false)
+  })
+})
+
+test("the sheet count of a Print Job is the sheets one copy takes, times the copies", async t => {
+  const fivePages = pdf([200, 300], [200, 300], [200, 300], [200, 300], [200, 300])
+  const threePhotos = photos([900, 600], [900, 600], [900, 600])
+  const count = (source: LayoutInput["source"], changes: Partial<PrintOptions>) => {
+    const chosen = options(changes)
+    return sheetCount(layout({ source, options: chosen, sheet, margins }), chosen.copies)
+  }
+
+  await t.test("one page per sheet: a sheet for every selected page", () => {
+    assert.equal(count(fivePages, { selection: [1, 2, 3, 4, 5] }), 5)
+    assert.equal(count(fivePages, { selection: [2, 5] }), 2)
+    assert.equal(count(fivePages, { selection: [4] }), 1)
+  })
+
+  await t.test("two pages per sheet: half as many, and an odd page takes a sheet of its own", () => {
+    assert.equal(count(fivePages, { selection: [1, 2, 3, 4], pagesPerSheet: 2 }), 2)
+    assert.equal(count(fivePages, { selection: [1, 2, 3, 4, 5], pagesPerSheet: 2 }), 3)
+    assert.equal(count(fivePages, { selection: [3], pagesPerSheet: 2 }), 1)
+  })
+
+  await t.test("every copy takes the same sheets again", () => {
+    assert.equal(count(fivePages, { selection: [1, 2, 3, 4, 5], copies: 3 }), 15)
+    assert.equal(count(fivePages, { selection: [2, 5], copies: 4 }), 8)
+    assert.equal(count(fivePages, { selection: [1, 2, 3, 4, 5], pagesPerSheet: 2, copies: 2 }), 6)
+  })
+
+  await t.test("photos take a sheet each", () => {
+    assert.equal(count(threePhotos, { selection: [0, 1, 2] }), 3)
+    assert.equal(count(threePhotos, { selection: [0, 2], copies: 5 }), 10)
+  })
+
+  await t.test("nothing selected takes no paper", () => {
+    assert.equal(count(fivePages, { selection: [], copies: 3 }), 0)
   })
 })
