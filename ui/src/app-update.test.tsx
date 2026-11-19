@@ -3,6 +3,7 @@ import { userEvent } from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { fakeServiceWorker } from "./testing/fake-service-worker.ts"
+import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
 import { share } from "./testing/share.ts"
 
@@ -11,6 +12,7 @@ const pdfRoutes = {
   "POST /api/drafts": () => json({ draftId: "d1" }, 201),
   "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
   "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+  "GET /api/jobs/j1": () => jobStatus(),
 }
 /** Lets the app's pending promises run, to show that something did not happen. */
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -140,4 +142,24 @@ test("over plain HTTP there is no service worker, and Datei auswählen is the wa
   await user.click(screen.getByRole("button", { name: "Drucken" }))
 
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
+})
+
+test("a new version that waited through a job takes over once the person taps Schließen", async () => {
+  mockApi({ ...pdfRoutes, "GET /api/jobs/j1": () => jobStatus({ state: "done", endedAt: sentAt + 75_000 }) })
+  const reload = vi.spyOn(location, "reload").mockImplementation(() => {})
+  const worker = fakeServiceWorker()
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf())
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await screen.findByRole("heading", { name: "Fertig" })
+  worker.newVersionInstalled()
+  expect(worker.messages).toEqual([])
+
+  await user.click(screen.getByRole("button", { name: "Schließen" }))
+
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+  await expect.poll(() => worker.messages).toEqual(["take-over"])
+  worker.takeOver()
+  expect(reload).toHaveBeenCalledOnce()
 })

@@ -13,20 +13,21 @@ import { SendFailedScreen } from "./screens/SendFailedScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
 
-/** The server's copy of picked files: `facts[i]` is what it found out about `files[i]`. */
-type Draft = { draftId: string; facts: FileFacts[] }
+/** The phone's copy as the server holds it: `facts[i]` is what the server found out about `files[i]`. */
+type Draft = { draftId: string; files: File[]; facts: FileFacts[] }
 
+// The files of a job are not in here from screen to screen: they are the phone's copy (phone-files.ts).
 type Screen =
   | { name: "start" }
   /** A share has just come in and its files are on their way to the server. */
   | { name: "opening" }
-  /** One PDF, or photos in the order they were shared or picked. The phone keeps `files` until the person leaves the job. */
-  | ({ name: "options"; files: File[] } & Draft)
+  /** One PDF, or photos in the order they were shared or picked. */
+  | ({ name: "options" } & Draft)
   | { name: "refusal"; refusal: Refusal }
-  /** `files` and `options` are what was sent, kept for "Nochmal drucken". */
-  | { name: "status"; files: File[]; options: PrintOptions; job: JobSubmitted }
-  /** Sending didn't work. `files` and `options` are what the person wanted to print, kept for "Erneut versuchen". */
-  | { name: "send-failed"; files: File[]; options: PrintOptions }
+  /** `options` is what was sent, kept for "Nochmal drucken". */
+  | { name: "status"; options: PrintOptions; job: JobSubmitted }
+  /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen". */
+  | { name: "send-failed"; options: PrintOptions }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -56,37 +57,45 @@ export function App() {
    * The person leaves the job, or there is none after all: back to Start. The phone forgets the files,
    * and a new version of the app that waited may take over.
    */
-  async function leaveJob() {
-    await phoneFiles.clear()
+  function leaveJob() {
     setScreen({ name: "start" })
     update.setJobInProgress(false)
+    return phoneFiles.clear()
   }
 
-  /** Uploads the files into a new draft. Resolves with the Refusal when the server won't take one of them. */
-  async function upload(files: File[]): Promise<Draft | Refusal> {
+  /**
+   * Uploads the phone's copy into a new draft. Every upload goes through here: after a share, after
+   * "Datei auswählen", and for "Nochmal drucken" and "Erneut versuchen".
+   * Resolves with nothing when there is nothing to print, and has then moved on itself: to Start when
+   * the phone holds no files, to the Refusal when the server won't take one of them.
+   */
+  async function uploadHeld(): Promise<Draft | undefined> {
+    const files = await phoneFiles.held()
+    // Chrome can deliver a share without its files (crbug 563075800), and a browser may drop its storage
+    if (files.length === 0) {
+      await leaveJob()
+      return undefined
+    }
     const { draftId } = await createDraft()
     const facts: FileFacts[] = []
     // one at a time, so the server holds the photos in the order they were shared or picked
     for (const file of files) {
       const answer = await addFile(draftId, file)
-      if ("refusal" in answer) return answer
+      if ("refusal" in answer) {
+        // nothing prints, so there is no job to keep the files for
+        await phoneFiles.clear()
+        setScreen({ name: "refusal", refusal: answer })
+        return undefined
+      }
       facts.push(answer)
     }
-    return { draftId, facts }
+    return { draftId, files, facts }
   }
 
-  /** Uploads the phone's copy and opens the options screen with it. The way in for a share and for "Datei auswählen". */
+  /** Opens the options screen with the phone's copy. The way in for a share and for "Datei auswählen". */
   async function openHeld() {
-    const files = await phoneFiles.held()
-    // Chrome can deliver a share without its files (crbug 563075800); "Datei auswählen" is the way in then
-    if (files.length === 0) return leaveJob()
-    const draft = await upload(files)
-    if ("refusal" in draft) {
-      // nothing prints, so there is no job to keep the files for
-      await phoneFiles.clear()
-      return setScreen({ name: "refusal", refusal: draft })
-    }
-    setScreen({ name: "options", files, ...draft })
+    const draft = await uploadHeld()
+    if (draft) setScreen({ name: "options", ...draft })
   }
 
   async function pick(files: File[]) {
@@ -101,21 +110,15 @@ export function App() {
    * Sends the draft as a Print Job. Without a draft ("Nochmal drucken", "Erneut versuchen") the phone's copy is uploaded again first.
    * When that doesn't work, for whatever reason, the person lands on "Drucken hat nicht geklappt".
    */
-  async function print(files: File[], options: PrintOptions, draftId?: string) {
+  async function print(options: PrintOptions, draftId?: string) {
     if (sending) return
     sending = true
     try {
-      if (draftId === undefined) {
-        const draft = await upload(files)
-        if ("refusal" in draft) {
-          setScreen({ name: "refusal", refusal: draft })
-          return
-        }
-        draftId = draft.draftId
-      }
-      setScreen({ name: "status", files, options, job: await submitDraft(draftId, options) })
+      draftId ??= (await uploadHeld())?.draftId
+      if (draftId === undefined) return
+      setScreen({ name: "status", options, job: await submitDraft(draftId, options) })
     } catch {
-      setScreen({ name: "send-failed", files, options })
+      setScreen({ name: "send-failed", options })
     } finally {
       sending = false
     }
@@ -139,22 +142,18 @@ export function App() {
               fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
               kind={fileKind(options().facts)}
               facts={options().facts}
-              onPrint={chosen => void print(options().files, chosen, options().draftId)}
+              onPrint={chosen => void print(chosen, options().draftId)}
             />
           )}
         </Match>
         {/* keyed: a new Print Job gets a new status screen */}
         <Match when={on("status")} keyed>
           {status => (
-            <StatusScreen
-              job={status.job}
-              onClose={() => setScreen({ name: "start" })}
-              onPrintAgain={() => void print(status.files, status.options)}
-            />
+            <StatusScreen job={status.job} onClose={() => void leaveJob()} onPrintAgain={() => void print(status.options)} />
           )}
         </Match>
         <Match when={on("send-failed")}>
-          {failed => <SendFailedScreen onRetry={() => void print(failed().files, failed().options)} />}
+          {failed => <SendFailedScreen onRetry={() => void print(failed().options)} />}
         </Match>
       </Switch>
     </div>
