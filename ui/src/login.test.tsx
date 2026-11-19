@@ -3,7 +3,7 @@ import { userEvent } from "@testing-library/user-event"
 import { expect, onTestFinished, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { phoneFiles } from "./phone-files.ts"
-import { jobStatus } from "./testing/job-status.ts"
+import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { logInAgain, loginExpired } from "./testing/login.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
 
@@ -157,4 +157,63 @@ test("a share that went to the server, as one lost to the login does, says Bitte
   await expect.poll(() => phoneFiles.held()).toEqual([])
   expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["GET /api/session"])
   expect(location.search).toBe("")
+})
+
+test("a 401 while the status screen follows a Print Job shows Anmeldung abgelaufen, and the login leads back to the status of the same Print Job", async () => {
+  // the clock runs by itself, and the test can skip ahead to the next poll
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  onTestFinished(() => { vi.useRealTimers() })
+  let loggedIn = true
+  let drafts = 0
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
+    "POST /api/drafts/d1/files": () => json(pdfFacts, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => (loggedIn ? jobStatus() : loginExpired()),
+    "POST /api/drafts/d2/files": () => json(pdfFacts, 201),
+    "POST /api/drafts/d2/submit": () => json({ jobId: "j2", cupsJobId: 43 }, 201),
+    "GET /api/jobs/j2": () => jobStatus({ jobId: "j2", cupsJobId: 43 }),
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  const file = pdf("Rechnung.pdf")
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), file)
+  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await screen.findByRole("heading", { name: "Wartet" })
+
+  loggedIn = false
+  await vi.advanceTimersByTimeAsync(2_000)
+
+  expect(await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })).toBeInTheDocument()
+  // the app asks the server nothing more while the person has to log in
+  const asked = api.calls.length
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(api.calls).toHaveLength(asked)
+
+  loggedIn = true
+  await logInAgain(user)
+  render(() => <App />)
+
+  expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
+  expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
+  expect(location.search).toBe("")
+  // the same Print Job: nothing was uploaded or sent a second time
+  expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual([
+    "/api/drafts",
+    "/api/drafts/d1/files",
+    "/api/drafts/d1/submit",
+  ])
+
+  // and the app goes on following it
+  api.on("GET /api/jobs/j1", () => jobStatus({ state: "done", endedAt: sentAt + 75_000 }))
+  await vi.advanceTimersByTimeAsync(2_000)
+  expect(await screen.findByRole("heading", { name: "Fertig" })).toBeInTheDocument()
+
+  // Nochmal drucken still has the file and the Print Options
+  await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+
+  expect(await screen.findByText("Auftrag Nr. 43")).toBeInTheDocument()
+  expect((api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData).get("file")).toBe(file)
+  expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toMatchObject({ copies: 2, selection: [1] })
 })

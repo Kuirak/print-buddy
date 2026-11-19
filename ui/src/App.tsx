@@ -49,9 +49,12 @@ export function App() {
   const kept = interruptedJob.take()
   /** The person is back from the login, which ran out in the middle of this job. */
   const interrupted = address.has(loggedInParam) ? kept : undefined
+  /** The login ran out on the status screen of a Print Job. The person goes back there. */
+  const sent = interrupted?.job ? interrupted : undefined
   /** The app opens in the middle of a job, and the phone holds its files. */
   const opensInJob = shared || interrupted !== undefined
-  const [screen, setScreen] = createSignal<Screen>({ name: opensInJob ? "opening" : shareLost ? "share-again" : "start" })
+  const first: Screen = sent ? { name: "status", ...sent } : opensInJob ? { name: "opening" } : shareLost ? { name: "share-again" } : { name: "start" }
+  const [screen, setScreen] = createSignal<Screen>(first)
   const on = <N extends Screen["name"]>(name: N) => {
     const current = screen()
     return current.name === name ? (current as Extract<Screen, { name: N }>) : undefined
@@ -68,7 +71,9 @@ export function App() {
   onLoginExpired(() => {
     if (loginExpired()) return
     // what the page load of the login would lose; the files are on the phone already
-    if (jobInProgress) interruptedJob.keep({ options: lastSent })
+    const current = screen()
+    if (current.name === "status") interruptedJob.keep({ options: current.options, job: current.job })
+    else if (jobInProgress) interruptedJob.keep({ options: lastSent })
     setLoginExpired(true)
   })
 
@@ -77,9 +82,9 @@ export function App() {
     void checkSession().catch(() => {})
     // the address has said how the app was opened; a reload must not take it for a new share or another login
     if (address.size > 0) history.replaceState(null, "", location.pathname)
-    if (opensInJob) void openHeld(interrupted?.options)
     // opened without a job in progress: nothing of an earlier one stays on the phone
-    else void phoneFiles.clear()
+    if (!opensInJob) void phoneFiles.clear()
+    else if (!sent) void openHeld(interrupted?.options)
   })
 
   /**
