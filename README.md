@@ -44,11 +44,28 @@ On each Android phone:
 2. Chrome menu > "Zum Startbildschirm hinzufügen" > "Installieren".
 3. Share a PDF from another app. "Print Buddy" must be in the share sheet.
 
+Then go through the on-device checks below.
+
+### On-device checks (first build, by hand)
+
+No test covers the installed app on a phone: the install, the share sheet and the update all need a real Android Chrome. Do these once on each Android phone with the first build, through `https://print.example.org`, and again after a change to `ui/public/manifest.webmanifest`, `ui/src/sw.ts` or `ui/src/app-update.ts`.
+
+- [ ] **Install.** Chrome offers "Installieren" (not only a plain shortcut). The app opens in its own window without the address bar, with the printer icon and the name "Print Buddy". The Start screen shows "Teile ein PDF oder Fotos aus einer anderen App mit Print Buddy." If Chrome offers no install, apply the Bypass fallback below.
+- [ ] **Share a PDF.** In another app (Files, Gmail, Drive) share one PDF and pick Print Buddy in the share sheet. The options screen opens with the file's name, without a tap in between. Print it; the status screen follows the job.
+- [ ] **Share photos.** In the gallery select three photos and share them to Print Buddy. The options screen opens with "3 Fotos". They print in the order they were selected, one per sheet.
+- [ ] **Refused shares.** Share 21 photos: "Höchstens 20 Fotos auf einmal". Share two PDFs: "Bitte jeweils nur eine Datei teilen". Both screens offer "Datei auswählen", and nothing prints.
+- [ ] **Print again from the phone's copy.** After "Fertig" tap "Nochmal drucken": a second job prints without sharing again. Then tap "Schließen".
+- [ ] **Update after a new version.** Install a newer add-on version in Home Assistant. Open Print Buddy on the phone and wait a few seconds on the Start screen: the app reloads once by itself, into the new version (check with whatever the release changed on screen).
+- [ ] **No update in the middle of a job.** Install a newer add-on version, then share a PDF and stay on the options screen for half a minute: the screen must not reload. Print, tap "Schließen": now the app reloads into the new version.
+- [ ] **A share that arrives empty.** If a share opens Print Buddy on the Start screen instead of the options screen, that phone's Chrome delivers shares without their files (a known Chrome bug on Chrome 153 with Android 17). "Datei auswählen" still works; note the Chrome version.
+
+Over plain HTTP on the Household network (`http://<home-assistant-address>:9217`, with the LAN port on) the app can't be installed and has no share target. Check once from a laptop: the Start screen shows only "Datei auswählen", and a picked PDF prints.
+
 ### 4. Bypass fallback
 
 Only if step 3 fails, that is Chrome offers no "Installieren" or Print Buddy is missing from the share sheet:
 
-1. Add a second Access application for `print.example.org` with a Bypass policy for everyone, for exactly these paths: `/manifest.webmanifest`, `/sw.js` and the icon files the manifest names.
+1. Add a second Access application for `print.example.org` with a Bypass policy for everyone, for exactly these paths: `/manifest.webmanifest`, `/sw.js`, `/icon-192.png`, `/icon-512.png` and `/icon-maskable-512.png`.
 2. Add a tunnel route for the same paths to the same service, with "Protect with Access" off, and move it above the main route. Without it cloudflared still drops these requests.
 3. Remove Print Buddy from the phone and repeat step 3.
 
@@ -88,7 +105,7 @@ Needs Node 26 and pnpm 12. Run `pnpm install` once.
 | `pnpm dev` | Builds the UI and starts the app on http://localhost:9217 against a fake printer, with a temporary jobs directory. Nothing reaches a real printer. |
 | `pnpm test:server`, `pnpm test:ui` | One half of `pnpm test`. A single file: `node --test server/print.test.ts`, `pnpm vitest run src/App.test.tsx`. |
 | `pnpm dev:ui` | Vite dev server with hot reload; `/api` is proxied to port 9217, so run `pnpm dev` beside it. |
-| `pnpm build` | Builds the UI into `dist/ui`. |
+| `pnpm build` | Builds the UI into `dist/ui`, and after it the service worker `dist/ui/sw.js`. |
 | `pnpm start` | Starts the server the way the add-on does (`node server/main.ts`). |
 
 The server reads these environment variables, for tests and local runs only:
@@ -108,6 +125,7 @@ shared/            Pure TypeScript for both sides. No DOM, no node: imports.
   print-options.ts   The Print Options type. The only definition.
   layout.ts          The layout module: where content sits on a sheet.
   api.ts             JSON shapes of the HTTP API.
+  share-target.ts    The share target's path and names.
 server/            Runs as `node server/main.ts`, straight from the sources.
   main.ts            Entry point: reads the config, starts the server.
   config.ts          Add-on options file and environment.
@@ -119,12 +137,15 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   renderer.ts        Renderer: builds the PDF that goes to CUPS.
   status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts and the IPP codec.
-  http/              One file per API resource: drafts, jobs, printer, session, health, ui (static files).
+  http/              One file per API resource: drafts, jobs, printer, session, health, share-target, ui (static files).
   testing/           Seam 1 helpers: harness, fake IPP printer, fixtures.
   *.test.ts          Seam 1 tests, next to the sources.
 ui/                Vite root.
+  public/            Served as they are: manifest.webmanifest and the icons.
   src/App.tsx        App shell: which screen shows.
   src/api.ts         One function per API operation. The only place that calls fetch.
+  src/phone-files.ts The phone's copy of the files of the job in progress.
+  src/sw.ts          The service worker. Built into /sw.js; its logic is in share-target.ts and app-update.ts.
   src/screens/       One screen per file.
   src/testing/       Seam 3 helpers.
   src/*.test.tsx     Seam 3 tests.
@@ -214,7 +235,7 @@ test("…", async () => {
 - `mockApi(routes)` in `ui/src/testing/mock-api.ts` replaces `fetch` with a table keyed `"METHOD /path"`. A handler returns a `Response` (use `json(body, status)`), or a plain value that is sent as JSON with status 200. It may return a promise, to hold an answer back.
 - `api.calls` lists every call with `method`, `path`, `headers` and `body`. `api.on(route, handler)` changes a route while the test runs.
 - A call to a route that isn't in the table rejects, so a forgotten route fails the test.
-- `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test.
+- `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test. It also gives every test an empty phone storage (see the Share-to-print notes below).
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
 - A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
@@ -284,7 +305,7 @@ const sheets = layout({
 - **Refusals.** A refused upload answers `{ refusal }` (type `Refusal`) with status 413 (`too-large`, which also carries `limitMb`), 415 (`unsupported-type`) or 409 (the other three). The draft stays as it was. In the app, `addFile()` resolves with the facts or the Refusal and throws only for other failures. The German texts are in `ui/src/screens/RefusalScreen.tsx`.
 - **Upload limit.** `hono/body-limit` counts the bytes as they arrive and answers 413 at `upload_limit_mb` plus 64 kB of multipart overhead, so an oversized file is never held. A file within the limit is read into memory once (at most `upload_limit_mb`), as the stack exploration recommended; there is no streaming to disk and no `busboy`.
 - **Drafts on disk.** A draft's files are `drafts/<draft-id>/<n>.pdf|jpg|png`, numbered in upload order. `intake.files(draftId)` gives the path and the facts of each.
-- **In the app.** The options screen state holds `files` (the phone's copies, in picked order) and `facts` (same order). `ui/src/controls/FilePicker.tsx` is the one "Datei auswählen"; the start and Refusal screens share it.
+- **In the app.** The options screen state holds `files` (the phone's copy, in shared or picked order) and `facts` (same order). `ui/src/controls/FilePicker.tsx` is the one "Datei auswählen"; the start and Refusal screens share it.
 - **Fixtures.** `server/testing/fixtures.ts` has `pdfWithPages()` (sizes, `/Rotate`, CropBox), `sampleJpeg()` (40×30), `withExifOrientation()`, `samplePng(w, h)` and `encryptedPdf()`. Make test files different in size, so a test can tell them apart in a rendered PDF.
 
 ### Notes from the status screen (ticket 05)
@@ -296,7 +317,7 @@ const sheets = layout({
 - **Sheet count.** `sheets` is set at submit: the number of sheets in the rendered PDF times `copies`. So it follows `selection` and `pagesPerSheet`.
 - **Job store.** `jobs.update(job, changes)` returns the changed record; records are never changed in place. `details`, `endedAt` and `cancelled` are the fields that change after `add`.
 - **Status screen.** It assumes Wartet until the first answer. It polls with a timeout chain, 2 s after each answer, and stops once `endedAt` is set. The running timer counts from when the screen opened, on the phone's clock; "gedauert" is `endedAt - sentAt` from the server. The 60 s hint shows while the state is Wartet and the timer is at 60 s or more. Every ended state offers "Schließen" and "Nochmal drucken". `reason` is shown in every state that has one.
-- **Nochmal drucken.** The status screen state in `App.tsx` keeps `files` and `options`. `print(files, options)` without a draft id uploads the files into a new draft and submits it with the same Print Options, without going back to the options screen.
+- **Nochmal drucken.** The status screen state in `App.tsx` keeps `options`. `print(options)` without a draft id uploads the phone's copy into a new draft and submits it with the same Print Options, without going back to the options screen.
 
 ### Notes from failures (ticket 06)
 
@@ -304,7 +325,7 @@ const sheets = layout({
 - **Which states have a reason.** Fehler always has one: the known reason, or "Beim Drucken ist ein Fehler aufgetreten.", or the sentence for a job somebody else cancelled. Wartet and Wird gedruckt have one only when CUPS names a known reason. Fertig and Abgebrochen have none.
 - **Fehler on the status screen.** It adds "Details" (`ui/src/controls/Collapsible.tsx`, a button with `aria-expanded`; the content is in the page only while open) and the link to the CUPS web page. The address is the constant `cupsWebPage` in `StatusScreen.tsx`.
 - **A submit that can't be sent.** `POST /api/drafts/:draftId/submit` answers `SubmitFailure` (`shared/api.ts`): 502 `cups-unreachable` or `cups-rejected`, 500 `render-failed`. No Print Job is created and the draft stays, so the same submit can be repeated. The cause goes to the server log.
-- **"Drucken hat nicht geklappt".** Anything that throws inside `print()` in `App.tsx` (upload or submit, an error status or no network) leads to `SendFailedScreen`. Its screen state keeps `files` and `options`. "Erneut versuchen" calls `print(files, options)` without a draft id, so the phone's copy is uploaded into a new draft, as with "Nochmal drucken". A screen that must come before it for one kind of failure (the expired login) has to catch that failure first.
+- **"Drucken hat nicht geklappt".** Anything that throws inside `print()` in `App.tsx` (upload or submit, an error status or no network) leads to `SendFailedScreen`. Its screen state keeps `options`. "Erneut versuchen" calls `print(options)` without a draft id, so the phone's copy is uploaded into a new draft, as with "Nochmal drucken". A screen that must come before it for one kind of failure (the expired login) has to catch that failure first.
 
 ### Notes from the renderer (ticket 07)
 
@@ -315,3 +336,22 @@ const sheets = layout({
 - **Fixtures.** Pages of `pdfWithPages()` now have a content stream, because pdf-lib can't embed a page without one. `{ blank: true }` makes a page without `/Contents`; it prints as an empty sheet.
 - **Margins in tests.** The printer client rounds margins to 0.01 pt (9.01 and 11.99 pt for the fake printer), and the renderer uses exactly those, like the preview does through `GET /api/printer`.
 - **PNG memory.** Photos are embedded one after the other, and each selected photo once. pdf-lib unpacks a PNG to raw pixels (about 360 MB for 4000×3000 on a Mac), so a large PNG batch is slow on the Pi; not measured there.
+
+### Notes from Share-to-print (ticket 14)
+
+- **The phone's copy.** `phoneFiles` in `ui/src/phone-files.ts` is the one place where the files of the job in progress are kept: `keep(files)`, `held()` and `clear()`. It is one record in IndexedDB (database `print-buddy`, store `phone-files`), so it is still there after a full page load, and it works over plain HTTP too. The service worker puts a share there and `pick()` puts picked files there. `uploadHeld()` in `App.tsx` is the only upload: a share, "Datei auswählen", "Nochmal drucken" and "Erneut versuchen" all upload what the store holds. No screen state carries files from screen to screen, except the options screen, which shows them.
+- **When the copy goes.** `leaveJob()` in `App.tsx` clears it: on "Schließen", and when an upload finds the store empty. A Refusal clears it, because nothing prints. Opening the app without a share clears it, because no job is in progress then. "Drucken hat nicht geklappt" keeps it.
+- **The way of a share.** The manifest (`ui/public/manifest.webmanifest`) tells Android to POST to `/share-target`. The service worker answers that POST itself with `receiveShare()` (`ui/src/share-target.ts`): files into the store, then a 303 to `/?shared=1`. `App` sees `shared` in its address, shows `OpeningScreen`, removes the parameter and calls `openHeld()`. The path, the form field and the parameter are constants in `shared/share-target.ts`; a test keeps the manifest equal to them.
+- **A share without files** (a known Chrome bug, or a body Chrome can't read) opens the Start screen.
+- **`/share-target` on the server** answers every method with a 303 to `/?shared=1` and keeps nothing. It is only reached when no service worker took the share.
+- **Service worker.** `ui/src/sw.ts` is built by the `serviceWorker()` plugin in `vite.config.ts`: a second build, after the app, into one self-contained `/sw.js`. The plugin fills in `__APP_SHELL__`: the list of files the app build wrote (the page and everything under `/assets`) and a hash over their contents. `handledBy(request)` decides who answers: `share`, `shell` (from the cache `print-buddy-shell-<hash>`) or `network`. Only `/` and `/assets/*` ever come from the cache; API calls, `/sw.js`, the manifest and the icons always go to the server. A file that is loaded later (the pdf.js worker) is in the shell as long as Vite emits it under `/assets`.
+- **Updates.** A changed `/sw.js` is installed in the background and waits. `startAppUpdate()` in `ui/src/app-update.ts` tells it to take over only while no job is in progress: when the app opens on Start, when the new version finishes installing while Start shows, and from `leaveJob()`. `App` reports the job with `update.setJobInProgress()`. The worker takes over only if this window is the only one open; otherwise it waits until all are closed. After the take-over the page reloads once, unless a job has begun in the meantime.
+- **Start screen.** `canReceiveShares` is true where the browser has a service worker. Over plain HTTP it is false and the share hint is not shown.
+- **Left to wire.**
+  - Every new way out of a job has to call `leaveJob()`, and every new way in has to go through `phoneFiles.keep()` and `openHeld()`. `SendFailedScreen` has no way out yet.
+  - Expired login (ticket 15): the service worker answers `/` from its cache, so "Neu anmelden" must navigate to a path that reaches Cloudflare. `/share-target` is such a path: after the login the server redirects it to `/?shared=1`, and the app opens the options screen with the phone's copy. The Print Options are not kept across a page load yet. The app opening with `?shared` while the store is empty is the case for "Bitte nochmal teilen"; today it shows Start. Opening without `?shared` clears the store, so returning to the status of a running job needs its own marker.
+  - `OpeningScreen` shows only the app's name while shared files upload. A progress text needs wording first.
+  - The preview (ticket 08) can take `files` from the options screen state.
+- **Tests.** `share(files)` in `ui/src/testing/share.ts` sends the request the manifest declares through `receiveShare()` and follows the redirect; render `<App />` after it. `fakeServiceWorker()` in `ui/src/testing/fake-service-worker.ts` stands in for `navigator.serviceWorker`: `newVersionInstalled()`, `takeOver()`, and `messages` for what the app told the waiting version. Without it a test runs as over plain HTTP. `ui/src/testing/fake-indexeddb.ts` is the phone's storage; it keeps values as they are, so an uploaded file is the same object as the picked one. Assert on the phone's copy with `phoneFiles.held()`.
+- **Icons.** `ui/public/icon.svg` and `icon-maskable.svg` are the sources. The PNGs are made with `rsvg-convert -w 512 -h 512 icon.svg -o icon-512.png` (192 for the small one). Never rename the manifest, `/sw.js` or an icon: Android keeps the addresses of an installed app, and the Bypass fallback lists them.
+- **Checked by hand in Chromium on localhost**, with a form that posts files to `/share-target` in place of Android: the service worker registers, answers the share without the network and the app opens the options screen; a new build waits during a job and takes over on Start; over `http://<LAN address>` there is no service worker and no error. Chromium rejects `formData()` on an empty multipart body, which happy-dom does not. The install and the share sheet themselves are only in the on-device checks above.
