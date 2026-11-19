@@ -34,9 +34,12 @@ export function jobRoutes(deps: { jobs: JobStore; printer: PrinterClient; now: N
       console.warn(`CUPS did not answer for job ${job.cupsJobId}:`, err instanceof Error ? err.message : err)
       return job
     }
-    const { state } = mapStatus(details, job.cancelled)
+    // while CUPS was asked, a cancel or another status read may have got further: what is recorded now counts
+    const current = deps.jobs.get(job.id) ?? job
+    if (current.endedAt !== null) return current
+    const { state } = mapStatus(details, current.cancelled)
     const ended = state !== "waiting" && state !== "printing"
-    return deps.jobs.update(job, { details, endedAt: ended ? deps.now() : null })
+    return deps.jobs.update(current, { details, endedAt: ended ? deps.now() : null })
   }
 
   app.get("/api/jobs/:jobId", async c => {
@@ -49,10 +52,18 @@ export function jobRoutes(deps: { jobs: JobStore; printer: PrinterClient; now: N
   app.post("/api/jobs/:jobId/cancel", async c => {
     const known = deps.jobs.get(c.req.param("jobId"))
     if (!known) return c.json(notFound, 404)
+    const notCancellable = () => c.json<ApiError>({ error: "not-cancellable" }, 409)
     const job = await refresh(known)
-    const refused = status(job).state !== "waiting" || !(await deps.printer.cancelJob(job.cupsJobId))
-    if (refused) return c.json<ApiError>({ error: "not-cancellable" }, 409)
-    return c.json<JobStatus>(status(await refresh(await deps.jobs.update(job, { cancelled: true }))))
+    if (status(job).state !== "waiting") return notCancellable()
+    // recorded before CUPS is asked: a status read that finds the job cancelled while the answer is on its way has to know whose cancel it was
+    const marked = await deps.jobs.update(job, { cancelled: true })
+    let accepted = false
+    try {
+      accepted = await deps.printer.cancelJob(job.cupsJobId)
+    } finally {
+      if (!accepted) await deps.jobs.update(job, { cancelled: false })
+    }
+    return accepted ? c.json<JobStatus>(status(await refresh(marked))) : notCancellable()
   })
 
   return app

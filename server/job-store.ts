@@ -105,12 +105,13 @@ export async function openJobStore(deps: { jobsDir: string; now: Now }) {
     },
     get: (id: string): PrintJob | undefined => jobs.get(id),
     /**
-     * Records what was learned about a job since it was sent. job.json is written only when that changes
+     * Records what was learned about a job since it was sent, on top of what is recorded about it now: `job` may
+     * be an older copy, and what it says is not written back. job.json is written only when the changes change
      * something: the status screen asks every 2 s. A job that was deleted meanwhile stays deleted.
      */
     async update(job: PrintJob, changes: Partial<Pick<PrintJob, "details" | "endedAt" | "cancelled">>): Promise<PrintJob> {
-      const record: PrintJob = { ...job, ...changes }
       const known = jobs.get(job.id)
+      const record: PrintJob = { ...(known ?? job), ...changes }
       if (!known || isDeepStrictEqual(record, known)) return record
       jobs.set(record.id, record)
       await writeRecord(record)
