@@ -7,7 +7,7 @@ import { json, mockApi } from "./testing/mock-api.ts"
 test("pick a PDF, tap Drucken, and see the CUPS job number", async () => {
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
   })
   const user = userEvent.setup()
@@ -34,7 +34,7 @@ test("tapping Drucken twice sends one Print Job", async () => {
   let accept!: (answer: Response) => void
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => new Promise<Response>(resolve => { accept = resolve }),
   })
   const user = userEvent.setup()
@@ -123,4 +123,38 @@ test("after a refusal nothing more is uploaded, and Datei auswählen on the Refu
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Drucken" })).toBeInTheDocument()
+})
+
+test("Drucken submits every page of the PDF", async () => {
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 3, pages: [{ width: 595, height: 842 }, { width: 595, height: 842 }, { width: 842, height: 595 }] }, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
+
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+
+  await screen.findByText("An den Drucker gesendet")
+  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
+  expect(submitted.selection).toEqual([1, 2, 3])
+})
+
+test("Drucken submits every picked photo, in the order they were picked", async () => {
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json(photoFacts, 201),
+    "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), [photo("IMG_3.jpg"), photo("IMG_1.jpg"), photo("IMG_2.jpg")])
+
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+
+  await screen.findByText("An den Drucker gesendet")
+  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
+  expect(submitted.selection).toEqual([0, 1, 2])
 })
