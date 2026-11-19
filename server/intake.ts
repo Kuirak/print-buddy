@@ -1,7 +1,7 @@
 import { EncryptedPDFError, PDFDocument } from "@cantoo/pdf-lib"
 import exifr from "exifr"
 import { randomUUID } from "node:crypto"
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { FileFacts, PdfFacts, PhotoFacts, Refusal, RefusalType } from "../shared/api.ts"
 
@@ -45,6 +45,11 @@ export function createIntake(deps: { draftsDir: string; uploadLimitMb: number })
     /** The draft's files in upload order, or undefined for an unknown draft. */
     files(draftId: string): readonly DraftFile[] | undefined {
       return drafts.get(draftId)
+    },
+
+    /** Forgets a draft and deletes its folder. Nothing happens for an unknown draft. */
+    async discard(draftId: string): Promise<void> {
+      if (drafts.delete(draftId)) await rm(join(deps.draftsDir, draftId), { recursive: true, force: true })
     },
 
     /** Adds one file to the draft, or refuses it and leaves the draft as it was. */

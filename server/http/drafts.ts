@@ -42,7 +42,8 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
   })
 
   app.post("/api/drafts/:draftId/submit", async c => {
-    const files = deps.intake.files(c.req.param("draftId"))
+    const draftId = c.req.param("draftId")
+    const files = deps.intake.files(draftId)
     if (!files) return c.json(notFound, 404)
     const file = files[0]
     if (!file) return c.json<ApiError>({ error: "empty-draft" }, 400)
@@ -50,8 +51,12 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
     if (!options) return c.json<ApiError>({ error: "invalid-options" }, 400)
     // until the renderer builds the sheets: one sheet per page of the PDF, or per photo, for every copy
     const sheets = (file.facts.kind === "pdf" ? file.facts.pageCount : files.length) * options.copies
-    const { cupsJobId, details } = await deps.printer.printJob(await readFile(file.path), options)
-    const job = deps.jobs.add({ cupsJobId, sheets, details })
+    // the bytes CUPS gets are the bytes the job folder keeps
+    const pdf = await readFile(file.path)
+    const { cupsJobId, details } = await deps.printer.printJob(pdf, options)
+    const job = await deps.jobs.add({ cupsJobId, sheets, options, details, pdf, uploads: files.map(f => f.path) })
+    // the uploads are in the job folder now
+    await deps.intake.discard(draftId)
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
   })
 
