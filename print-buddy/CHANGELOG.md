@@ -2,7 +2,7 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
-## Unreleased
+## 2026.11.4
 
 - With a large font or a small screen, "Datei auswählen" no longer covers "Bericht kopieren" on the start screen.
 - Colour photos can print like Dell's own driver: smooth, without a grid of dots, with deep black. Measure Dell's driver once on a Mac with `scripts/dell-engine.ts` and put the file into `/share/print-buddy/`; see the documentation. Print Buddy then sends colour photos as the printer's own data. Without the file, nothing changes.
