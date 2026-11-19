@@ -11,8 +11,9 @@ function message(refusal: Refusal): string {
     case "too-many-photos":
       return "Höchstens 20 Fotos auf einmal"
     case "one-pdf-only":
-    case "mixed-types":
       return "Bitte jeweils nur eine Datei teilen"
+    case "mixed-types":
+      return "Bitte PDF und Fotos getrennt teilen"
   }
 }
 
