@@ -1,4 +1,4 @@
-import { render, screen, within } from "@solidjs/testing-library"
+import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, onTestFinished, test, vi } from "vitest"
 import { App } from "./App.tsx"
@@ -6,6 +6,7 @@ import { phoneFiles } from "./phone-files.ts"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { logInAgain, loginExpired } from "./testing/login.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { share } from "./testing/share.ts"
 
 test("the app asks the session check when it opens, and a 401 shows Anmeldung abgelaufen with Neu anmelden", async () => {
   const api = mockApi({ "GET /api/session": loginExpired })
@@ -245,4 +246,89 @@ test("back on the status screen after the login, läuft seit still counts from w
 
   expect(await screen.findByText(/^läuft seit 1:1\d$/)).toBeInTheDocument()
   expect(screen.getByText("Schläft der Drucker oder ist er aus? Der Auftrag wartet weiter.")).toBeInTheDocument()
+})
+
+test("a share that arrives while the login has run out is still on the phone after the login, and the options screen opens with it", async () => {
+  let loggedIn = false
+  const api = mockApi({
+    "GET /api/session": () => (loggedIn ? { ok: true } : loginExpired()),
+    "POST /api/drafts": () => (loggedIn ? json({ draftId: "d1" }, 201) : loginExpired()),
+    "POST /api/drafts/d1/files": () => json(pdfFacts, 201),
+  })
+  const user = userEvent.setup()
+  await share([pdf("Rechnung.pdf")])
+  render(() => <App />)
+  await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
+
+  loggedIn = true
+  await logInAgain(user)
+  render(() => <App />)
+
+  expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Drucken" })).toBeInTheDocument()
+  const uploaded = (api.calls.find(call => call.path === "/api/drafts/d1/files")!.body as FormData).get("file") as File
+  expect(uploaded.name).toBe("Rechnung.pdf")
+  expect(await uploaded.text()).toBe("%PDF-1.4 Rechnung.pdf")
+})
+
+test("when the login ran out with no job in progress, the login leads back to Start", async () => {
+  let loggedIn = false
+  mockApi({ "GET /api/session": () => (loggedIn ? { ok: true } : loginExpired()) })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
+
+  loggedIn = true
+  await logInAgain(user)
+  render(() => <App />)
+
+  expect(screen.getByRole("heading", { name: "Print Buddy" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+  expect(location.search).toBe("")
+})
+
+/** Picks a PDF, asks for two copies and taps Drucken, which is when the login turns out to have run out. */
+async function loseLoginAtDrucken() {
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json(pdfFacts, 201),
+    "POST /api/drafts/d1/submit": loginExpired,
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
+  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
+}
+
+test("closing the app on Anmeldung abgelaufen leaves the job: opened again, the app is on Start and has forgotten it", async () => {
+  await loseLoginAtDrucken()
+
+  // the person closes the app without logging in, and opens it again later
+  cleanup()
+  render(() => <App />)
+
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+  await expect.poll(() => phoneFiles.held()).toEqual([])
+
+  // a login from here on has no job to go back to
+  cleanup()
+  history.replaceState(null, "", "/?logged-in=1")
+  render(() => <App />)
+
+  expect(screen.getByRole("heading", { name: "Print Buddy" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+})
+
+test("a file shared after the login ran out on another one starts with its own Print Options", async () => {
+  await loseLoginAtDrucken()
+
+  // the person closes the app without logging in, and later shares another file
+  cleanup()
+  await share([pdf("Neu.pdf")])
+  render(() => <App />)
+
+  expect(await screen.findByText("Neu.pdf")).toBeInTheDocument()
+  expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
 })
