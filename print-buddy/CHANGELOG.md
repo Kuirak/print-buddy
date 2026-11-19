@@ -2,6 +2,11 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month.
 
+## 2026.11.2
+
+- With only one page or one photo, the options screen leaves out what there is nothing to choose from: the small pictures, "Alle" and "Keine", and the ‹ › arrows under the preview. The arrows also go away whenever everything chosen fits on one sheet.
+- Swipe the preview to the left for the next sheet and to the right for the one before, like the ‹ › arrows. When the preview is zoomed in, dragging moves the picture as before.
+
 ## 2026.11.1
 
 - No more waiting after picking or sharing a file: the options screen opens at once, and the file goes to Print Buddy in the background. Until it is there, "Drucken" reads "Wird hochgeladen … 60 %".
