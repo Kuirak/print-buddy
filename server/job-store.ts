@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { extname, join } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import type { CupsJobDetails } from "../shared/api.ts"
@@ -34,6 +34,11 @@ export type JobStore = Awaited<ReturnType<typeof openJobStore>>
 
 /** A job folder's name: the UTC day the job was sent, then the job id. */
 const jobFolderName = /^(\d{4}-\d{2}-\d{2})_([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/
+
+const day = 24 * 60 * 60 * 1000
+
+/** How long a job folder is kept after the job was sent. */
+const keepFor = 7 * day
 
 /**
  * Job store: one folder per Print Job, `<date>_<job-id>` under the jobs directory, with the uploads
@@ -108,6 +113,19 @@ export async function openJobStore(deps: { jobsDir: string; now: Now }) {
       jobs.set(record.id, record)
       await writeRecord(record)
       return record
+    },
+    /** Deletes the job folders that are older than 7 days. Only folders named like a job folder are looked at. */
+    async cleanup(): Promise<void> {
+      for (const name of await readdir(deps.jobsDir)) {
+        const [, date, id] = jobFolderName.exec(name) ?? []
+        if (date === undefined || id === undefined) continue
+        // a folder without a readable record can be from any time of the day in its name: it counts from that day's end
+        const since = jobs.get(id)?.sentAt ?? Date.parse(date) + day
+        // a name with a date that is none (2026-99-99) gives NaN here, and the folder stays
+        if (!(deps.now() - since > keepFor)) continue
+        jobs.delete(id)
+        await rm(join(deps.jobsDir, name), { recursive: true, force: true })
+      }
     },
   }
 }

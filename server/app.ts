@@ -23,6 +23,7 @@ export interface AppDeps {
 /**
  * Wires the modules together. One route file per resource under `http/`; mount new ones here.
  * Asks CUPS for the printable margins before it returns; a silent CUPS costs a few seconds, not the start.
+ * `cleanup` deletes what is no longer kept; the caller decides when it runs.
  */
 export async function createApp(deps: AppDeps) {
   const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
@@ -39,5 +40,10 @@ export async function createApp(deps: AppDeps) {
   // keep these two last: they catch what no route above answered
   app.all("/api/*", c => c.json<ApiError>({ error: "not-found" }, 404))
   app.route("/", uiRoutes({ uiDir: deps.uiDir }))
-  return app
+  return {
+    fetch: app.fetch,
+    async cleanup(): Promise<void> {
+      await jobs.cleanup()
+    },
+  }
 }

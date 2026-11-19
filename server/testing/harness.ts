@@ -101,6 +101,8 @@ export async function startTestServer(opts: TestServerOptions = {}) {
       for (const [i, file] of files.entries()) await upload(draftId, file, `file-${i + 1}`)
       return await (await submit(draftId, overrides)).json() as { jobId: string; cupsJobId: number }
     },
+    /** What the server does every hour: delete old job folders and drafts. Call it after `clock.advance(…)`. */
+    cleanup: () => server.cleanup(),
     /** Stops the server and starts it again on the same directories, as a restart of the add-on does. */
     async restart() {
       await server.close()

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { readdir, readFile, stat } from "node:fs/promises"
+import { readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
@@ -158,4 +158,56 @@ test("a Print Job can still be read, and still follows CUPS, after the server re
   assert.equal(ended.state, "done")
   assert.equal(ended.endedAt, sentAt + 20_000)
   assert.equal((await recorded(server, jobId)).endedAt, "2026-11-19T08:30:20.000Z")
+})
+
+const minute = 60_000
+const hour = 60 * minute
+const day = 24 * hour
+
+test("cleanup deletes the job folders that are older than 7 days, and those Print Jobs are gone", async t => {
+  const server = await startTestServer({ now: Date.UTC(2026, 10, 19, 8, 30, 0) })
+  t.after(server.close)
+  const old = await server.print()
+  server.clock.advance(3 * day)
+  const recent = await server.print()
+
+  server.clock.advance(4 * day - minute)
+  await server.cleanup()
+  assert.deepEqual(await jobFolders(server.jobsDir), [`2026-11-19_${old.jobId}`, `2026-11-22_${recent.jobId}`])
+
+  server.clock.advance(2 * minute)
+  await server.cleanup()
+  assert.deepEqual(await jobFolders(server.jobsDir), [`2026-11-22_${recent.jobId}`])
+  assert.equal((await server.request(`/api/jobs/${old.jobId}`)).status, 404)
+  assert.equal((await server.request(`/api/jobs/${recent.jobId}`)).status, 200)
+})
+
+test("the server cleans up when it starts", async t => {
+  const server = await startTestServer({ now: Date.UTC(2026, 10, 19, 8, 30, 0) })
+  t.after(server.close)
+  const { jobId } = await server.print()
+
+  server.clock.advance(8 * day)
+  await server.restart()
+
+  assert.deepEqual(await jobFolders(server.jobsDir), [])
+  assert.equal((await server.request(`/api/jobs/${jobId}`)).status, 404)
+})
+
+test("a job folder whose job.json can't be read is deleted 7 days after the day in its name", async t => {
+  const server = await startTestServer({ now: Date.UTC(2026, 10, 19, 8, 30, 0) })
+  t.after(server.close)
+  const { jobId } = await server.print()
+  const folder = `2026-11-19_${jobId}`
+  await writeFile(join(server.jobsDir, folder, "job.json"), '{ "id": ')
+  await server.restart()
+
+  // the folder can be from any time of that day, so it counts from the day's end: until 27 November, 0:00 UTC
+  server.clock.advance(Date.UTC(2026, 10, 26, 23, 59, 0) - server.clock.now())
+  await server.cleanup()
+  assert.deepEqual(await jobFolders(server.jobsDir), [folder])
+
+  server.clock.advance(2 * minute)
+  await server.cleanup()
+  assert.deepEqual(await jobFolders(server.jobsDir), [])
 })
