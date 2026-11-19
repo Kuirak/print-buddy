@@ -5,11 +5,13 @@ import type { Now } from "./clock.ts"
 import type { Config } from "./config.ts"
 import { draftRoutes } from "./http/drafts.ts"
 import { healthRoutes } from "./http/health.ts"
+import { jobRoutes } from "./http/jobs.ts"
 import { sessionRoutes } from "./http/session.ts"
+import { shareTargetRoutes } from "./http/share-target.ts"
 import { printerRoutes } from "./http/printer.ts"
 import { uiRoutes } from "./http/ui.ts"
 import { createIntake } from "./intake.ts"
-import { createJobStore } from "./job-store.ts"
+import { openJobStore } from "./job-store.ts"
 import { createPrinterClient } from "./printer/client.ts"
 
 export interface AppDeps {
@@ -22,10 +24,11 @@ export interface AppDeps {
 /**
  * Wires the modules together. One route file per resource under `http/`; mount new ones here.
  * Asks CUPS for the printable margins before it returns; a silent CUPS costs a few seconds, not the start.
+ * `cleanup` deletes what is no longer kept; the caller decides when it runs.
  */
 export async function createApp(deps: AppDeps) {
-  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
-  const jobs = createJobStore({ now: deps.now })
+  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb, now: deps.now })
+  const jobs = await openJobStore({ jobsDir: deps.config.jobsDir, now: deps.now })
   const printer = createPrinterClient(deps.config.printerUri)
   await printer.loadMargins()
 
@@ -33,9 +36,17 @@ export async function createApp(deps: AppDeps) {
   app.route("/", healthRoutes())
   app.route("/", sessionRoutes())
   app.route("/", draftRoutes({ intake, jobs, printer }))
+  app.route("/", jobRoutes({ jobs, printer, now: deps.now }))
   app.route("/", printerRoutes({ printer }))
+  app.route("/", shareTargetRoutes())
   // keep these two last: they catch what no route above answered
   app.all("/api/*", c => c.json<ApiError>({ error: "not-found" }, 404))
   app.route("/", uiRoutes({ uiDir: deps.uiDir }))
-  return app
+  return {
+    fetch: app.fetch,
+    async cleanup(): Promise<void> {
+      await jobs.cleanup()
+      await intake.cleanup()
+    },
+  }
 }

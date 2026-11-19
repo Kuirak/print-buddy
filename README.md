@@ -44,11 +44,28 @@ On each Android phone:
 2. Chrome menu > "Zum Startbildschirm hinzufügen" > "Installieren".
 3. Share a PDF from another app. "Print Buddy" must be in the share sheet.
 
+Then go through the on-device checks below.
+
+### On-device checks (first build, by hand)
+
+No test covers the installed app on a phone: the install, the share sheet and the update all need a real Android Chrome. Do these once on each Android phone with the first build, through `https://print.example.org`, and again after a change to `ui/public/manifest.webmanifest`, `ui/src/sw.ts` or `ui/src/app-update.ts`.
+
+- [ ] **Install.** Chrome offers "Installieren" (not only a plain shortcut). The app opens in its own window without the address bar, with the printer icon and the name "Print Buddy". The Start screen shows "Teile ein PDF oder Fotos aus einer anderen App mit Print Buddy." If Chrome offers no install, apply the Bypass fallback below.
+- [ ] **Share a PDF.** In another app (Files, Gmail, Drive) share one PDF and pick Print Buddy in the share sheet. The options screen opens with the file's name, without a tap in between. Print it; the status screen follows the job.
+- [ ] **Share photos.** In the gallery select three photos and share them to Print Buddy. The options screen opens with "3 Fotos". They print in the order they were selected, one per sheet.
+- [ ] **Refused shares.** Share 21 photos: "Höchstens 20 Fotos auf einmal". Share two PDFs: "Bitte jeweils nur eine Datei teilen". Both screens offer "Datei auswählen", and nothing prints.
+- [ ] **Print again from the phone's copy.** After "Fertig" tap "Nochmal drucken": a second job prints without sharing again. Then tap "Schließen".
+- [ ] **Update after a new version.** Install a newer add-on version in Home Assistant. Open Print Buddy on the phone and wait a few seconds on the Start screen: the app reloads once by itself, into the new version (check with whatever the release changed on screen).
+- [ ] **No update in the middle of a job.** Install a newer add-on version, then share a PDF and stay on the options screen for half a minute: the screen must not reload. Print, tap "Schließen": now the app reloads into the new version.
+- [ ] **A share that arrives empty.** If a share opens Print Buddy on the Start screen instead of the options screen, that phone's Chrome delivers shares without their files (a known Chrome bug on Chrome 153 with Android 17). "Datei auswählen" still works; note the Chrome version.
+
+Over plain HTTP on the Household network (`http://<home-assistant-address>:9217`, with the LAN port on) the app can't be installed and has no share target. Check once from a laptop: the Start screen shows only "Datei auswählen", and a picked PDF prints.
+
 ### 4. Bypass fallback
 
 Only if step 3 fails, that is Chrome offers no "Installieren" or Print Buddy is missing from the share sheet:
 
-1. Add a second Access application for `print.example.org` with a Bypass policy for everyone, for exactly these paths: `/manifest.webmanifest`, `/sw.js` and the icon files the manifest names.
+1. Add a second Access application for `print.example.org` with a Bypass policy for everyone, for exactly these paths: `/manifest.webmanifest`, `/sw.js`, `/icon-192.png`, `/icon-512.png` and `/icon-maskable-512.png`.
 2. Add a tunnel route for the same paths to the same service, with "Protect with Access" off, and move it above the main route. Without it cloudflared still drops these requests.
 3. Remove Print Buddy from the phone and repeat step 3.
 
@@ -88,7 +105,7 @@ Needs Node 26 and pnpm 12. Run `pnpm install` once.
 | `pnpm dev` | Builds the UI and starts the app on http://localhost:9217 against a fake printer, with a temporary jobs directory. Nothing reaches a real printer. |
 | `pnpm test:server`, `pnpm test:ui` | One half of `pnpm test`. A single file: `node --test server/print.test.ts`, `pnpm vitest run src/App.test.tsx`. |
 | `pnpm dev:ui` | Vite dev server with hot reload; `/api` is proxied to port 9217, so run `pnpm dev` beside it. |
-| `pnpm build` | Builds the UI into `dist/ui`. |
+| `pnpm build` | Builds the UI into `dist/ui`, and after it the service worker `dist/ui/sw.js`. |
 | `pnpm start` | Starts the server the way the add-on does (`node server/main.ts`). |
 
 The server reads these environment variables, for tests and local runs only:
@@ -108,6 +125,7 @@ shared/            Pure TypeScript for both sides. No DOM, no node: imports.
   print-options.ts   The Print Options type. The only definition.
   layout.ts          The layout module: where content sits on a sheet.
   api.ts             JSON shapes of the HTTP API.
+  share-target.ts    The share target's path and names.
 server/            Runs as `node server/main.ts`, straight from the sources.
   main.ts            Entry point: reads the config, starts the server.
   config.ts          Add-on options file and environment.
@@ -115,14 +133,19 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   app.ts             Wires the modules together and mounts the routes.
   clock.ts           The injectable clock type.
   intake.ts          Upload intake (drafts).
-  job-store.ts       Job store.
+  job-store.ts       Job store: job folders, job.json, the 7-day cleanup.
+  renderer.ts        Renderer: builds the PDF that goes to CUPS.
+  status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts and the IPP codec.
-  http/              One file per API resource: drafts, session, health, ui (static files).
+  http/              One file per API resource: drafts, jobs, printer, session, health, share-target, ui (static files).
   testing/           Seam 1 helpers: harness, fake IPP printer, fixtures.
   *.test.ts          Seam 1 tests, next to the sources.
 ui/                Vite root.
+  public/            Served as they are: manifest.webmanifest and the icons.
   src/App.tsx        App shell: which screen shows.
   src/api.ts         One function per API operation. The only place that calls fetch.
+  src/phone-files.ts The phone's copy of the files of the job in progress.
+  src/sw.ts          The service worker. Built into /sw.js; its logic is in share-target.ts and app-update.ts.
   src/screens/       One screen per file.
   src/testing/       Seam 3 helpers.
   src/*.test.tsx     Seam 3 tests.
@@ -170,14 +193,17 @@ test("…", async t => {
   - `opts.options`: extra keys for the options file, for example `{ upload_limit_mb: 1 }`.
   - `opts.now`: start time of the fake clock. `opts.ui`: files of a stand-in UI build.
   - `opts.beforeStart(printer)`: runs before the server starts, to script what the fake printer answers to the startup read of the margins.
-  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
+  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `print(overrides?, files?)`, `cleanup()`, `restart()`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
   - `submit` posts `samplePrintOptions` from `server/testing/fixtures.ts` (one copy, black and white, A4, page 1), changed by `overrides`. A submit without valid Print Options is a 400.
+  - `print` sends a whole Print Job (new draft, one upload per file, submit) and returns `{ jobId, cupsJobId }`. Without `files` it sends `samplePdf()`.
   - `startupRequests` holds the IPP requests the server made while starting. They are taken out of `printer.requests`, so that list starts empty and holds only what the test caused.
+  - `cleanup()` does what the server does when it starts and every hour: it deletes old job folders and drafts. Call it after `clock.advance(…)`.
+  - `restart()` stops the server and starts it again on the same directories, printer and clock, as a restart of the add-on does. `url` changes with it, so read `server.url` after the restart and don't keep a copy.
 - `server.clock` is the server's only source of time: `clock.now()` and `clock.advance(ms)`. Server code takes `now` from its dependencies and never calls `Date.now()` itself. For anything that runs on a schedule, expose a function the test can call after `clock.advance(…)`, instead of faking timers.
 - `server.printer` is the fake IPP printer from `server/testing/fake-ipp.ts`. It answers like cupsd 2.4.10.
   - `printer.requests`: every IPP request received, decoded. Read attributes with `values(request, Tag.operation, "requesting-user-name")` or `findAttr(…)` from `server/printer/ipp-codec.ts`. `request.data` holds the document bytes.
-  - `printer.jobs`: the jobs by CUPS job number. `printer.setJob(id, JobState.processing, ["job-printing"], "message")` scripts a state change.
-  - `printer.printer`: the printer's `state`, `reasons` and `message`. `media` lists the entries of `media-col-database` (size and margins in 1/100 mm); `mediaColDatabase = false` leaves the margins out. `failNext = 503` makes the next request fail at HTTP level.
+  - `printer.jobs`: the jobs by CUPS job number. `printer.setJob(id, JobState.processing, ["job-printing"], "message", ["media-empty-warning"])` scripts a state change; the last argument is `job-printer-state-reasons`.
+  - `printer.printer`: the printer's `state`, `reasons` and `message`. `media` lists the entries of `media-col-database` (size and margins in 1/100 mm); `mediaColDatabase = false` leaves the margins out. `failNext = 503` makes the next request fail at HTTP level. `unreachable = true` drops every connection, like a CUPS that is down. `acceptingJobs = false` makes it refuse Print-Job with an IPP error.
   - Cancel-Job from a user who doesn't own the job gets HTTP 401, as with real CUPS.
 - `server/testing/fixtures.ts` holds small test files. Add new ones there, built in code and without dates or random ids.
 
@@ -211,9 +237,10 @@ test("…", async () => {
 - `mockApi(routes)` in `ui/src/testing/mock-api.ts` replaces `fetch` with a table keyed `"METHOD /path"`. A handler returns a `Response` (use `json(body, status)`), or a plain value that is sent as JSON with status 200. It may return a promise, to hold an answer back.
 - `api.calls` lists every call with `method`, `path`, `headers` and `body`. `api.on(route, handler)` changes a route while the test runs.
 - A call to a route that isn't in the table rejects, so a forgotten route fails the test.
-- `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test.
+- `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test. It also gives every test an empty phone storage (see the Share-to-print notes below).
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
+- A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
 - Never import `pdfjs-dist` in a component. Wrap it in one module of ours and mock that module with `vi.mock`.
 
 ### The layout module
@@ -254,14 +281,13 @@ const sheets = layout({
 - **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
 - **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
 - **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on (`init: false`). Anything that must finish before the process ends belongs in the server's `close()`.
-- **What the skeleton leaves open.** Submit sends the upload as it is (renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed submit shows nothing in the app (failures). The status screen shows only that CUPS accepted the job.
 
 ### Print Options and printer info
 
-- **Submit.** The body of `POST /api/drafts/:draftId/submit` is the Print Options object itself (`SubmitRequest` in `shared/api.ts`). `parsePrintOptions` in `shared/print-options.ts` checks all of it; anything invalid is a 400 `{ error: "invalid-options" }` and nothing is sent to CUPS. It doesn't check `selection` against the draft's files: that is for the renderer.
+- **Submit.** The body of `POST /api/drafts/:draftId/submit` is the Print Options object itself (`SubmitRequest` in `shared/api.ts`). `parsePrintOptions` in `shared/print-options.ts` checks all of it; anything invalid is a 400 `{ error: "invalid-options" }` and nothing is sent to CUPS. It doesn't check `selection` against the draft's files: the renderer does, with the same answer (see the renderer notes below).
 - **What CUPS gets.** `printer.printJob(pdf, options)` sends only `copies`, collated copies, `ColorMode`, `PageSize`, `Quality` and `MediaType`. Our paper names are the PPD's `PageSize` names. Everything else in the Print Options has to be drawn into the PDF.
 - **Printable margins.** `GET /api/printer` answers `PrinterInfo`: `margins` per paper plus the printer's `state`, `reasons` and `message`. Margins are in points, for the sheet in portrait, as `{ top, right, bottom, left }`. On the server the same values come from `printer.margins()`. They are read once, while the server starts; a paper CUPS doesn't report gets 9 pt left and right, 12 pt top and bottom, with one warning in the log. When CUPS doesn't answer the state read, `state` is `unknown` and the margins are still there.
-- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts from the default Preset of its file type (see Presets below) with an empty `selection`, because the app doesn't know the page count yet. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
+- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts from the default Preset of its file type (see Presets below) with everything selected: `selection` is every page of the PDF or every photo, from the `facts` prop. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
 
 ### Presets
 
@@ -280,6 +306,66 @@ const sheets = layout({
 - **Refusals.** A refused upload answers `{ refusal }` (type `Refusal`) with status 413 (`too-large`, which also carries `limitMb`), 415 (`unsupported-type`) or 409 (the other three). The draft stays as it was. In the app, `addFile()` resolves with the facts or the Refusal and throws only for other failures. The German texts are in `ui/src/screens/RefusalScreen.tsx`.
 - **Upload limit.** `hono/body-limit` counts the bytes as they arrive and answers 413 at `upload_limit_mb` plus 64 kB of multipart overhead, so an oversized file is never held. A file within the limit is read into memory once (at most `upload_limit_mb`), as the stack exploration recommended; there is no streaming to disk and no `busboy`.
 - **Drafts on disk.** A draft's files are `drafts/<draft-id>/<n>.pdf|jpg|png`, numbered in upload order. `intake.files(draftId)` gives the path and the facts of each.
-- **Photos can't print yet.** Submit still sends the draft's first file as it is, so Drucken on a photo draft sends a JPEG or PNG labelled as PDF. The renderer (ticket 07) ends that.
-- **In the app.** The options screen state holds `files` (the phone's copies, in picked order) and `facts` (same order). `ui/src/controls/FilePicker.tsx` is the one "Datei auswählen"; the start and Refusal screens share it.
+- **In the app.** The options screen state holds `files` (the phone's copy, in shared or picked order) and `facts` (same order). `ui/src/controls/FilePicker.tsx` is the one "Datei auswählen"; the start and Refusal screens share it.
 - **Fixtures.** `server/testing/fixtures.ts` has `pdfWithPages()` (sizes, `/Rotate`, CropBox), `sampleJpeg()` (40×30), `withExifOrientation()`, `samplePng(w, h)` and `encryptedPdf()`. Make test files different in size, so a test can tell them apart in a rendered PDF.
+
+### Notes from the status screen (ticket 05)
+
+- **Reading a Print Job.** `GET /api/jobs/:jobId` answers `JobStatus` (`shared/api.ts`): `state`, `reason`, `details`, `cupsJobId`, `sentAt`, `endedAt` and `sheets`. `state` is a `ScreenState` key (`waiting`, `printing`, `done`, `cancelled`, `error`); the German words are in `ui/src/screens/StatusScreen.tsx`. `reason` is a German sentence, or null when there is nothing to explain. `details` is what CUPS said: `jobState` as the IPP keyword, `jobStateReasons`, `printerStateReasons` (`job-printer-state-reasons`) and `printerMessage` (`job-printer-state-message`).
+- **Each read asks CUPS** with Get-Job-Attributes, until the job has ended. The first read that sees the end sets `endedAt` from the server's clock, so it can be up to one poll late. After that the stored state is answered and CUPS is not asked again. When CUPS can't answer, or no longer knows the job, the read answers the last state seen, with a warning in the log.
+- **Status mapper.** `mapStatus(details, cancelledByPrintBuddy)` in `server/status-mapper.ts` is the one place that decides state and reason. A `processing` job whose printer message says the Printer isn't connected yet (`notConnectedMessages`) is Wartet, and `processing-stopped` is Wartet too. The reasons are described under "Notes from failures" below.
+- **Cancel.** `POST /api/jobs/:jobId/cancel` answers the new `JobStatus`, or 409 `{ error: "not-cancellable" }`. It is allowed exactly while the job reads as Wartet. The job store's `cancelled` flag records Print Buddy's own cancel, because CUPS marks every cancelled job the same way. `printer.cancelJob()` resolves false when CUPS refuses (`IppRefusal`: a bare HTTP status or an IPP error status) and throws only when CUPS can't be reached.
+- **Sheet count.** `sheets` is set at submit: the number of sheets in the rendered PDF times `copies`. So it follows `selection` and `pagesPerSheet`.
+- **Job store.** `await jobs.update(job, changes)` gives the changed record; records are never changed in place. `details`, `endedAt` and `cancelled` are the fields that change after `add`.
+- **Status screen.** It assumes Wartet until the first answer. It polls with a timeout chain, 2 s after each answer, and stops once `endedAt` is set. The running timer counts from when the screen opened, on the phone's clock; "gedauert" is `endedAt - sentAt` from the server. The 60 s hint shows while the state is Wartet and the timer is at 60 s or more. Every ended state offers "Schließen" and "Nochmal drucken". `reason` is shown in every state that has one.
+- **Nochmal drucken.** The status screen state in `App.tsx` keeps `options`. `print(options)` without a draft id uploads the phone's copy into a new draft and submits it with the same Print Options, without going back to the options screen.
+
+### Notes from failures (ticket 06)
+
+- **Reasons.** `reasonTexts` in `server/status-mapper.ts` maps reason keywords to German sentences. The mapper looks through the job's reasons, then the Printer's, and takes the first keyword it knows, with a trailing `-report`, `-warning` or `-error` removed. After that it checks the backend message (`messageTexts`). To teach it a new reason, add a line to one of the two tables and a case to the table test in `server/status.test.ts`.
+- **Which states have a reason.** Fehler always has one: the known reason, or "Beim Drucken ist ein Fehler aufgetreten.", or the sentence for a job somebody else cancelled. Wartet and Wird gedruckt have one only when CUPS names a known reason. Fertig and Abgebrochen have none.
+- **Fehler on the status screen.** It adds "Details" (`ui/src/controls/Collapsible.tsx`, a button with `aria-expanded`; the content is in the page only while open) and the link to the CUPS web page. The address is the constant `cupsWebPage` in `StatusScreen.tsx`.
+- **A submit that can't be sent.** `POST /api/drafts/:draftId/submit` answers `SubmitFailure` (`shared/api.ts`): 502 `cups-unreachable` or `cups-rejected`, 500 `render-failed`. No Print Job is created and the draft stays, so the same submit can be repeated. The cause goes to the server log.
+- **"Drucken hat nicht geklappt".** Anything that throws inside `print()` in `App.tsx` (upload or submit, an error status or no network) leads to `SendFailedScreen`. Its screen state keeps `options`. "Erneut versuchen" calls `print(options)` without a draft id, so the phone's copy is uploaded into a new draft, as with "Nochmal drucken". A screen that must come before it for one kind of failure (the expired login) has to catch that failure first.
+
+### Notes from the renderer (ticket 07)
+
+- **What CUPS receives.** Submit calls `render(files, options, margins)` in `server/renderer.ts` and sends its PDF, never an uploaded file. The result also has `sheets`, the sheet count of that PDF (one copy). Photo drafts print: all photos of a draft are one PDF and one Print Job.
+- **Print Options that don't fit the draft** are a 400 `{ error: "invalid-options" }`, the same answer as for malformed ones: an empty `selection`, a page number outside 1 to the page count, a photo index outside 0 to the photo count minus 1, or `pagesPerSheet: 2` for photos. The app must never submit an empty selection; ticket 09 makes Drucken unavailable then.
+- **Test options.** `samplePrintOptions` selects page 1, which is also valid for a draft of two or more photos (photo index 1) but not for a single photo: pass `{ selection: [0] }` there.
+- **Reading the printed PDF in a test.** `readRenderedPdf(request.data)` in `server/testing/rendered-pdf.ts` gives the sheets with their size and items. Each item has `kind`, `size` (to tell fixtures apart: the embedded page's CropBox size before `/Rotate`, or the photo's pixels), `box` and `clip` on the sheet measured from the top-left corner, and `corners`, which show rotation and mirroring. Numbers are rounded to 0.01 pt. `server/render.test.ts` sets the fake printer's margins to zero where that keeps the expected numbers simple.
+- **Fixtures.** Pages of `pdfWithPages()` now have a content stream, because pdf-lib can't embed a page without one. `{ blank: true }` makes a page without `/Contents`; it prints as an empty sheet.
+- **Margins in tests.** The printer client rounds margins to 0.01 pt (9.01 and 11.99 pt for the fake printer), and the renderer uses exactly those, like the preview does through `GET /api/printer`.
+- **PNG memory.** Photos are embedded one after the other, and each selected photo once. pdf-lib unpacks a PNG to raw pixels (about 360 MB for 4000×3000 on a Mac), so a large PNG batch is slow on the Pi; not measured there.
+
+### Notes from job folders and cleanup (ticket 12)
+
+- **Job folder.** `<jobs dir>/<date>_<job-id>/` holds `upload-1.pdf` (or `upload-1.jpg`, `upload-2.png`, … in upload order), `print.pdf` and `job.json`. The date is the UTC day the job was sent. No file carries the name it had on the phone.
+- **`print.pdf` is what CUPS got.** Submit in `server/http/drafts.ts` holds the rendered bytes in one variable, `pdf`, and passes it to both `printer.printJob(pdf, options)` and `jobs.add({ …, pdf })`. Keep it that way, so the folder can't hold something else than what was printed.
+- **Submit uses up the draft.** After CUPS accepted the job, `jobs.add` moves the uploads into the job folder and `intake.discard(draftId)` forgets the draft. A second submit of that draft is a 404. A submit that failed leaves the draft as it was (ticket 06). To print again, upload into a new draft, as "Nochmal drucken" does.
+- **`job.json`** is the `PrintJob` record of `server/job-store.ts`: `id`, `cupsJobId`, `sentAt`, `endedAt`, `sheets`, `options` (the Print Options), `details` (what CUPS last said) and `cancelled`. The two times are ISO 8601 text in the file and ms numbers in the record. A new field of `PrintJob` lands in the file by itself; it must never be a name of a person, an email or a file name.
+- **When it is written.** At submit, and whenever `jobs.update` changes something. A status read that learns nothing new writes nothing.
+- **After a restart.** `openJobStore` reads every `job.json` back, so `GET /api/jobs/:jobId` works as before and goes on asking CUPS. A folder whose `job.json` can't be read is skipped with a warning. Drafts are not read back: the list of drafts is in memory.
+- **Cleanup.** `startServer` runs it once before it listens and then every hour; `RunningServer.cleanup()` is the same function. It has two parts, each in the module that owns the folders:
+  - `jobs.cleanup()` deletes job folders more than 7 days after `sentAt`. A folder without a readable `job.json` counts from the end of the day in its name.
+  - `intake.cleanup()` deletes drafts more than 1 hour after they were created, and every draft folder that has no draft. That covers what an earlier run of the server left behind: nobody can submit those any more.
+  - Both only look at entries named like their own folders (`<date>_<uuid>` in the jobs directory, `<uuid>` in `drafts/`). Anything else a person puts there stays.
+
+### Notes from Share-to-print (ticket 14)
+
+- **The phone's copy.** `phoneFiles` in `ui/src/phone-files.ts` is the one place where the files of the job in progress are kept: `keep(files)`, `held()` and `clear()`. It is one record in IndexedDB (database `print-buddy`, store `phone-files`), so it is still there after a full page load, and it works over plain HTTP too. The service worker puts a share there and `pick()` puts picked files there. `uploadHeld()` in `App.tsx` is the only upload: a share, "Datei auswählen", "Nochmal drucken" and "Erneut versuchen" all upload what the store holds. No screen state carries files from screen to screen, except the options screen, which shows them.
+- **When the copy goes.** `leaveJob()` in `App.tsx` clears it: on "Schließen", and when an upload finds the store empty. A Refusal clears it, because nothing prints. Opening the app without a share clears it, because no job is in progress then. "Drucken hat nicht geklappt" keeps it.
+- **The way of a share.** The manifest (`ui/public/manifest.webmanifest`) tells Android to POST to `/share-target`. The service worker answers that POST itself with `receiveShare()` (`ui/src/share-target.ts`): files into the store, then a 303 to `/?shared=1`. `App` sees `shared` in its address, shows `OpeningScreen`, removes the parameter and calls `openHeld()`. The path, the form field and the parameter are constants in `shared/share-target.ts`; a test keeps the manifest equal to them.
+- **A share without files** (a known Chrome bug, or a body Chrome can't read) opens the Start screen.
+- **`/share-target` on the server** answers every method with a 303 to `/?shared=1` and keeps nothing. It is only reached when no service worker took the share.
+- **Service worker.** `ui/src/sw.ts` is built by the `serviceWorker()` plugin in `vite.config.ts`: a second build, after the app, into one self-contained `/sw.js`. The plugin fills in `__APP_SHELL__`: the list of files the app build wrote (the page and everything under `/assets`) and a hash over their contents. `handledBy(request)` decides who answers: `share`, `shell` (from the cache `print-buddy-shell-<hash>`) or `network`. Only `/` and `/assets/*` ever come from the cache; API calls, `/sw.js`, the manifest and the icons always go to the server. A file that is loaded later (the pdf.js worker) is in the shell as long as Vite emits it under `/assets`.
+- **Updates.** A changed `/sw.js` is installed in the background and waits. `startAppUpdate()` in `ui/src/app-update.ts` tells it to take over only while no job is in progress: when the app opens on Start, when the new version finishes installing while Start shows, and from `leaveJob()`. `App` reports the job with `update.setJobInProgress()`. The worker takes over only if this window is the only one open; otherwise it waits until all are closed. After the take-over the page reloads once, unless a job has begun in the meantime.
+- **Start screen.** `canReceiveShares` is true where the browser has a service worker. Over plain HTTP it is false and the share hint is not shown.
+- **Left to wire.**
+  - Every new way out of a job has to call `leaveJob()`, and every new way in has to go through `phoneFiles.keep()` and `openHeld()`. `SendFailedScreen` has no way out yet.
+  - Expired login (ticket 15): the service worker answers `/` from its cache, so "Neu anmelden" must navigate to a path that reaches Cloudflare. `/share-target` is such a path: after the login the server redirects it to `/?shared=1`, and the app opens the options screen with the phone's copy. The Print Options are not kept across a page load yet. The app opening with `?shared` while the store is empty is the case for "Bitte nochmal teilen"; today it shows Start. Opening without `?shared` clears the store, so returning to the status of a running job needs its own marker.
+  - `OpeningScreen` shows only the app's name while shared files upload. A progress text needs wording first.
+  - The preview (ticket 08) can take `files` from the options screen state.
+- **Tests.** `share(files)` in `ui/src/testing/share.ts` sends the request the manifest declares through `receiveShare()` and follows the redirect; render `<App />` after it. `fakeServiceWorker()` in `ui/src/testing/fake-service-worker.ts` stands in for `navigator.serviceWorker`: `newVersionInstalled()`, `takeOver()`, and `messages` for what the app told the waiting version. Without it a test runs as over plain HTTP. `ui/src/testing/fake-indexeddb.ts` is the phone's storage; it keeps values as they are, so an uploaded file is the same object as the picked one. Assert on the phone's copy with `phoneFiles.held()`.
+- **Icons.** `ui/public/icon.svg` and `icon-maskable.svg` are the sources. The PNGs are made with `rsvg-convert -w 512 -h 512 icon.svg -o icon-512.png` (192 for the small one). Never rename the manifest, `/sw.js` or an icon: Android keeps the addresses of an installed app, and the Bypass fallback lists them.
+- **Checked by hand in Chromium on localhost**, with a form that posts files to `/share-target` in place of Android: the service worker registers, answers the share without the network and the app opens the options screen; a new build waits during a job and takes over on Start; over `http://<LAN address>` there is no service worker and no error. Chromium rejects `formData()` on an empty multipart body, which happy-dom does not. The install and the share sheet themselves are only in the on-device checks above.
