@@ -1,6 +1,6 @@
 # Print Buddy
 
-A small web app for printing PDFs and photos from the family's Android phones on the household Printer. It runs as a Home Assistant add-on next to the CUPS add-on. The spec is in `.scratch/print-buddy/spec.md`; the vocabulary is in `GLOSSARY.md`.
+A small web app for printing PDFs and photos from the family's Android phones on the household Printer. It runs as a Home Assistant add-on next to the CUPS add-on. The vocabulary is in `GLOSSARY.md`.
 
 This repository is also the Home Assistant add-on repository: `repository.yaml` at the root, the add-on in `print-buddy/`. Home Assistant pulls a ready-made image for the Raspberry Pi 4 (aarch64) and builds nothing.
 
