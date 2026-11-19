@@ -8,7 +8,7 @@ Needs Node 26 and pnpm 12. Run `pnpm install` once. How the parts work is in `ar
 |---|---|
 | `pnpm test` | All tests: server and shared code under `node --test`, then the UI under vitest. |
 | `pnpm typecheck` | Type checks everything with `tsc --noEmit`, which never emits anything. |
-| `pnpm dev` | Builds the UI and starts the app on http://localhost:9217 against a fake printer, with a temporary jobs directory. Nothing reaches a real printer. |
+| `pnpm dev` | Builds the UI and starts the app on http://localhost:9217 against a fake printer, with a temporary jobs directory. Nothing reaches a real printer. Each Print Job is Wartet for 5 s, so that "Abbrechen" can be tried, then Wird gedruckt for 5 s, then Fertig. |
 | `pnpm test:server`, `pnpm test:ui` | One half of `pnpm test`. A single file: `node --test server/print.test.ts`, `pnpm vitest run src/App.test.tsx`. |
 | `pnpm dev:ui` | Vite dev server with hot reload; `/api` is proxied to port 9217, so run `pnpm dev` beside it. |
 | `pnpm build` | Copies the files pdf.js fetches while drawing into `ui/public/pdfjs`, builds the UI into `dist/ui`, and after it the service worker `dist/ui/sw.js`. |
