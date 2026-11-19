@@ -137,7 +137,7 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   renderer.ts        Renderer: builds the PDF that goes to CUPS.
   status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts and the IPP codec.
-  http/              One file per API resource: drafts, jobs, printer, session, health, share-target, ui (static files).
+  http/              One file per API resource: drafts, jobs, printer, report, session, health, share-target, ui (static files).
   testing/           Seam 1 helpers: harness, fake IPP printer, fixtures.
   *.test.ts          Seam 1 tests, next to the sources.
 ui/                Vite root.
@@ -145,6 +145,8 @@ ui/                Vite root.
   src/App.tsx        App shell: which screen shows.
   src/api.ts         One function per API operation. The only place that calls fetch.
   src/phone-files.ts The phone's copy of the files of the job in progress.
+  src/report.ts      The report builder: the plain text behind "Bericht kopieren".
+  src/last-job.ts    The last Print Job from this phone, for the line on Start.
   src/pdf-preview.ts The only module that imports pdfjs-dist: opens a PDF and draws a page onto a canvas.
   src/sw.ts          The service worker. Built into /sw.js; its logic is in share-target.ts and app-update.ts.
   src/screens/       One screen per file.
@@ -315,7 +317,7 @@ const sheets = layout({
 
 ### Notes from the status screen (ticket 05)
 
-- **Reading a Print Job.** `GET /api/jobs/:jobId` answers `JobStatus` (`shared/api.ts`): `state`, `reason`, `details`, `cupsJobId`, `sentAt`, `endedAt` and `sheets`. `state` is a `ScreenState` key (`waiting`, `printing`, `done`, `cancelled`, `error`); the German words are in `ui/src/screens/StatusScreen.tsx`. `reason` is a German sentence, or null when there is nothing to explain. `details` is what CUPS said: `jobState` as the IPP keyword, `jobStateReasons`, `printerStateReasons` (`job-printer-state-reasons`) and `printerMessage` (`job-printer-state-message`).
+- **Reading a Print Job.** `GET /api/jobs/:jobId` answers `JobStatus` (`shared/api.ts`): `state`, `reason`, `details`, `cupsJobId`, `sentAt`, `endedAt` and `sheets`. `state` is a `ScreenState` key (`waiting`, `printing`, `done`, `cancelled`, `error`); the German words are in `ui/src/state-words.ts`. `reason` is a German sentence, or null when there is nothing to explain. `details` is what CUPS said: `jobState` as the IPP keyword, `jobStateReasons`, `printerStateReasons` (`job-printer-state-reasons`) and `printerMessage` (`job-printer-state-message`).
 - **Each read asks CUPS** with Get-Job-Attributes, until the job has ended. The first read that sees the end sets `endedAt` from the server's clock, so it can be up to one poll late. After that the stored state is answered and CUPS is not asked again. When CUPS can't answer, or no longer knows the job, the read answers the last state seen, with a warning in the log.
 - **Status mapper.** `mapStatus(details, cancelledByPrintBuddy)` in `server/status-mapper.ts` is the one place that decides state and reason. A `processing` job whose printer message says the Printer isn't connected yet (`notConnectedMessages`) is Wartet, and `processing-stopped` is Wartet too. The reasons are described under "Notes from failures" below.
 - **Cancel.** `POST /api/jobs/:jobId/cancel` answers the new `JobStatus`, or 409 `{ error: "not-cancellable" }`. It is allowed exactly while the job reads as Wartet. The job store's `cancelled` flag records Print Buddy's own cancel, because CUPS marks every cancelled job the same way. `printer.cancelJob()` resolves false when CUPS refuses (`IppRefusal`: a bare HTTP status or an IPP error status) and throws only when CUPS can't be reached.
@@ -385,3 +387,15 @@ const sheets = layout({
 - **Tests.** `share(files)` in `ui/src/testing/share.ts` sends the request the manifest declares through `receiveShare()` and follows the redirect; render `<App />` after it. `fakeServiceWorker()` in `ui/src/testing/fake-service-worker.ts` stands in for `navigator.serviceWorker`: `newVersionInstalled()`, `takeOver()`, and `messages` for what the app told the waiting version. Without it a test runs as over plain HTTP. `ui/src/testing/fake-indexeddb.ts` is the phone's storage; it keeps values as they are, so an uploaded file is the same object as the picked one. Assert on the phone's copy with `phoneFiles.held()`.
 - **Icons.** `ui/public/icon.svg` and `icon-maskable.svg` are the sources. The PNGs are made with `rsvg-convert -w 512 -h 512 icon.svg -o icon-512.png` (192 for the small one). Never rename the manifest, `/sw.js` or an icon: Android keeps the addresses of an installed app, and the Bypass fallback lists them.
 - **Checked by hand in Chromium on localhost**, with a form that posts files to `/share-target` in place of Android: the service worker registers, answers the share without the network and the app opens the options screen; a new build waits during a job and takes over on Start; over `http://<LAN address>` there is no service worker and no error. Chromium rejects `formData()` on an empty multipart body, which happy-dom does not. The install and the share sheet themselves are only in the on-device checks above.
+
+### Notes from the report and the last job (ticket 13)
+
+- **Report builder.** `ui/src/report.ts`. `buildReport(input)` is a pure function that makes the text; `copyReport(subject)` reads what it needs and writes the clipboard. A `ReportSubject` is either `{ job }` (the two numbers from submit) or `{ happened, files, options? }` for a report without a Print Job. `happened` is one German sentence; `files` is a function, called when the report is made.
+- **Where the facts come from.** For a Print Job everything is read from the server when the button is tapped: `GET /api/jobs/:jobId` (which asks CUPS, so the state is live) and `GET /api/report` (`ReportFacts`: the Print Buddy version and the Printer's state now). `JobStatus` carries `file` (`kind`, `bytes`, `count`: pages of the PDF or photos in the job) and `options` for this; both are stored in `job.json` at submit. A server that doesn't answer doesn't stop the report: it then says "unbekannt (Server nicht erreichbar)".
+- **No file name.** The server never keeps one. Of the phone's files the builder reads only `type` and `size`. A new line in the report must not come from a `File`'s name, from file contents or from an error message the browser made up. The Print Options are written with their keys as they are in `shared/print-options.ts`, so a new option shows up by itself.
+- **The button.** `<ReportButton subject={…} />` in `ui/src/controls/`. It says "Kopiert", or "Kopieren hat nicht geklappt" when the browser refuses the clipboard, in an element with role `status`. A new screen where something can go wrong (the expired login, for example) adds this one line with a `{ happened, files }` subject.
+- **Send failures.** The `send-failed` screen state keeps what `print()` caught as `error`; `sendFailure(error)` in `report.ts` turns it into the sentence. The Refusal screen state keeps the refused `file`, because the phone's copy is cleared on a Refusal.
+- **Last job.** `lastJob` in `ui/src/last-job.ts` keeps `{ jobId, cupsJobId }` of the last submit in `localStorage` under `print-buddy.last-job`; `print()` in `App.tsx` writes it. `LastJobLine` (in `controls/`, shown by `StartScreen`) reads the job once when Start shows: "Letzter Druck: {Zustand}" with the report button. A 404 (the job folder is gone after 7 days) forgets the job; any other failure shows "Letzter Druck: unbekannt" and still offers the report.
+- **Tests.** `ui/src/report.test.tsx`. `userEvent.setup()` puts a working clipboard on `navigator`, so a test reads the report with `navigator.clipboard.readText()`. A test that taps "Bericht kopieren" needs a `GET /api/report` route, or the report says the server was not reachable. A test that goes back to Start after a Print Job causes one more `GET /api/jobs/<id>`.
+- **Who printed.** `server/report.test.ts` sends the Cloudflare Access headers with every request of a Print Job and checks that nothing of them reaches CUPS, the job folder, the answers or the log. Never read `Cf-Access-*` headers or the `CF_Authorization` cookie into anything that is stored or logged.
+- **Not checked on a phone:** that Chrome on Android lets the app write the clipboard after the two reads (it does so for a focused page; the reads take a moment when CUPS is silent).

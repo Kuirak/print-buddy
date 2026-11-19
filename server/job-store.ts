@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { extname, join } from "node:path"
 import { isDeepStrictEqual } from "node:util"
-import type { CupsJobDetails } from "../shared/api.ts"
+import type { CupsJobDetails, JobFile } from "../shared/api.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { Now } from "./clock.ts"
 
@@ -16,6 +16,7 @@ export interface PrintJob {
   endedAt: number | null
   /** Sheets of paper the job asks for. */
   sheets: number
+  file: JobFile
   options: PrintOptions
   /** What CUPS last said about the job. */
   details: CupsJobDetails
@@ -23,7 +24,7 @@ export interface PrintJob {
   cancelled: boolean
 }
 
-export interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "options" | "details"> {
+export interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "file" | "options" | "details"> {
   /** The PDF as it was sent to CUPS. */
   pdf: Uint8Array
   /** Paths of the uploaded files, in upload order. They are moved into the job folder. */
@@ -89,6 +90,7 @@ export async function openJobStore(deps: { jobsDir: string; now: Now }) {
         sentAt: deps.now(),
         endedAt: null,
         sheets: job.sheets,
+        file: job.file,
         options: job.options,
         details: job.details,
         cancelled: false,

@@ -1,5 +1,5 @@
 // The app's only way to the server: one function per API operation.
-import type { DraftCreated, FileFacts, JobStatus, JobSubmitted, PrinterInfo, Refusal, SubmitRequest } from "../../shared/api.ts"
+import type { DraftCreated, FileFacts, JobStatus, JobSubmitted, PrinterInfo, Refusal, ReportFacts, SubmitRequest } from "../../shared/api.ts"
 
 /** The server (or Cloudflare Access, with 401) answered with an error status. */
 export class ApiFailure extends Error {
@@ -54,3 +54,6 @@ export const readJob = (jobId: string) => call<JobStatus>("GET", `/api/jobs/${jo
 
 /** Rejects with a 409 ApiFailure once the job is being printed or has ended. */
 export const cancelJob = (jobId: string) => call<JobStatus>("POST", `/api/jobs/${jobId}/cancel`)
+
+/** The server's part of a "Bericht kopieren" report. */
+export const readReportFacts = () => call<ReportFacts>("GET", "/api/report")

@@ -3,7 +3,7 @@ import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import { JobState } from "./printer/ipp-codec.ts"
-import { pdfWithPages, sampleJpeg, type PdfPageSpec } from "./testing/fixtures.ts"
+import { pdfWithPages, sampleJpeg, samplePdf, samplePrintOptions, type PdfPageSpec } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 import { readRenderedPdf } from "./testing/rendered-pdf.ts"
 
@@ -29,6 +29,8 @@ test("a Print Job that CUPS just accepted reads as Wartet, with its job number, 
     sentAt,
     endedAt: null,
     sheets: 1,
+    file: { kind: "pdf", bytes: samplePdf().length, count: 1 },
+    options: samplePrintOptions,
   })
 })
 
