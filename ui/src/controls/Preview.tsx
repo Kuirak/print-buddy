@@ -23,6 +23,9 @@ function boxStyle(box: Box, within: Box) {
   }
 }
 
+/** How far a finger has to move sideways, in CSS pixels, before it counts as a swipe to the next or previous sheet. */
+const swipeDistance = 50
+
 /**
  * One sheet as it will print: the paper in its shape, every placement of the layout module's sheet in its box,
  * turned and clipped as the layout module says, and the unprintable edge as a pale band on top.
@@ -41,14 +44,51 @@ export function Preview(props: {
   grey: boolean
   /** 1 shows the whole sheet, 2 shows it twice as large, and so on. */
   zoom: number
+  /** The sheet shown, counted from 0, of `count` sheets for one copy. */
+  index: number
+  count: number
+  /** A swipe asks for the sheet at this index; the screen shows it. */
+  onStep: (index: number) => void
 }) {
   // a sideways sheet (two pages per sheet) is shown turned a quarter counter-clockwise, so its pages are upright and side by side
   const sideways = () => props.sheet?.sideways ?? false
   /** Width by height of the paper as it shows on the screen. */
   const shape = () => (sideways() ? props.paper.height / props.paper.width : props.paper.width / props.paper.height)
+  // Swiping steps the sheets only at 100 %: zoomed in, a drag pans the preview as before.
+  // `touch-action` leaves vertical scrolling (and pinch zoom) to the browser and sideways moves to the app;
+  // when the browser takes the gesture over for scrolling, it sends pointercancel and the swipe is dropped.
+  const swipes = () => props.zoom === 1
+  let start: { pointer: number; x: number; y: number } | undefined
+  let paperShown: HTMLDivElement | undefined
+  function down(event: PointerEvent) {
+    start = swipes() && event.isPrimary ? { pointer: event.pointerId, x: event.clientX, y: event.clientY } : undefined
+  }
+  function up(event: PointerEvent) {
+    if (!start || event.pointerId !== start.pointer) return
+    const dx = event.clientX - start.x
+    const dy = event.clientY - start.y
+    start = undefined
+    // only a clearly sideways move counts: far enough, and more sideways than up or down
+    if (!swipes() || Math.abs(dx) < swipeDistance || Math.abs(dx) <= Math.abs(dy)) return
+    const to = props.index + (dx < 0 ? 1 : -1)
+    if (to < 0 || to >= props.count) return
+    props.onStep(to)
+    // the new sheet is drawn at once; it only slides in a little from the side the finger came from
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      paperShown?.animate?.([{ transform: `translateX(${dx < 0 ? 24 : -24}px)`, opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 150, easing: "ease-out" })
+    }
+  }
   return (
-    <div class="overflow-auto rounded-xl bg-gray-200 p-3" style={{ "max-height": `calc(${sheetHeight} + 24px)` }}>
+    <section
+      aria-label="Vorschau"
+      class="overflow-auto rounded-xl bg-gray-200 p-3"
+      style={{ "max-height": `calc(${sheetHeight} + 24px)`, "touch-action": swipes() ? "pan-y pinch-zoom" : "auto" }}
+      onPointerDown={down}
+      onPointerUp={up}
+      onPointerCancel={() => { start = undefined }}
+    >
       <div
+        ref={paperShown}
         class="relative mx-auto overflow-hidden bg-white shadow-md"
         style={{
           "aspect-ratio": `${shape()}`,
@@ -115,6 +155,6 @@ export function Preview(props: {
         </Show>
       </div>
       </div>
-    </div>
+    </section>
   )
 }

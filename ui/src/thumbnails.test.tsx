@@ -46,7 +46,21 @@ async function openOptions(facts: FileFacts, count = 1) {
   }
   /** Which sheet the preview shows, of how many. */
   const sheet = () => screen.getByRole("status", { name: "Blatt in der Vorschau" }).textContent
-  return { api, user, files, print, choice, tap, thumbnails, sheet }
+  /**
+   * A finger drawn across the preview by `dx` and `dy` pixels: down, two moves, up, as a touch screen sends it.
+   * Negative `dx` is to the left.
+   */
+  async function swipe(dx: number, dy = 0) {
+    const preview = screen.getByRole("region", { name: "Vorschau" })
+    const at = (share: number) => ({ clientX: 200 + dx * share, clientY: 300 + dy * share })
+    await user.pointer([
+      { keys: "[TouchA>]", target: preview, coords: at(0) },
+      { pointerName: "TouchA", target: preview, coords: at(0.5) },
+      { pointerName: "TouchA", target: preview, coords: at(1) },
+      { keys: "[/TouchA]", target: preview, coords: at(1) },
+    ])
+  }
+  return { api, user, files, print, choice, tap, thumbnails, sheet, swipe }
 }
 
 test("a PDF shows one thumbnail per page, all selected", async () => {
@@ -324,4 +338,65 @@ test("the sheet stepper hides when two pages share the one sheet", async () => {
   expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
   expect(await screen.findByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
   expect(thumbnails("Seiten").names).toEqual(["Seite 1", "Seite 2"])
+})
+
+test("a swipe to the left on the preview shows the next sheet, and one to the right the sheet before", async () => {
+  const { swipe, sheet } = await openOptions(pdfOf(3))
+
+  await swipe(-120)
+  expect(sheet()).toBe("Seite 2 · 2/3")
+  expect(await screen.findByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
+  await swipe(-120)
+  expect(sheet()).toBe("Seite 3 · 3/3")
+
+  await swipe(120)
+  expect(sheet()).toBe("Seite 2 · 2/3")
+})
+
+test("a swipe past the first or the last sheet does nothing", async () => {
+  const { tap, swipe, sheet } = await openOptions(pdfOf(3))
+
+  await swipe(120)
+  expect(sheet()).toBe("Seite 1 · 1/3")
+
+  await tap("Nächstes Blatt")
+  await tap("Nächstes Blatt")
+  await swipe(-120)
+  expect(sheet()).toBe("Seite 3 · 3/3")
+})
+
+test("only a clearly sideways swipe steps: short moves and mostly vertical ones are left to the page", async () => {
+  const { swipe, sheet } = await openOptions(pdfOf(3))
+
+  // too short
+  await swipe(-40)
+  // more up than sideways: the page scrolls
+  await swipe(-80, -120)
+  await swipe(80, 90)
+  expect(sheet()).toBe("Seite 1 · 1/3")
+
+  // a little slanted, but more sideways than up
+  await swipe(-80, -50)
+  expect(sheet()).toBe("Seite 2 · 2/3")
+})
+
+test("zoomed in past 100 %, a drag pans the preview and doesn't step the sheets", async () => {
+  const { tap, swipe, sheet } = await openOptions(pdfOf(3))
+
+  await tap("Ansicht vergrößern")
+  await swipe(-120)
+  expect(sheet()).toBe("Seite 1 · 1/3")
+
+  await tap("Ansicht verkleinern")
+  await swipe(-120)
+  expect(sheet()).toBe("Seite 2 · 2/3")
+})
+
+test("photos step with a swipe too", async () => {
+  const { swipe, sheet } = await openOptions(photo, 2)
+
+  await swipe(-120)
+
+  expect(sheet()).toBe("Foto 2/2")
+  expect(screen.getByRole("img", { name: "Vorschau Foto 2" })).toHaveAttribute("src", "blob:Strand 2.jpg")
 })

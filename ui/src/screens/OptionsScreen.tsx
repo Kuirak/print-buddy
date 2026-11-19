@@ -188,6 +188,9 @@ export function OptionsScreen(props: {
           source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
           grey={options.color === "mono"}
           zoom={zoom()}
+          index={current()}
+          count={sheets()?.length ?? 0}
+          onStep={setStep}
         />
         {/* nothing to step through on a single sheet; with nothing selected it says so */}
         <Show when={sheets()?.length !== 1 && sheets()}>
