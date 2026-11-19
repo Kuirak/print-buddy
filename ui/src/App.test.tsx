@@ -1,6 +1,6 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
@@ -188,4 +188,81 @@ test("after a refusal nothing more is uploaded, and Datei auswählen on the Refu
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Drucken" })).toBeInTheDocument()
+})
+
+test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, which sends the same file with the same Print Options", async () => {
+  let drafts = 0
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/submit": () => json({ error: "cups-unreachable" }, 502),
+    "POST /api/drafts/d2/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d2/submit": () => json({ error: "cups-rejected" }, 502),
+    "POST /api/drafts/d3/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d3/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus(),
+  })
+  const user = userEvent.setup()
+  const pdf = new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" })
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf)
+  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await user.click(within(screen.getByRole("radiogroup", { name: "Farbe" })).getByRole("radio", { name: "Farbe" }))
+
+  await user.click(screen.getByRole("button", { name: "Drucken" }))
+
+  expect(await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Drucken" })).not.toBeInTheDocument()
+
+  // a second failure leaves the person where they were
+  await user.click(screen.getByRole("button", { name: "Erneut versuchen" }))
+  await vi.waitFor(() => expect(api.calls.some(call => call.path === "/api/drafts/d2/submit")).toBe(true))
+  expect(await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })).toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "Erneut versuchen" }))
+
+  expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
+  expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
+  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [] }
+  for (const draft of ["d1", "d2", "d3"]) {
+    const upload = api.calls.find(call => call.path === `/api/drafts/${draft}/files`)!
+    expect((upload.body as FormData).get("file")).toBe(pdf)
+    const submit = api.calls.find(call => call.path === `/api/drafts/${draft}/submit`)!
+    expect(JSON.parse(submit.body as string)).toEqual(sent)
+  }
+})
+
+test("when the server can't be reached at all, Drucken hat nicht geklappt keeps every photo for Erneut versuchen", async () => {
+  let drafts = 0
+  let online = false
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
+    "POST /api/drafts/d1/files": () => json(photoFacts, 201),
+    "POST /api/drafts/d1/submit": () => { throw new TypeError("Failed to fetch") },
+    "POST /api/drafts/d2/files": () => {
+      if (!online) throw new TypeError("Failed to fetch")
+      return json(photoFacts, 201)
+    },
+    "POST /api/drafts/d3/files": () => json(photoFacts, 201),
+    "POST /api/drafts/d3/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus(),
+  })
+  const user = userEvent.setup()
+  const photos = [photo("a.jpg"), photo("b.jpg")]
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), photos)
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  expect(await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })).toBeInTheDocument()
+
+  // still offline: the upload of the retry fails too
+  await user.click(screen.getByRole("button", { name: "Erneut versuchen" }))
+  await vi.waitFor(() => expect(api.calls.some(call => call.path === "/api/drafts/d2/files")).toBe(true))
+  expect(await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })).toBeInTheDocument()
+
+  online = true
+  await user.click(screen.getByRole("button", { name: "Erneut versuchen" }))
+
+  expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
+  const uploaded = api.calls.filter(call => call.path === "/api/drafts/d3/files").map(call => (call.body as FormData).get("file"))
+  expect(uploaded).toEqual(photos)
 })

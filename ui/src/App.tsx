@@ -5,6 +5,7 @@ import { addFile, createDraft, submitDraft } from "./api.ts"
 import { fileKind } from "./presets.ts"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
+import { SendFailedScreen } from "./screens/SendFailedScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
 
@@ -18,6 +19,8 @@ type Screen =
   | { name: "refusal"; refusal: Refusal }
   /** `files` and `options` are what was sent, kept for "Nochmal drucken". */
   | { name: "status"; files: File[]; options: PrintOptions; job: JobSubmitted }
+  /** Sending didn't work. `files` and `options` are what the person wanted to print, kept for "Erneut versuchen". */
+  | { name: "send-failed"; files: File[]; options: PrintOptions }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -47,7 +50,10 @@ export function App() {
 
   // a second tap while the first is on its way must not print twice
   let sending = false
-  /** Sends the draft as a Print Job. Without a draft ("Nochmal drucken") the phone's copy is uploaded again first. */
+  /**
+   * Sends the draft as a Print Job. Without a draft ("Nochmal drucken", "Erneut versuchen") the phone's copy is uploaded again first.
+   * When that doesn't work, for whatever reason, the person lands on "Drucken hat nicht geklappt".
+   */
   async function print(files: File[], options: PrintOptions, draftId?: string) {
     if (sending) return
     sending = true
@@ -61,6 +67,8 @@ export function App() {
         draftId = draft.draftId
       }
       setScreen({ name: "status", files, options, job: await submitDraft(draftId, options) })
+    } catch {
+      setScreen({ name: "send-failed", files, options })
     } finally {
       sending = false
     }
@@ -93,6 +101,9 @@ export function App() {
               onPrintAgain={() => void print(status.files, status.options)}
             />
           )}
+        </Match>
+        <Match when={on("send-failed")}>
+          {failed => <SendFailedScreen onRetry={() => void print(failed().files, failed().options)} />}
         </Match>
       </Switch>
     </div>
