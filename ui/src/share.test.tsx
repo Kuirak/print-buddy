@@ -27,7 +27,7 @@ test("a shared PDF opens straight into the options screen", async () => {
   expect(file!.name).toBe("Rechnung.pdf")
   expect(await file!.text()).toBe("%PDF-1.4 shared")
   // the share itself is answered on the phone: only the app's own API calls reach the network
-  expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["POST /api/drafts", "POST /api/drafts/d1/files"])
+  expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual(["/api/drafts", "/api/drafts/d1/files"])
 })
 
 const photoFacts = { kind: "photo", format: "jpeg", width: 4000, height: 3000, orientation: 1 }
@@ -80,7 +80,7 @@ test.each([
   expect(screen.queryByRole("button", { name: "Drucken" })).not.toBeInTheDocument()
 })
 
-test("a share that arrives without files opens the Start screen and asks the server for nothing", async () => {
+test("a share that arrives without files opens the Start screen and uploads nothing", async () => {
   const api = mockApi({})
 
   await share([])
@@ -88,7 +88,7 @@ test("a share that arrives without files opens the Start screen and asks the ser
 
   expect(await screen.findByLabelText("Datei auswählen")).toBeInTheDocument()
   await new Promise(resolve => setTimeout(resolve, 20))
-  expect(api.calls).toEqual([])
+  expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["GET /api/session"])
   expect(location.search).toBe("")
 })
 

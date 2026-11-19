@@ -2,10 +2,11 @@ import { createSignal, Match, onSettled, Switch } from "solid-js"
 import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { sharedParam } from "../../shared/share-target.ts"
-import { addFile, createDraft, submitDraft } from "./api.ts"
+import { addFile, checkSession, createDraft, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
 import { phoneFiles } from "./phone-files.ts"
 import { fileKind } from "./presets.ts"
+import { LoginExpiredScreen } from "./screens/LoginExpiredScreen.tsx"
 import { OpeningScreen } from "./screens/OpeningScreen.tsx"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
@@ -42,7 +43,13 @@ export function App() {
   const update = startAppUpdate()
   update.setJobInProgress(shared)
 
+  /** Cloudflare Access has answered a call with 401. Nothing else shows until the person has logged in again. */
+  const [loginExpired, setLoginExpired] = createSignal(false)
+  onLoginExpired(() => setLoginExpired(true))
+
   onSettled(() => {
+    // only the 401 matters, and that one is reported to onLoginExpired; offline shows when the person prints
+    void checkSession().catch(() => {})
     if (shared) {
       // the files are on the phone now; a reload must not take this for a new share
       history.replaceState(null, "", location.pathname)
@@ -127,6 +134,10 @@ export function App() {
   return (
     <div class="mx-auto min-h-dvh max-w-[480px] bg-white">
       <Switch>
+        {/* first, so that it covers whatever screen the person was on */}
+        <Match when={loginExpired()}>
+          <LoginExpiredScreen onLogin={() => {}} />
+        </Match>
         <Match when={on("start")}>
           <StartScreen canReceiveShares={update.hasServiceWorker} onPick={files => void pick(files)} />
         </Match>

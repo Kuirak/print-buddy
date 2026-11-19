@@ -28,7 +28,7 @@ test("pick a PDF, tap Drucken, and follow the Print Job on the status screen", a
     "/api/drafts/d1/files",
     "/api/drafts/d1/submit",
   ])
-  expect((api.calls[1]!.body as FormData).get("file")).toBe(pdf)
+  expect((api.calls.find(call => call.path === "/api/drafts/d1/files")!.body as FormData).get("file")).toBe(pdf)
   for (const call of api.calls) expect(call.headers.get("X-Requested-With")).toBe("XMLHttpRequest")
 })
 
