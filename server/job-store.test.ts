@@ -1,9 +1,9 @@
 import assert from "node:assert/strict"
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
-import { JobState } from "./printer/ipp-codec.ts"
+import { JobState, Op } from "./printer/ipp-codec.ts"
 import { sampleJpeg, samplePdf, samplePng, samplePrintOptions } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 
@@ -127,6 +127,43 @@ test("job.json is written again only when something about the Print Job changed"
   await server.request(`/api/jobs/${jobId}`)
 
   assert.equal(await writtenAt(), before)
+})
+
+test("a Print Job that CUPS accepted is answered and can be followed, even when its folder can't be filled", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
+  await server.upload(draftId, sampleJpeg(), "IMG_0001.jpg")
+  await server.upload(draftId, samplePng(20, 10), "IMG_0002.png")
+  // the second photo is left out of the Print Job, so the first thing to fail is moving it into the job folder
+  await rm(join(server.jobsDir, "drafts", draftId, "2.png"))
+
+  const submitted = await server.submit(draftId, { selection: [0] })
+
+  assert.equal(submitted.status, 201, await submitted.clone().text())
+  const { jobId, cupsJobId } = await submitted.json() as { jobId: string; cupsJobId: number }
+  assert.deepEqual([...server.printer.jobs.keys()], [cupsJobId])
+  server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"])
+  assert.equal((await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus).state, "done")
+  // nothing is left that could be sent a second time
+  assert.equal((await server.submit(draftId, { selection: [0] })).status, 404)
+  assert.equal(server.printer.requests.filter(request => request.code === Op.printJob).length, 1)
+})
+
+test("a Print Job can still be followed when its job.json can't be written any more", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { jobId, cupsJobId } = await server.print()
+  const [folder] = await jobFolders(server.jobsDir)
+  await rm(join(server.jobsDir, folder!), { recursive: true })
+  server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "Connected to printer.")
+
+  const read = await server.request(`/api/jobs/${jobId}`)
+
+  assert.equal(read.status, 200)
+  assert.equal((await read.json() as JobStatus).state, "printing")
+  server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"])
+  assert.equal((await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus).state, "done")
 })
 
 test("a Print Job can still be read, and still follows CUPS, after the server restarts", async t => {
