@@ -4,8 +4,13 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 
 GlobalWorkerOptions.workerSrc = workerUrl
 
-/** An open PDF, for drawing its pages on the screen. */
+/** An open PDF, for reading its pages' sizes and drawing them on the screen. */
 export interface PdfPreview {
+  /**
+   * Every page's size in points as pdf.js draws it: the part of the CropBox that lies on the page, with the
+   * page's own rotation applied. The same numbers upload intake reports (`shownPart()` in server/source-pdf.ts).
+   */
+  pageSizes(): Promise<{ width: number; height: number }[]>
   /**
    * Draws one page, counted from 1, the way a reader prints it (CropBox and the page's own rotation applied;
    * form fields and annotations as far as they are meant for printing), onto a new canvas whose longer side
@@ -28,6 +33,16 @@ export async function openPdf(data: ArrayBuffer): Promise<PdfPreview> {
   })
   const doc = await task.promise
   return {
+    async pageSizes() {
+      const sizes: { width: number; height: number }[] = []
+      for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
+        const page = await doc.getPage(pageNumber)
+        // pdf.js scales by the page's /UserUnit, which upload intake and the renderer leave out
+        const { width, height } = page.getViewport({ scale: 1 / page.userUnit })
+        sizes.push({ width, height })
+      }
+      return sizes
+    },
     async renderPage(pageNumber, longSide) {
       const page = await doc.getPage(pageNumber)
       const natural = page.getViewport({ scale: 1 })

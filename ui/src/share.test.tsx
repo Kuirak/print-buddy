@@ -22,7 +22,7 @@ test("a shared PDF opens straight into the options screen", async () => {
   render(() => <App />)
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Drucken" })).toBeInTheDocument()
+  expect(await screen.findByRole("button", { name: "Drucken" })).toBeInTheDocument()
   const [file] = uploaded(api.calls, "d1")
   expect(file!.name).toBe("Rechnung.pdf")
   expect(await file!.text()).toBe("%PDF-1.4 shared")
@@ -93,7 +93,7 @@ test("a share that arrives without files says Bitte nochmal teilen, offers Datei
   expect(location.search).toBe("")
 })
 
-test("while shared files are on their way to the server, the Start screen's Datei auswählen is not offered", async () => {
+test("until the options screen opens with a share, the app shows Wird geladen and not the Start screen's Datei auswählen", async () => {
   let accept!: (answer: Response) => void
   mockApi({
     "POST /api/drafts": () => new Promise<Response>(resolve => { accept = resolve }),
@@ -103,13 +103,15 @@ test("while shared files are on their way to the server, the Start screen's Date
   await share([pdf("Rechnung.pdf")])
   render(() => <App />)
 
-  await expect.poll(() => accept).toBeDefined()
   expect(screen.getByRole("heading", { name: "Print Buddy" })).toBeInTheDocument()
   expect(screen.getByText("Wird geladen …")).toBeInTheDocument()
   expect(screen.queryByLabelText("Datei auswählen")).not.toBeInTheDocument()
 
-  accept(json({ draftId: "d1" }, 201))
+  // the options screen doesn't wait for the server
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
+  expect(screen.queryByLabelText("Datei auswählen")).not.toBeInTheDocument()
+  accept(json({ draftId: "d1" }, 201))
+  expect(await screen.findByRole("button", { name: "Drucken" })).toBeInTheDocument()
 })
 
 test("the manifest makes the app installable, in German, with its icons", () => {

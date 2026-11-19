@@ -8,10 +8,16 @@ import { fakeIndexedDb } from "./fake-indexeddb.ts"
 // that every test gets a stand-in for: any bytes open as a PDF, and a page is "drawn" as an empty canvas that
 // says what it was asked to show. `data-pdf` is the file's bytes as text, `data-page` the page number, and the
 // canvas is as wide as the pixels asked for. A test reads these from the canvases on the screen.
+// The pages have the sizes of the `/MediaBox [0 0 w h]` entries in the bytes (`pdfFile()` in files.ts writes
+// them), or one A4 page when there are none.
 vi.mock("../pdf-preview.ts", () => ({
   async openPdf(data: ArrayBuffer): Promise<PdfPreview> {
     const pdf = new TextDecoder().decode(data)
+    const boxes = [...pdf.matchAll(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/g)].map(([, width, height]) => ({ width: Number(width), height: Number(height) }))
     return {
+      async pageSizes() {
+        return boxes.length > 0 ? boxes : [{ width: 595, height: 842 }]
+      },
       async renderPage(pageNumber, longSide) {
         const canvas = document.createElement("canvas")
         Object.assign(canvas.dataset, { pdf, page: String(pageNumber) })

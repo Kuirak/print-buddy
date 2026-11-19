@@ -272,7 +272,7 @@ test("a share that arrives while the login has run out is still on the phone aft
   render(() => <App />)
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Drucken" })).toBeInTheDocument()
+  expect(await screen.findByRole("button", { name: "Drucken" })).toBeInTheDocument()
   const uploaded = (api.calls.find(call => call.path === "/api/drafts/d1/files")!.body as FormData).get("file") as File
   expect(uploaded.name).toBe("Rechnung.pdf")
   expect(await uploaded.text()).toBe("%PDF-1.4 Rechnung.pdf")

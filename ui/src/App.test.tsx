@@ -191,7 +191,7 @@ test("after a refusal nothing more is uploaded, and Datei auswählen on the Refu
   await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Drucken" })).toBeInTheDocument()
+  expect(await screen.findByRole("button", { name: "Drucken" })).toBeInTheDocument()
 })
 
 test("Drucken submits every page of the PDF", async () => {

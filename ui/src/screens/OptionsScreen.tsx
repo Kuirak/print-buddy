@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
 import { layout, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import type { PrintOptions, Rotation } from "../../../shared/print-options.ts"
@@ -23,10 +23,17 @@ export function OptionsScreen(props: {
   kind: FileKind
   /** The phone's copies of the files of the Print Job, in order. */
   files: File[]
-  /** What the server found out about each of them. */
+  /**
+   * The facts of each of them: what the browser read, until the server's replace them once the upload is
+   * done. Drucken waits for those, so what is sent is laid out from the server's facts.
+   */
   facts: FileFacts[]
+  /** While the upload runs: the part of all files' bytes the server has, 0 to 1. Drucken waits for it. */
+  uploading?: number
   /** The Print Options the person had chosen for these files before the login ran out. */
   initial?: PrintOptions
+  /** The Print Options as they are now, whenever they change, so that they survive a login that runs out meanwhile. */
+  onChange: (options: PrintOptions) => void
   onPrint: (options: PrintOptions) => void
   /** "Zurück": the person gives the job up. */
   onBack: () => void
@@ -34,22 +41,29 @@ export function OptionsScreen(props: {
   const presets = createPresets(untrack(() => props.kind))
   // the files never change while their options screen is open
   const files = untrack(() => props.files)
-  const facts = untrack(() => props.facts)
-  const source: LayoutInput["source"] =
-    facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
+  /** A PDF or photos, as the layout module names them. The facts can't change it: the server refuses a file of the other type. */
+  const kind = untrack(() => props.kind) === "pdf" ? "pdf" : "photos"
+  const source = createMemo((): LayoutInput["source"] => {
+    const facts = props.facts
+    return facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
+  })
   /** Every page of the PDF, counted from 1, or every photo, counted from 0: what the thumbnails show and the selection picks from. */
-  const refs = source.kind === "pdf" ? source.pages.map((_, index) => index + 1) : source.photos.map((_, index) => index)
+  const refs = createMemo(() => {
+    const known = source()
+    return known.kind === "pdf" ? known.pages.map((_, index) => index + 1) : known.photos.map((_, index) => index)
+  })
   // a new file starts from the starred Preset, never from the Print Options of the job before, with every page or photo selected
   const [options, setOptions] = createStore<PrintOptions>(structuredClone(untrack(() => props.initial)) ?? {
     ...structuredClone(presets.starred().values),
     rotation: 0,
-    selection: [...refs],
+    selection: [...untrack(refs)],
   })
+  createEffect(() => JSON.stringify(options), () => props.onChange(snapshot(options)))
 
   const [margins, setMargins] = createSignal<PaperMargins>()
   // what the preview draws: the PDF's pages through pdf.js, or the photos straight from the phone's copies
   const [pdf, setPdf] = createSignal<PdfPreview>()
-  const photoUrls = source.kind === "photos" ? files.map(file => URL.createObjectURL(file)) : []
+  const photoUrls = kind === "photos" ? files.map(file => URL.createObjectURL(file)) : []
   const [zoom, setZoom] = createSignal(1)
   onSettled(() => {
     let left = false
@@ -65,7 +79,7 @@ export function OptionsScreen(props: {
       }
     }
     void readMargins()
-    if (source.kind === "pdf") {
+    if (kind === "pdf") {
       void (async () => {
         opened = await openPdf(await files[0]!.arrayBuffer())
         if (left) void opened.destroy()
@@ -82,7 +96,9 @@ export function OptionsScreen(props: {
   /** Where everything sits, sheet by sheet. The preview, the percentage and the cut-off warning all read this. */
   const sheets = createMemo(() => {
     const known = margins()
-    return known && layout({ source, options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
+    // for a moment after the server's facts replaced the browser's, the selection may name pages that aren't there
+    if (!known || options.selection.some(ref => !refs().includes(ref))) return undefined
+    return layout({ source: source(), options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
   })
   /** Which sheet the person stepped to, counted from 0. It may point past the end after pages were left out. */
   const [step, setStep] = createSignal(0)
@@ -92,9 +108,9 @@ export function OptionsScreen(props: {
   /** What the preview shows and which sheet of how many it is, for one copy. */
   const sheetText = () => {
     const onSheet = shown()?.placements.map(placement => placement.ref)
-    if (!onSheet?.length) return source.kind === "pdf" ? "Keine Seiten ausgewählt" : "Keine Fotos ausgewählt"
+    if (!onSheet?.length) return kind === "pdf" ? "Keine Seiten ausgewählt" : "Keine Fotos ausgewählt"
     const place = `${current() + 1}/${sheets()!.length}`
-    if (source.kind === "photos") return `Foto ${place}`
+    if (kind === "photos") return `Foto ${place}`
     return `${onSheet.length === 1 ? "Seite" : "Seiten"} ${onSheet.join(" und ")} · ${place}`
   }
   const percent = () => {
@@ -118,7 +134,7 @@ export function OptionsScreen(props: {
     const photo = shown()?.placements[0]?.ref
     const quarterOn = (rotation: Rotation = 0) => ((rotation + 90) % 360) as Rotation
     setOptions(o => {
-      if (source.kind === "pdf") o.rotation = quarterOn(o.rotation)
+      if (kind === "pdf") o.rotation = quarterOn(o.rotation)
       else if (photo !== undefined) o.photoRotations = { ...o.photoRotations, [photo]: quarterOn(o.photoRotations?.[photo]) }
     })
   }
@@ -128,13 +144,19 @@ export function OptionsScreen(props: {
     const selected = options.selection.includes(ref)
     const selection = selected ? options.selection.filter(other => other !== ref) : [...options.selection, ref].sort((a, b) => a - b)
     setOptions(o => { o.selection = selection })
-    if (!selected) setStep(Math.floor(selection.indexOf(ref) / (source.kind === "pdf" ? options.pagesPerSheet : 1)))
+    if (!selected) setStep(Math.floor(selection.indexOf(ref) / (kind === "pdf" ? options.pagesPerSheet : 1)))
   }
 
   function select(selection: number[]) {
     setOptions(o => { o.selection = selection })
     setStep(0)
   }
+
+  // The server's facts agree with the browser's, unless the browser read the file differently: then every
+  // page or photo the server found is selected.
+  createEffect(refs, (now, before) => {
+    if (before && now.length !== before.length) select([...now])
+  })
 
   return (
     <>
@@ -163,7 +185,7 @@ export function OptionsScreen(props: {
           paper={SHEET_SIZES[options.paper]}
           margins={margins()?.[options.paper]}
           sheet={shown()}
-          source={source.kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
           grey={options.color === "mono"}
           zoom={zoom()}
         />
@@ -182,26 +204,34 @@ export function OptionsScreen(props: {
         <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
       </div>
       <Thumbnails
-        source={source.kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
-        refs={refs}
+        source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+        refs={refs()}
         selection={options.selection}
         grey={options.color === "mono"}
         onToggle={toggle}
-        onAll={() => select([...refs])}
+        onAll={() => select([...refs()])}
         onNone={() => select([])}
       />
-      <SummaryLine kind={source.kind} total={refs.length} options={options} percent={percent()} onChange={() => setOver("details")} />
+      <SummaryLine kind={kind} total={refs().length} options={options} percent={percent()} onChange={() => setOver("details")} />
       <div class="sticky bottom-0 mt-auto bg-white py-3">
-        {/* not before the layout is known: the confirmation says how many sheets, at what size, and whether something is cut off */}
-        <button type="button" class="btn-primary" disabled={options.selection.length === 0 || !sheets()} onClick={() => setOver("confirmation")}>
-          {options.selection.length > 0 ? "Drucken" : source.kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
+        {/* not before the layout is known: the confirmation says how many sheets, at what size, and whether something
+            is cut off; and not before the upload is done, so that it says it from the server's facts */}
+        <button
+          type="button"
+          class="btn-primary"
+          disabled={props.uploading !== undefined || options.selection.length === 0 || !sheets()}
+          onClick={() => setOver("confirmation")}
+        >
+          {props.uploading !== undefined
+            ? `Wird hochgeladen … ${Math.min(99, Math.round(props.uploading * 100))} %`
+            : options.selection.length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
         </button>
       </div>
     </main>
     <Show when={over() === "details"}>
       <OptionsDrawer
         options={options}
-        kind={source.kind}
+        kind={kind}
         presets={presets}
         onChange={changes => setOptions(o => { Object.assign(o, changes) })}
         onPickPreset={apply}
@@ -213,8 +243,8 @@ export function OptionsScreen(props: {
       {laidOut => (
         <Confirmation
           fileName={props.fileName}
-          kind={source.kind}
-          total={refs.length}
+          kind={kind}
+          total={refs().length}
           options={options}
           sheets={sheetCount(laidOut(), options.copies)}
           percent={percent()}

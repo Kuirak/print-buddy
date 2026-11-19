@@ -3,8 +3,9 @@ import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import { loggedInParam } from "../../shared/login.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { lostShare, sharedParam } from "../../shared/share-target.ts"
-import { addFile, checkSession, createDraft, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
+import { checkSession, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
+import { readFacts } from "./file-facts.ts"
 import { interruptedJob } from "./interrupted-job.ts"
 import { lastJob } from "./last-job.ts"
 import { phoneFiles } from "./phone-files.ts"
@@ -18,28 +19,31 @@ import { SendFailedScreen } from "./screens/SendFailedScreen.tsx"
 import { ShareAgainScreen } from "./screens/ShareAgainScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
-
-/** The phone's copy as the server holds it: `facts[i]` is what the server found out about `files[i]`. */
-type Draft = { draftId: string; files: File[]; facts: FileFacts[] }
+import { startUpload, type Upload } from "./upload.ts"
 
 // The files of a job are not in here from screen to screen: they are the phone's copy (phone-files.ts).
 type Screen =
   | { name: "start" }
-  /** A share has just come in and its files are on their way to the server. */
+  /** A share has just come in and the browser reads its files. */
   | { name: "opening" }
   /**
-   * One PDF, or photos in the order they were shared or picked. `initial`: the Print Options the screen
-   * starts with after the login, when the person had chosen them before it ran out.
+   * One PDF, or photos in the order they were shared or picked, while `upload` puts them on the server.
+   * `facts` are what the browser read from them, or the server's when the browser couldn't read them.
+   * `initial`: the Print Options the screen starts with after the login, when the person had chosen them before it ran out.
    */
-  | ({ name: "options"; initial?: PrintOptions } & Draft)
+  | { name: "options"; files: File[]; facts: FileFacts[]; upload: Upload; initial?: PrintOptions }
   /** `file` is the one the server refused. */
   | { name: "refusal"; refusal: Refusal; file: File }
   /** The files of the job are no longer on the phone: "Bitte nochmal teilen". */
   | { name: "share-again" }
   /** `options` is what was sent, kept for "Nochmal drucken". `since`: when CUPS accepted the job, by the phone's clock. */
   | { name: "status"; options: PrintOptions; job: JobSubmitted; since: number }
-  /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen"; `error` is what went wrong. */
-  | { name: "send-failed"; options: PrintOptions; error: unknown }
+  /**
+   * Sending didn't work; `error` is what went wrong. `options` is what the person chose, kept for "Erneut
+   * versuchen": after Drucken it sends them again. When the upload failed while the options screen
+   * showed (`printed: false`), it opens the options screen again with them.
+   */
+  | ({ name: "send-failed"; error: unknown } & ({ printed: true; options: PrintOptions } | { printed: false; options?: PrintOptions }))
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -70,8 +74,13 @@ export function App() {
    * told: on the Refusal screen the files are gone, and a new version must still not reload the page.
    */
   let filesHeld = opensInJob
-  /** The Print Options the person last tapped Drucken with in this job, for the way back from the login. */
-  let lastSent = interrupted?.options
+  /**
+   * The Print Options the person last chose in this job, on the options screen or with Drucken, for the
+   * way back from the login.
+   */
+  let chosen = interrupted?.options
+  /** The upload of the job's files, from its start until the person leaves the job or the server refused a file. */
+  let upload: Upload | undefined
 
   /** Cloudflare Access has answered a call with 401. Nothing else shows until the person has logged in again. */
   const [loginExpired, setLoginExpired] = createSignal(false)
@@ -80,7 +89,7 @@ export function App() {
     // what the page load of the login would lose; the files are on the phone already
     const current = screen()
     if (current.name === "status") interruptedJob.keep({ options: current.options, job: current.job, since: current.since })
-    else if (filesHeld) interruptedJob.keep({ options: lastSent })
+    else if (filesHeld) interruptedJob.keep({ options: chosen })
     setLoginExpired(true)
   })
 
@@ -96,69 +105,85 @@ export function App() {
 
   /**
    * The person leaves the job, or there is none after all: back to Start, or to "Bitte nochmal teilen"
-   * when it was the files that went missing. The phone forgets the files, and a new version of the app
-   * that waited may take over.
+   * when it was the files that went missing. A running upload stops, the phone forgets the files, and a
+   * new version of the app that waited may take over.
    */
   function leaveJob(to: "start" | "share-again" = "start") {
+    upload?.stop()
+    upload = undefined
     setScreen({ name: to })
     filesHeld = false
-    lastSent = undefined
+    chosen = undefined
     update.setJobInProgress(false)
     return phoneFiles.clear()
   }
 
   /**
-   * Uploads the phone's copy into a new draft. Every upload goes through here: after a share, after
-   * "Datei auswählen", and for "Nochmal drucken" and "Erneut versuchen".
-   * Resolves with nothing when there is nothing to print, and has then moved on itself: to "Bitte
-   * nochmal teilen" when the phone holds no files, to the Refusal when the server won't take one of
-   * them. The same when the login has run out: "Anmeldung abgelaufen" shows by then, and the files stay
-   * on the phone.
+   * Starts uploading the phone's copy into a new draft. Every upload goes through here: after a share,
+   * after "Datei auswählen", and for "Nochmal drucken" and "Erneut versuchen". When the server refuses a
+   * file, the Refusal screen shows, whatever screen shows then. Other failures are for the caller.
    */
-  async function uploadHeld(): Promise<Draft | undefined> {
+  function beginUpload(files: File[]): Upload {
+    upload?.stop()
+    const started = startUpload(files)
+    upload = started
+    void started.done.then(async end => {
+      if (upload !== started || !("refusal" in end)) return
+      // nothing prints, so there is no job to keep the files for
+      upload = undefined
+      filesHeld = false
+      await phoneFiles.clear()
+      setScreen({ name: "refusal", refusal: end.refusal, file: end.file })
+    }, () => {})
+    return started
+  }
+
+  /**
+   * Opens the options screen with the phone's copy, as soon as the browser has read the files' facts,
+   * and uploads them meanwhile. The way in for a share, for "Datei auswählen", for the way back from the
+   * login, which brings the Print Options chosen before it as `initial`, and for "Erneut versuchen" when
+   * the upload failed before Drucken. Goes to "Bitte nochmal teilen" when the phone holds no files.
+   */
+  async function openHeld(initial?: PrintOptions) {
     const files = await phoneFiles.held()
     // a share can arrive without its files (lost to the login, or crbug 563075800), and a browser may drop its storage
     if (files.length === 0) {
       await leaveJob("share-again")
-      return undefined
+      return
     }
-    try {
-      const { draftId } = await createDraft()
-      const facts: FileFacts[] = []
-      // one at a time, so the server holds the photos in the order they were shared or picked
-      for (const file of files) {
-        const answer = await addFile(draftId, file)
-        if ("refusal" in answer) {
-          // nothing prints, so there is no job to keep the files for
-          await phoneFiles.clear()
-          filesHeld = false
-          setScreen({ name: "refusal", refusal: answer, file })
-          return undefined
-        }
-        facts.push(answer)
-      }
-      return { draftId, files, facts }
-    } catch (failure) {
-      if (isLoginExpired(failure)) return undefined
-      throw failure
-    }
-  }
-
-  /**
-   * Opens the options screen with the phone's copy. The way in for a share, for "Datei auswählen" and
-   * for the way back from the login, which brings the Print Options chosen before it as `initial`.
-   */
-  async function openHeld(initial?: PrintOptions) {
-    const draft = await uploadHeld()
-    if (draft) setScreen({ name: "options", ...draft, initial })
+    const started = beginUpload(files)
+    // a 401 shows "Anmeldung abgelaufen" by itself, and the files stay on the phone for after the login
+    started.done.catch(error => {
+      if (upload !== started || isLoginExpired(error)) return
+      upload = undefined
+      setScreen({ name: "send-failed", printed: false, options: chosen, error })
+    })
+    // a file the browser can't read waits for the server, which may refuse it
+    const facts = await readFacts(files) ?? await started.done.then(end => "draft" in end ? end.draft.facts : undefined, () => undefined)
+    if (facts && upload === started) setScreen({ name: "options", files, facts, upload: started, initial })
   }
 
   async function pick(files: File[]) {
     filesHeld = true
-    lastSent = undefined
+    chosen = undefined
     update.setJobInProgress(true)
     await phoneFiles.keep(files)
     await openHeld()
+  }
+
+  /**
+   * Uploads the phone's copy into a new draft and resolves with its id once every file is there. Resolves
+   * with nothing when there is nothing to print, and has then moved on itself: to "Bitte nochmal teilen"
+   * when the phone holds no files, to the Refusal when the server won't take one of them.
+   */
+  async function uploadHeld(): Promise<string | undefined> {
+    const files = await phoneFiles.held()
+    if (files.length === 0) {
+      await leaveJob("share-again")
+      return undefined
+    }
+    const end = await beginUpload(files).done
+    return "draft" in end ? end.draft.draftId : undefined
   }
 
   // a second tap while the first is on its way must not print twice
@@ -170,15 +195,15 @@ export function App() {
   async function print(options: PrintOptions, draftId?: string) {
     if (sending) return
     sending = true
-    lastSent = options
+    chosen = options
     try {
-      draftId ??= (await uploadHeld())?.draftId
+      draftId ??= await uploadHeld()
       if (draftId === undefined) return
       const job = await submitDraft(draftId, options)
       lastJob.remember(job)
       setScreen({ name: "status", options, job, since: Date.now() })
     } catch (error) {
-      if (!isLoginExpired(error)) setScreen({ name: "send-failed", options, error })
+      if (!isLoginExpired(error)) setScreen({ name: "send-failed", printed: true, options, error })
     } finally {
       sending = false
     }
@@ -203,15 +228,18 @@ export function App() {
         <Match when={on("share-again")}>
           <ShareAgainScreen onPick={files => void pick(files)} />
         </Match>
-        <Match when={on("options")}>
+        {/* keyed: new files get a new options screen */}
+        <Match when={on("options")} keyed>
           {options => (
             <OptionsScreen
-              fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
-              files={options().files}
-              facts={options().facts}
-              kind={fileKind(options().facts)}
-              initial={options().initial}
-              onPrint={chosen => void print(chosen, options().draftId)}
+              fileName={options.files.length === 1 ? options.files[0]!.name : `${options.files.length} Fotos`}
+              files={options.files}
+              facts={options.upload.draft()?.facts ?? options.facts}
+              uploading={options.upload.draft() ? undefined : options.upload.progress()}
+              kind={fileKind(options.facts)}
+              initial={options.initial}
+              onChange={changed => { chosen = changed }}
+              onPrint={changed => void print(changed, options.upload.draft()?.draftId)}
               onBack={() => void leaveJob()}
             />
           )}
@@ -231,7 +259,11 @@ export function App() {
           {failed => (
             <SendFailedScreen
               report={{ happened: sendFailure(failed().error), files: phoneFiles.held, options: failed().options }}
-              onRetry={() => void print(failed().options)}
+              onRetry={() => {
+                const current = failed()
+                if (current.printed) void print(current.options)
+                else void openHeld(current.options)
+              }}
               onClose={() => void leaveJob()}
             />
           )}
