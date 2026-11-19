@@ -10,7 +10,7 @@ import { sessionRoutes } from "./http/session.ts"
 import { printerRoutes } from "./http/printer.ts"
 import { uiRoutes } from "./http/ui.ts"
 import { createIntake } from "./intake.ts"
-import { createJobStore } from "./job-store.ts"
+import { openJobStore } from "./job-store.ts"
 import { createPrinterClient } from "./printer/client.ts"
 
 export interface AppDeps {
@@ -26,7 +26,7 @@ export interface AppDeps {
  */
 export async function createApp(deps: AppDeps) {
   const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
-  const jobs = createJobStore({ jobsDir: deps.config.jobsDir, now: deps.now })
+  const jobs = await openJobStore({ jobsDir: deps.config.jobsDir, now: deps.now })
   const printer = createPrinterClient(deps.config.printerUri)
   await printer.loadMargins()
 

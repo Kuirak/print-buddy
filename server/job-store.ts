@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rename, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { extname, join } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import type { CupsJobDetails } from "../shared/api.ts"
@@ -30,16 +30,35 @@ export interface NewPrintJob extends Pick<PrintJob, "cupsJobId" | "sheets" | "op
   uploads: readonly string[]
 }
 
-export type JobStore = ReturnType<typeof createJobStore>
+export type JobStore = Awaited<ReturnType<typeof openJobStore>>
+
+/** A job folder's name: the UTC day the job was sent, then the job id. */
+const jobFolderName = /^(\d{4}-\d{2}-\d{2})_([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/
 
 /**
  * Job store: one folder per Print Job, `<date>_<job-id>` under the jobs directory, with the uploads
  * (`upload-<n>`), the PDF that was sent to CUPS (`print.pdf`) and the record (`job.json`).
- * The date is the UTC day the job was sent.
+ * Opening it reads the records of the job folders that are already there.
  */
-export function createJobStore(deps: { jobsDir: string; now: Now }) {
+export async function openJobStore(deps: { jobsDir: string; now: Now }) {
   const jobs = new Map<string, PrintJob>()
   const folderOf = (job: PrintJob) => join(deps.jobsDir, `${new Date(job.sentAt).toISOString().slice(0, 10)}_${job.id}`)
+
+  await mkdir(deps.jobsDir, { recursive: true })
+  for (const name of await readdir(deps.jobsDir)) {
+    if (!jobFolderName.test(name)) continue
+    try {
+      // written by writeRecord below, so it is read back without further checks
+      const record = JSON.parse(await readFile(join(deps.jobsDir, name, "job.json"), "utf8"))
+      jobs.set(record.id, {
+        ...record,
+        sentAt: Date.parse(record.sentAt),
+        endedAt: record.endedAt === null ? null : Date.parse(record.endedAt),
+      })
+    } catch (err) {
+      console.warn(`Print Job folder ${name} has no readable job.json:`, err instanceof Error ? err.message : err)
+    }
+  }
 
   // one write at a time, in the order of the changes: two writes of one job.json at once could leave a mix of both
   let lastWrite: Promise<void> = Promise.resolve()

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { readdir, readFile, stat } from "node:fs/promises"
 import { join } from "node:path"
 import { test } from "node:test"
+import type { JobStatus } from "../shared/api.ts"
 import { JobState } from "./printer/ipp-codec.ts"
 import { sampleJpeg, samplePdf, samplePng } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
@@ -125,4 +126,36 @@ test("job.json is written again only when something about the Print Job changed"
   await server.request(`/api/jobs/${jobId}`)
 
   assert.equal(await writtenAt(), before)
+})
+
+test("a Print Job can still be read, and still follows CUPS, after the server restarts", async t => {
+  const sentAt = Date.UTC(2026, 10, 19, 8, 30, 0)
+  const server = await startTestServer({ now: sentAt })
+  t.after(server.close)
+  const { jobId, cupsJobId } = await server.print({ copies: 3 })
+  server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "Connected to printer.")
+  const before = await (await server.request(`/api/jobs/${jobId}`)).json()
+
+  await server.restart()
+
+  const after = await server.request(`/api/jobs/${jobId}`)
+  assert.equal(after.status, 200)
+  assert.deepEqual(await after.json(), before)
+  assert.deepEqual(before, {
+    jobId,
+    state: "printing",
+    reason: null,
+    details: { jobState: "processing", jobStateReasons: ["job-printing"], printerMessage: "Connected to printer." },
+    cupsJobId: 1,
+    sentAt,
+    endedAt: null,
+    sheets: 3,
+  })
+
+  server.clock.advance(20_000)
+  server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"], "Print file sent.")
+  const ended = await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus
+  assert.equal(ended.state, "done")
+  assert.equal(ended.endedAt, sentAt + 20_000)
+  assert.equal((await recorded(server, jobId)).endedAt, "2026-11-19T08:30:20.000Z")
 })
