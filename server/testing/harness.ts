@@ -49,9 +49,15 @@ export async function startTestServer(opts: TestServerOptions = {}) {
     PRINT_BUDDY_JOBS_DIR: jobsDir,
     PRINT_BUDDY_PORT: "0",
   })
-  const server = await startServer(config, { now: clock.now, hostname: "127.0.0.1", uiDir })
-  // what the server asked the printer while starting is set aside, so `printer.requests` holds only what a test caused
-  const startupRequests = printer.requests.splice(0)
+  // what the server asks the printer while starting is set aside, so `printer.requests` holds only what a test caused
+  const startupRequests: typeof printer.requests = []
+  async function start() {
+    const asked = printer.requests.length
+    const running = await startServer(config, { now: clock.now, hostname: "127.0.0.1", uiDir })
+    startupRequests.push(...printer.requests.splice(asked))
+    return running
+  }
+  let server = await start()
 
   const request = (path: string, init?: RequestInit) => fetch(server.url + path, init)
   const post = (path: string, body?: unknown) => request(path, {
@@ -67,13 +73,14 @@ export async function startTestServer(opts: TestServerOptions = {}) {
   }
 
   return {
-    url: server.url,
+    /** Changes with `restart()`. */
+    get url() { return server.url },
     /**
      * The fake IPP printer: `printer.requests`, `printer.jobs`, `printer.setJob(...)`, `printer.printer`.
      * `printer.requests` starts empty: see `startupRequests`.
      */
     printer,
-    /** The IPP requests the server made while it started (the read of the printable margins). */
+    /** The IPP requests the server made while it started (the read of the printable margins), restarts included. */
     startupRequests,
     /** Stands in for /share/print-buddy/jobs. */
     jobsDir,
@@ -93,6 +100,13 @@ export async function startTestServer(opts: TestServerOptions = {}) {
       const { draftId } = await (await post("/api/drafts")).json() as { draftId: string }
       for (const [i, file] of files.entries()) await upload(draftId, file, `file-${i + 1}`)
       return await (await submit(draftId, overrides)).json() as { jobId: string; cupsJobId: number }
+    },
+    /** What the server does every hour: delete old job folders and drafts. Call it after `clock.advance(…)`. */
+    cleanup: () => server.cleanup(),
+    /** Stops the server and starts it again on the same directories, as a restart of the add-on does. */
+    async restart() {
+      await server.close()
+      server = await start()
     },
     async close() {
       await server.close()

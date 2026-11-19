@@ -21,7 +21,13 @@ To open Print Buddy inside the home network as well, enter `9217` as the host po
 
 ## Job files
 
-Each print job has its own folder under `/share/print-buddy/jobs/`. Print Buddy deletes old ones itself. The `share` folder is not part of this add-on's backup.
+Each print job has its own folder under `/share/print-buddy/jobs/`, named by date and job id. Open it with File Browser or Samba when something went wrong. It holds:
+
+- `upload-1.pdf`, or `upload-1.jpg`, `upload-2.png` and so on: the files as the phone sent them.
+- `print.pdf`: the PDF that was sent to CUPS.
+- `job.json`: the print options, the sheet count, the CUPS job number, the times, and what CUPS last said about the job. It holds no names and no emails.
+
+Print Buddy deletes a job folder 7 days after the job was sent, and uploads that were never printed after 1 hour. It checks when it starts and every hour. Other files in that folder are left alone. The `share` folder is not part of this add-on's backup.
 
 ## Updates
 

@@ -1,15 +1,20 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { once } from "node:events"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import { startFakeIpp } from "./testing/fake-ipp.ts"
 
 // The add-on runs with `init: false`, so node is PID 1 and gets the Supervisor's SIGTERM itself.
 test("SIGTERM stops the server cleanly, even with a connection still open", async t => {
   const dir = await mkdtemp(join(tmpdir(), "print-buddy-shutdown-"))
   t.after(() => rm(dir, { recursive: true, force: true }))
+  // a printer that answers: without one the server waits 5 s for the margins before it listens
+  const printer = await startFakeIpp()
+  t.after(printer.close)
+  await writeFile(join(dir, "options.json"), JSON.stringify({ printer_uri: printer.uri }))
 
   const child = spawn(process.execPath, [join(import.meta.dirname, "main.ts")], {
     env: {

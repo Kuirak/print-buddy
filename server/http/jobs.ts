@@ -1,5 +1,5 @@
 import { Hono } from "hono"
-import type { ApiError, JobStatus } from "../../shared/api.ts"
+import type { ApiError, CupsJobDetails, JobStatus } from "../../shared/api.ts"
 import type { Now } from "../clock.ts"
 import type { JobStore, PrintJob } from "../job-store.ts"
 import type { PrinterClient } from "../printer/client.ts"
@@ -25,15 +25,16 @@ export function jobRoutes(deps: { jobs: JobStore; printer: PrinterClient; now: N
    */
   async function refresh(job: PrintJob): Promise<PrintJob> {
     if (job.endedAt !== null) return job
+    let details: CupsJobDetails
     try {
-      const details = await deps.printer.getJobAttributes(job.cupsJobId)
-      const { state } = mapStatus(details, job.cancelled)
-      const ended = state !== "waiting" && state !== "printing"
-      return deps.jobs.update(job, { details, endedAt: ended ? deps.now() : null })
+      details = await deps.printer.getJobAttributes(job.cupsJobId)
     } catch (err) {
       console.warn(`CUPS did not answer for job ${job.cupsJobId}:`, err instanceof Error ? err.message : err)
       return job
     }
+    const { state } = mapStatus(details, job.cancelled)
+    const ended = state !== "waiting" && state !== "printing"
+    return deps.jobs.update(job, { details, endedAt: ended ? deps.now() : null })
   }
 
   app.get("/api/jobs/:jobId", async c => {
@@ -49,7 +50,7 @@ export function jobRoutes(deps: { jobs: JobStore; printer: PrinterClient; now: N
     const job = await refresh(known)
     const refused = status(job).state !== "waiting" || !(await deps.printer.cancelJob(job.cupsJobId))
     if (refused) return c.json<ApiError>({ error: "not-cancellable" }, 409)
-    return c.json<JobStatus>(status(await refresh(deps.jobs.update(job, { cancelled: true }))))
+    return c.json<JobStatus>(status(await refresh(await deps.jobs.update(job, { cancelled: true }))))
   })
 
   return app
