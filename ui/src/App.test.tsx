@@ -4,6 +4,7 @@ import { expect, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
+import { closeDetails, confirmation, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 test("pick a PDF, tap Drucken, and follow the Print Job on the status screen", async () => {
   const api = mockApi({
@@ -19,7 +20,7 @@ test("pick a PDF, tap Drucken, and follow the Print Job on the status screen", a
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf)
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
 
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
   expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
 
@@ -44,7 +45,8 @@ test("tapping Drucken twice sends one Print Job", async () => {
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
 
-  const drucken = await screen.findByRole("button", { name: "Drucken" })
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  const drucken = within(confirmation()).getByRole("button", { name: "Drucken" })
   await user.click(drucken)
   await user.click(drucken)
   accept(json({ jobId: "j1", cupsJobId: 7 }, 201))
@@ -63,7 +65,7 @@ test("Schließen on Fertig leads back to Start", async () => {
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   expect(await screen.findByRole("heading", { name: "Fertig" })).toBeInTheDocument()
 
   await user.click(screen.getByRole("button", { name: "Schließen" }))
@@ -87,9 +89,11 @@ test("Nochmal drucken on Fertig sends the same file with the same Print Options 
   const pdf = new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" })
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf)
-  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
   await user.click(within(screen.getByRole("radiogroup", { name: "Farbe" })).getByRole("radio", { name: "Farbe" }))
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await closeDetails(user)
+  await printAndConfirm(user)
   expect(await screen.findByRole("heading", { name: "Fertig" })).toBeInTheDocument()
   expect(screen.getByText("gedauert 1:15")).toBeInTheDocument()
 
@@ -201,7 +205,7 @@ test("Drucken submits every page of the PDF", async () => {
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
 
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
 
   await screen.findByText("Auftrag Nr. 42")
   const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
@@ -219,7 +223,7 @@ test("Drucken submits every picked photo, in the order they were picked", async 
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), [photo("IMG_3.jpg"), photo("IMG_1.jpg"), photo("IMG_2.jpg")])
 
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
 
   await screen.findByText("Auftrag Nr. 42")
   const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
@@ -242,10 +246,12 @@ test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, wh
   const pdf = new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" })
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf)
-  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
   await user.click(within(screen.getByRole("radiogroup", { name: "Farbe" })).getByRole("radio", { name: "Farbe" }))
+  await closeDetails(user)
 
-  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
 
   expect(await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })).toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Drucken" })).not.toBeInTheDocument()
@@ -287,7 +293,7 @@ test("when the server can't be reached at all, Drucken hat nicht geklappt keeps 
   const photos = [photo("a.jpg"), photo("b.jpg")]
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), photos)
-  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await printAndConfirm(user)
   expect(await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })).toBeInTheDocument()
 
   // still offline: the upload of the retry fails too
