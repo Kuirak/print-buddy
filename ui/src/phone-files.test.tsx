@@ -186,3 +186,23 @@ test("when the phone no longer holds the files, Nochmal drucken says Bitte nochm
     "/api/drafts/d1/submit",
   ])
 })
+
+test("Schließen on Drucken hat nicht geklappt leads back to Start, and the phone forgets the file", async () => {
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
+    "POST /api/drafts/d1/submit": () => json({ error: "cups-unreachable" }, 502),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
+  await user.click(await screen.findByRole("button", { name: "Drucken" }))
+  await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })
+  expect(await names()).toEqual(["Rechnung.pdf"])
+
+  await user.click(screen.getByRole("button", { name: "Schließen" }))
+
+  expect(screen.getByRole("heading", { name: "Print Buddy" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+  await expect.poll(names).toEqual([])
+})

@@ -216,7 +216,7 @@ export function App() {
           )}
         </Match>
         <Match when={on("send-failed")}>
-          {failed => <SendFailedScreen onRetry={() => void print(failed().options)} />}
+          {failed => <SendFailedScreen onRetry={() => void print(failed().options)} onClose={() => void leaveJob()} />}
         </Match>
       </Switch>
     </div>
