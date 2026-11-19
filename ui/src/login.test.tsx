@@ -142,3 +142,19 @@ test("when the phone's copy is gone after the login, the app says Bitte nochmal 
   expect(await screen.findByText("Neu.pdf")).toBeInTheDocument()
   expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
 })
+
+test("a share that went to the server, as one lost to the login does, says Bitte nochmal teilen and never opens what an earlier job left", async () => {
+  const api = mockApi({})
+  // the person closed the app in the middle of yesterday's job
+  await phoneFiles.keep([pdf("Gestern.pdf")])
+  // where the server sends the browser from /share-target (server/share-target.test.ts)
+  history.replaceState(null, "", "/?shared=lost")
+
+  render(() => <App />)
+
+  expect(screen.getByRole("heading", { name: "Bitte nochmal teilen" })).toBeInTheDocument()
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+  await expect.poll(() => phoneFiles.held()).toEqual([])
+  expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["GET /api/session"])
+  expect(location.search).toBe("")
+})

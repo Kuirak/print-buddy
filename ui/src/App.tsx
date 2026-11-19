@@ -2,7 +2,7 @@ import { createSignal, Match, onSettled, Switch } from "solid-js"
 import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import { loggedInParam } from "../../shared/login.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
-import { sharedParam } from "../../shared/share-target.ts"
+import { lostShare, sharedParam } from "../../shared/share-target.ts"
 import { addFile, checkSession, createDraft, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
 import { interruptedJob } from "./interrupted-job.ts"
@@ -41,15 +41,17 @@ type Screen =
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
   const address = new URLSearchParams(location.search)
+  /** The share went to the server, with or without the login in between: its files are not on the phone. */
+  const shareLost = address.get(sharedParam) === lostShare
   /** The service worker has put a share on the phone and sent the browser here. */
-  const shared = address.has(sharedParam)
+  const shared = address.has(sharedParam) && !shareLost
   // taken on every open, so that it can't outlive the page load it was kept for
   const kept = interruptedJob.take()
   /** The person is back from the login, which ran out in the middle of this job. */
   const interrupted = address.has(loggedInParam) ? kept : undefined
   /** The app opens in the middle of a job, and the phone holds its files. */
   const opensInJob = shared || interrupted !== undefined
-  const [screen, setScreen] = createSignal<Screen>({ name: opensInJob ? "opening" : "start" })
+  const [screen, setScreen] = createSignal<Screen>({ name: opensInJob ? "opening" : shareLost ? "share-again" : "start" })
   const on = <N extends Screen["name"]>(name: N) => {
     const current = screen()
     return current.name === name ? (current as Extract<Screen, { name: N }>) : undefined
