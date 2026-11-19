@@ -11,7 +11,7 @@ import { shareTargetRoutes } from "./http/share-target.ts"
 import { printerRoutes } from "./http/printer.ts"
 import { uiRoutes } from "./http/ui.ts"
 import { createIntake } from "./intake.ts"
-import { createJobStore } from "./job-store.ts"
+import { openJobStore } from "./job-store.ts"
 import { createPrinterClient } from "./printer/client.ts"
 
 export interface AppDeps {
@@ -24,10 +24,11 @@ export interface AppDeps {
 /**
  * Wires the modules together. One route file per resource under `http/`; mount new ones here.
  * Asks CUPS for the printable margins before it returns; a silent CUPS costs a few seconds, not the start.
+ * `cleanup` deletes what is no longer kept; the caller decides when it runs.
  */
 export async function createApp(deps: AppDeps) {
-  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
-  const jobs = createJobStore({ now: deps.now })
+  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb, now: deps.now })
+  const jobs = await openJobStore({ jobsDir: deps.config.jobsDir, now: deps.now })
   const printer = createPrinterClient(deps.config.printerUri)
   await printer.loadMargins()
 
@@ -41,5 +42,11 @@ export async function createApp(deps: AppDeps) {
   // keep these two last: they catch what no route above answered
   app.all("/api/*", c => c.json<ApiError>({ error: "not-found" }, 404))
   app.route("/", uiRoutes({ uiDir: deps.uiDir }))
-  return app
+  return {
+    fetch: app.fetch,
+    async cleanup(): Promise<void> {
+      await jobs.cleanup()
+      await intake.cleanup()
+    },
+  }
 }

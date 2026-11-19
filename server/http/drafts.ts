@@ -42,7 +42,8 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
   })
 
   app.post("/api/drafts/:draftId/submit", async c => {
-    const files = deps.intake.files(c.req.param("draftId"))
+    const draftId = c.req.param("draftId")
+    const files = deps.intake.files(draftId)
     if (!files) return c.json(notFound, 404)
     if (files.length === 0) return c.json<ApiError>({ error: "empty-draft" }, 400)
     const options = parsePrintOptions(await c.req.json().catch(() => undefined))
@@ -59,12 +60,17 @@ export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: Pri
       return failed("render-failed", 500, err)
     }
     if (rendered.outcome === "invalid-options") return c.json<ApiError>({ error: "invalid-options" }, 400)
-    const sent = await deps.printer.printJob(rendered.pdf, options).catch((err: unknown) => (
+    // the bytes CUPS gets are the bytes the job folder keeps
+    const { pdf } = rendered
+    const sent = await deps.printer.printJob(pdf, options).catch((err: unknown) => (
       failed(err instanceof IppRefusal ? "cups-rejected" : "cups-unreachable", 502, err)
     ))
     if (sent instanceof Response) return sent
     const { cupsJobId, details } = sent
-    const job = deps.jobs.add({ cupsJobId, sheets: rendered.sheets * options.copies, details })
+    const uploads = files.map(file => file.path)
+    const job = await deps.jobs.add({ cupsJobId, sheets: rendered.sheets * options.copies, options, details, pdf, uploads })
+    // the uploads are in the job folder now
+    await deps.intake.discard(draftId)
     return c.json<JobSubmitted>({ jobId: job.id, cupsJobId }, 201)
   })
 
