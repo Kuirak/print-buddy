@@ -199,3 +199,68 @@ test("a failed Print Job shows Fehler with the German reason", async () => {
   expect(onPrintAgain).toHaveBeenCalledTimes(1)
   expect(onClose).toHaveBeenCalledTimes(1)
 })
+
+test("Fehler has Details, closed at first, with what CUPS said and the CUPS job number", async () => {
+  mockApi({
+    "GET /api/jobs/j1": () => jobStatus({
+      state: "error",
+      reason: "Kein Papier im Drucker.",
+      endedAt: sentAt + 9_000,
+      details: {
+        jobState: "aborted",
+        jobStateReasons: ["aborted-by-system"],
+        printerStateReasons: ["media-empty-error"],
+        printerMessage: "Job aborted after 5 unsuccessful attempts.",
+      },
+    }),
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  renderStatusScreen()
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(screen.getByText("Kein Papier im Drucker.")).toBeInTheDocument()
+  const details = screen.getByRole("button", { name: "Details" })
+  expect(details).toHaveAttribute("aria-expanded", "false")
+  expect(screen.queryByText("Job aborted after 5 unsuccessful attempts.")).not.toBeInTheDocument()
+
+  await user.click(details)
+
+  expect(details).toHaveAttribute("aria-expanded", "true")
+  expect(screen.getByText("Job aborted after 5 unsuccessful attempts.")).toBeInTheDocument()
+  expect(screen.getByText("CUPS-Auftrag Nr. 42")).toBeInTheDocument()
+  expect(screen.getByText("aborted")).toBeInTheDocument()
+  expect(screen.getByText("aborted-by-system, media-empty-error")).toBeInTheDocument()
+
+  await user.click(details)
+
+  expect(screen.queryByText("Job aborted after 5 unsuccessful attempts.")).not.toBeInTheDocument()
+})
+
+test("Fehler links to the CUPS web page on the Household network", async () => {
+  mockApi({
+    "GET /api/jobs/j1": () => jobStatus({ state: "error", reason: "Beim Drucken ist ein Fehler aufgetreten.", endedAt: sentAt + 9_000 }),
+  })
+  renderStatusScreen()
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(screen.getByRole("link", { name: "CUPS-Seite öffnen (nur im Heimnetz)" })).toHaveAttribute("href", "http://homeassistant.local:631")
+})
+
+test("Details and the CUPS link are for Fehler only", async () => {
+  let answer = jobStatus()
+  mockApi({ "GET /api/jobs/j1": () => answer })
+  renderStatusScreen()
+
+  const states = [
+    { word: "Wartet", status: jobStatus({ reason: "Der Drucker ist in CUPS angehalten." }) },
+    { word: "Wird gedruckt", status: jobStatus({ state: "printing", reason: "Kein Papier im Drucker." }) },
+    { word: "Fertig", status: jobStatus({ state: "done", endedAt: sentAt + 4_000 }) },
+  ]
+  for (const { word, status } of states) {
+    answer = status
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(screen.getByRole("heading")).toHaveTextContent(word)
+    expect(screen.queryByRole("button", { name: "Details" }), word).not.toBeInTheDocument()
+    expect(screen.queryByRole("link"), word).not.toBeInTheDocument()
+  }
+})

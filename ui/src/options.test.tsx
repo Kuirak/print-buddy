@@ -9,7 +9,7 @@ import { json, mockApi } from "./testing/mock-api.ts"
 async function openOptions() {
   const api = mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),
-    "POST /api/drafts/d1/files": () => json({ kind: "pdf" }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
     "POST /api/drafts/d1/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
     "GET /api/jobs/j1": () => jobStatus(),
   })
@@ -41,7 +41,7 @@ test("a new PDF is submitted with one copy, black and white, on A4, in normal qu
 
   expect(await print()).toEqual({
     copies: 1, color: "mono", paper: "A4", quality: "normal",
-    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [],
+    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
   })
 })
 

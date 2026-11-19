@@ -1,5 +1,6 @@
 import { createStore, snapshot, untrack } from "solid-js"
 import type { JSX } from "@solidjs/web"
+import type { FileFacts } from "../../../shared/api.ts"
 import { maxCopies, type PrintOptions } from "../../../shared/print-options.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { PresetActions } from "../controls/PresetActions.tsx"
@@ -33,10 +34,21 @@ function Row(props: { label: string; children: JSX.Element }) {
   )
 }
 
-export function OptionsScreen(props: { fileName: string; kind: FileKind; onPrint: (options: PrintOptions) => void }) {
+/** Every page of the PDF (counted from 1), or every photo (counted from 0): what a new file starts with. */
+function everything(facts: readonly FileFacts[]): number[] {
+  const pdf = facts[0]?.kind === "pdf" ? facts[0] : undefined
+  return pdf ? Array.from({ length: pdf.pageCount }, (_, i) => i + 1) : facts.map((_, i) => i)
+}
+
+/** `facts`: what the server found out about the files of the Print Job, in order. */
+export function OptionsScreen(props: { fileName: string; kind: FileKind; facts: readonly FileFacts[]; onPrint: (options: PrintOptions) => void }) {
   const presets = createPresets(untrack(() => props.kind))
   // a new file starts from the starred Preset, never from the settings of the job before
-  const [options, setOptions] = createStore<PrintOptions>({ ...structuredClone(presets.starred().values), rotation: 0, selection: [] })
+  const [options, setOptions] = createStore<PrintOptions>({
+    ...structuredClone(presets.starred().values),
+    rotation: 0,
+    selection: untrack(() => everything(props.facts)),
+  })
 
   /** Sets what the Preset stores. Page selection and rotation stay as they are. */
   function apply(preset: Preset) {

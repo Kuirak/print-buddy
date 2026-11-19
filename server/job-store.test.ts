@@ -51,7 +51,7 @@ test("job.json holds the Print Options, sheet count, CUPS job number, times and 
       copies: 2, color: "color", paper: "A4", quality: "normal",
       printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
     },
-    details: { jobState: "pending", jobStateReasons: ["none"], printerMessage: "" },
+    details: { jobState: "pending", jobStateReasons: ["none"], printerStateReasons: [], printerMessage: "" },
     cancelled: false,
   })
   assert.doesNotMatch(text + (await readdir(folder)).join(), /Anna|Beispiel|example\.org/)
@@ -83,7 +83,7 @@ test("job.json follows the Print Job: what CUPS last said, and when the job ende
   server.printer.setJob(cupsJobId, JobState.processing, ["job-printing"], "Connected to printer.")
   await server.request(`/api/jobs/${jobId}`)
   assert.deepEqual(await recorded(server, jobId), {
-    details: { jobState: "processing", jobStateReasons: ["job-printing"], printerMessage: "Connected to printer." },
+    details: { jobState: "processing", jobStateReasons: ["job-printing"], printerStateReasons: ["none"], printerMessage: "Connected to printer." },
     endedAt: null,
     cancelled: false,
   })
@@ -92,7 +92,7 @@ test("job.json follows the Print Job: what CUPS last said, and when the job ende
   server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"], "Print file sent.")
   await server.request(`/api/jobs/${jobId}`)
   assert.deepEqual(await recorded(server, jobId), {
-    details: { jobState: "completed", jobStateReasons: ["job-completed-successfully"], printerMessage: "Print file sent." },
+    details: { jobState: "completed", jobStateReasons: ["job-completed-successfully"], printerStateReasons: ["none"], printerMessage: "Print file sent." },
     endedAt: "2026-11-19T08:31:15.000Z",
     cancelled: false,
   })
@@ -145,7 +145,7 @@ test("a Print Job can still be read, and still follows CUPS, after the server re
     jobId,
     state: "printing",
     reason: null,
-    details: { jobState: "processing", jobStateReasons: ["job-printing"], printerMessage: "Connected to printer." },
+    details: { jobState: "processing", jobStateReasons: ["job-printing"], printerStateReasons: ["none"], printerMessage: "Connected to printer." },
     cupsJobId: 1,
     sentAt,
     endedAt: null,
