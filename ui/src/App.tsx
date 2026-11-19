@@ -4,8 +4,10 @@ import type { PrintOptions } from "../../shared/print-options.ts"
 import { sharedParam } from "../../shared/share-target.ts"
 import { addFile, createDraft, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
+import { lastJob } from "./last-job.ts"
 import { phoneFiles } from "./phone-files.ts"
 import { fileKind } from "./presets.ts"
+import { sendFailure } from "./report.ts"
 import { OpeningScreen } from "./screens/OpeningScreen.tsx"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
@@ -23,11 +25,12 @@ type Screen =
   | { name: "opening" }
   /** One PDF, or photos in the order they were shared or picked. */
   | ({ name: "options" } & Draft)
-  | { name: "refusal"; refusal: Refusal }
+  /** `file` is the one the server refused. */
+  | { name: "refusal"; refusal: Refusal; file: File }
   /** `options` is what was sent, kept for "Nochmal drucken". */
   | { name: "status"; options: PrintOptions; job: JobSubmitted }
-  /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen". */
-  | { name: "send-failed"; options: PrintOptions }
+  /** Sending didn't work. `options` is what the person chose, kept for "Erneut versuchen"; `error` is what went wrong. */
+  | { name: "send-failed"; options: PrintOptions; error: unknown }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -84,7 +87,7 @@ export function App() {
       if ("refusal" in answer) {
         // nothing prints, so there is no job to keep the files for
         await phoneFiles.clear()
-        setScreen({ name: "refusal", refusal: answer })
+        setScreen({ name: "refusal", refusal: answer, file })
         return undefined
       }
       facts.push(answer)
@@ -116,9 +119,11 @@ export function App() {
     try {
       draftId ??= (await uploadHeld())?.draftId
       if (draftId === undefined) return
-      setScreen({ name: "status", options, job: await submitDraft(draftId, options) })
-    } catch {
-      setScreen({ name: "send-failed", options })
+      const job = await submitDraft(draftId, options)
+      lastJob.remember(job)
+      setScreen({ name: "status", options, job })
+    } catch (error) {
+      setScreen({ name: "send-failed", options, error })
     } finally {
       sending = false
     }
@@ -134,7 +139,7 @@ export function App() {
           <OpeningScreen />
         </Match>
         <Match when={on("refusal")}>
-          {refused => <RefusalScreen refusal={refused().refusal} onPick={files => void pick(files)} />}
+          {refused => <RefusalScreen refusal={refused().refusal} file={refused().file} onPick={files => void pick(files)} />}
         </Match>
         <Match when={on("options")}>
           {options => (
@@ -153,7 +158,12 @@ export function App() {
           )}
         </Match>
         <Match when={on("send-failed")}>
-          {failed => <SendFailedScreen onRetry={() => void print(failed().options)} />}
+          {failed => (
+            <SendFailedScreen
+              report={{ happened: sendFailure(failed().error), files: phoneFiles.held, options: failed().options }}
+              onRetry={() => void print(failed().options)}
+            />
+          )}
         </Match>
       </Switch>
     </div>

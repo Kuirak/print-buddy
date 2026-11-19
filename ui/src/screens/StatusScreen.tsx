@@ -1,21 +1,15 @@
 import { createSignal, onSettled, Show } from "solid-js"
-import type { JobStatus, JobSubmitted, ScreenState } from "../../../shared/api.ts"
+import type { JobStatus, JobSubmitted } from "../../../shared/api.ts"
 import { cancelJob, readJob } from "../api.ts"
 import { Collapsible } from "../controls/Collapsible.tsx"
+import { ReportButton } from "../controls/ReportButton.tsx"
+import { stateWords } from "../state-words.ts"
 
 /** The CUPS web page. It answers on the Household network only, so the link is of no use on the road. */
 const cupsWebPage = "http://homeassistant.local:631"
 
 const pollEveryMs = 2_000
 const hintAfterSeconds = 60
-
-const stateWords: Record<ScreenState, string> = {
-  waiting: "Wartet",
-  printing: "Wird gedruckt",
-  done: "Fertig",
-  cancelled: "Abgebrochen",
-  error: "Fehler",
-}
 
 /** Whole seconds as m:ss, for example 75 as 1:15. */
 function minutesSeconds(seconds: number) {
@@ -117,6 +111,9 @@ export function StatusScreen(props: { job: JobSubmitted; onClose: () => void; on
           </button>
         </div>
       </Show>
+      <div class="mt-2">
+        <ReportButton subject={{ job: props.job }} />
+      </div>
     </main>
   )
 }
