@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { readdir, readFile, stat, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
@@ -210,4 +210,57 @@ test("a job folder whose job.json can't be read is deleted 7 days after the day 
   server.clock.advance(2 * minute)
   await server.cleanup()
   assert.deepEqual(await jobFolders(server.jobsDir), [])
+})
+
+test("cleanup deletes a draft that was not submitted within 1 hour", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
+  await server.upload(draftId, sampleJpeg(), "IMG_0001.jpg")
+
+  server.clock.advance(59 * minute)
+  await server.cleanup()
+  assert.deepEqual(await readdir(join(server.jobsDir, "drafts")), [draftId])
+  assert.equal((await server.upload(draftId, samplePng(20, 10), "IMG_0002.png")).status, 201)
+
+  server.clock.advance(2 * minute)
+  await server.cleanup()
+  assert.deepEqual(await readdir(join(server.jobsDir, "drafts")), [])
+  assert.equal((await server.upload(draftId, samplePng(20, 10), "IMG_0003.png")).status, 404)
+  assert.equal((await server.submit(draftId, { selection: [0, 1] })).status, 404)
+  assert.equal(server.printer.requests.length, 0)
+})
+
+test("a draft that an earlier run of the server left behind is deleted when the server starts", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
+  await server.upload(draftId, samplePdf(), "a.pdf")
+
+  await server.restart()
+
+  assert.deepEqual(await readdir(join(server.jobsDir, "drafts")), [])
+  assert.equal((await server.submit(draftId)).status, 404)
+})
+
+test("cleanup deletes nothing but job folders and drafts", async t => {
+  const server = await startTestServer({ now: Date.UTC(2026, 10, 19, 8, 30, 0) })
+  t.after(server.close)
+  await server.print()
+  await server.post("/api/drafts")
+  // what somebody might put there with File Browser or Samba
+  const strangers = ["Notizen.txt", "Sicherung/alt.pdf", "2026-11-01_Urlaub/foto.jpg", "drafts/LIESMICH.txt", "drafts/Ablage/brief.pdf"]
+  for (const path of strangers) {
+    await mkdir(join(server.jobsDir, path, ".."), { recursive: true })
+    await writeFile(join(server.jobsDir, path), "bleibt")
+  }
+
+  server.clock.advance(30 * day)
+  await server.cleanup()
+  await server.restart()
+
+  assert.deepEqual((await readdir(server.jobsDir, { recursive: true })).sort(), [
+    "2026-11-01_Urlaub", "2026-11-01_Urlaub/foto.jpg", "Notizen.txt", "Sicherung", "Sicherung/alt.pdf",
+    "drafts", "drafts/Ablage", "drafts/Ablage/brief.pdf", "drafts/LIESMICH.txt",
+  ])
 })

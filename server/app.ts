@@ -26,7 +26,7 @@ export interface AppDeps {
  * `cleanup` deletes what is no longer kept; the caller decides when it runs.
  */
 export async function createApp(deps: AppDeps) {
-  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb })
+  const intake = createIntake({ draftsDir: join(deps.config.jobsDir, "drafts"), uploadLimitMb: deps.config.uploadLimitMb, now: deps.now })
   const jobs = await openJobStore({ jobsDir: deps.config.jobsDir, now: deps.now })
   const printer = createPrinterClient(deps.config.printerUri)
   await printer.loadMargins()
@@ -44,6 +44,7 @@ export async function createApp(deps: AppDeps) {
     fetch: app.fetch,
     async cleanup(): Promise<void> {
       await jobs.cleanup()
+      await intake.cleanup()
     },
   }
 }

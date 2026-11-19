@@ -1,9 +1,10 @@
 import { EncryptedPDFError, PDFDocument } from "@cantoo/pdf-lib"
 import exifr from "exifr"
 import { randomUUID } from "node:crypto"
-import { mkdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { FileFacts, PdfFacts, PhotoFacts, Refusal, RefusalType } from "../shared/api.ts"
+import type { Now } from "./clock.ts"
 
 export interface DraftFile {
   path: string
@@ -20,12 +21,19 @@ export type Intake = ReturnType<typeof createIntake>
 
 const maxPhotos = 20
 
+/** How long a draft may wait for its submit. */
+const keepFor = 60 * 60 * 1000
+
+/** A draft folder's name is the draft id. */
+const draftFolderName = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/
+
 /**
  * Upload intake: collects the files of a Print Job that is not submitted yet (a draft).
  * Files are stored under generated names; the name on the phone is never kept.
+ * The list of drafts is in memory: a draft doesn't outlive the server.
  */
-export function createIntake(deps: { draftsDir: string; uploadLimitMb: number }) {
-  const drafts = new Map<string, DraftFile[]>()
+export function createIntake(deps: { draftsDir: string; uploadLimitMb: number; now: Now }) {
+  const drafts = new Map<string, { createdAt: number; files: DraftFile[] }>()
   const uploadLimitBytes = deps.uploadLimitMb * 1024 * 1024
   const tooLarge: Refusal = { refusal: "too-large", limitMb: deps.uploadLimitMb }
 
@@ -37,14 +45,15 @@ export function createIntake(deps: { draftsDir: string; uploadLimitMb: number })
 
     async createDraft(): Promise<string> {
       const id = randomUUID()
+      // listed before its folder exists, so a cleanup that runs right now leaves the folder alone
+      drafts.set(id, { createdAt: deps.now(), files: [] })
       await mkdir(join(deps.draftsDir, id), { recursive: true })
-      drafts.set(id, [])
       return id
     },
 
     /** The draft's files in upload order, or undefined for an unknown draft. */
     files(draftId: string): readonly DraftFile[] | undefined {
-      return drafts.get(draftId)
+      return drafts.get(draftId)?.files
     },
 
     /** Forgets a draft and deletes its folder. Nothing happens for an unknown draft. */
@@ -52,9 +61,25 @@ export function createIntake(deps: { draftsDir: string; uploadLimitMb: number })
       if (drafts.delete(draftId)) await rm(join(deps.draftsDir, draftId), { recursive: true, force: true })
     },
 
+    /**
+     * Deletes the drafts that were not submitted within 1 hour, and every draft folder that has no draft:
+     * one that an earlier run of the server left behind can't be submitted any more.
+     * Only folders named like a draft folder are looked at.
+     */
+    async cleanup(): Promise<void> {
+      for (const [id, draft] of drafts) {
+        if (deps.now() - draft.createdAt > keepFor) drafts.delete(id)
+      }
+      // the drafts directory appears with the first draft
+      await mkdir(deps.draftsDir, { recursive: true })
+      for (const name of await readdir(deps.draftsDir)) {
+        if (draftFolderName.test(name) && !drafts.has(name)) await rm(join(deps.draftsDir, name), { recursive: true, force: true })
+      }
+    },
+
     /** Adds one file to the draft, or refuses it and leaves the draft as it was. */
     async addFile(draftId: string, bytes: Uint8Array): Promise<AddFileResult> {
-      const files = drafts.get(draftId)
+      const files = drafts.get(draftId)?.files
       if (!files) return { outcome: "unknown-draft" }
       const refused = (refusal: Exclude<RefusalType, "too-large">): AddFileResult => ({ outcome: "refused", refusal: { refusal } })
       if (bytes.length > uploadLimitBytes) return { outcome: "refused", refusal: tooLarge }
