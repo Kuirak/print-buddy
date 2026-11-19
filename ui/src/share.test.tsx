@@ -26,8 +26,8 @@ test("a shared PDF opens straight into the options screen", async () => {
   const [file] = uploaded(api.calls, "d1")
   expect(file!.name).toBe("Rechnung.pdf")
   expect(await file!.text()).toBe("%PDF-1.4 shared")
-  // the share itself is answered on the phone: only the app's own API calls reach the network
-  expect(api.calls.map(call => `${call.method} ${call.path}`)).toEqual(["POST /api/drafts", "POST /api/drafts/d1/files"])
+  // the share itself is answered on the phone: only the app's own API calls reach the network (the options screen also reads the Printer)
+  expect(api.calls.filter(call => call.method === "POST").map(call => call.path)).toEqual(["/api/drafts", "/api/drafts/d1/files"])
 })
 
 const photoFacts = { kind: "photo", format: "jpeg", width: 4000, height: 3000, orientation: 1 }

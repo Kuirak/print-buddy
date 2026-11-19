@@ -8,9 +8,9 @@
   },
   "scripts": {
     "start": "node server/main.ts",
-    "dev": "vite build && node scripts/dev.ts",
-    "dev:ui": "vite",
-    "build": "vite build",
+    "dev": "pnpm build && node scripts/dev.ts",
+    "dev:ui": "node scripts/pdfjs-assets.ts && vite",
+    "build": "node scripts/pdfjs-assets.ts && vite build",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:server && pnpm test:ui",
     "test:server": "node --test \"server/**/*.test.ts\" \"shared/**/*.test.ts\"",

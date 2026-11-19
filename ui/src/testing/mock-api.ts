@@ -1,5 +1,6 @@
 // Seam 3 helper: the app runs for real, and only `fetch` is replaced.
 import { vi } from "vitest"
+import { printerInfo } from "./printer-info.ts"
 
 export interface ApiCall {
   method: string
@@ -18,8 +19,11 @@ export const json = (body: unknown, status = 200) => Response.json(body, { statu
 /**
  * Replaces `fetch` with a table of routes, keyed `"METHOD /path"`. A call to a route that is not in
  * the table rejects, so the test fails instead of hanging. The setup file removes the stub after each test.
+ * The one exception is `GET /api/printer`, which every options screen reads: it answers `printerInfo()`
+ * unless the table has its own handler.
  */
 export function mockApi(routes: Record<string, ApiHandler>) {
+  routes = { "GET /api/printer": () => printerInfo(), ...routes }
   const calls: ApiCall[] = []
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const call: ApiCall = {

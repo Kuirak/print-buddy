@@ -140,8 +140,9 @@ export function App() {
           {options => (
             <OptionsScreen
               fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
-              kind={fileKind(options().facts)}
+              files={options().files}
               facts={options().facts}
+              kind={fileKind(options().facts)}
               onPrint={chosen => void print(chosen, options().draftId)}
             />
           )}
