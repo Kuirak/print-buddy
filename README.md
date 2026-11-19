@@ -106,6 +106,7 @@ One package, no workspaces. Imports between folders are relative and end in `.ts
 ```
 shared/            Pure TypeScript for both sides. No DOM, no node: imports.
   print-options.ts   The Print Options type. The only definition.
+  layout.ts          The layout module: where content sits on a sheet.
   api.ts             JSON shapes of the HTTP API.
 server/            Runs as `node server/main.ts`, straight from the sources.
   main.ts            Entry point: reads the config, starts the server.
@@ -115,8 +116,10 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   clock.ts           The injectable clock type.
   intake.ts          Upload intake (drafts).
   job-store.ts       Job store.
+  renderer.ts        Renderer: builds the PDF that goes to CUPS.
+  status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts and the IPP codec.
-  http/              One file per API resource: drafts, session, health, ui (static files).
+  http/              One file per API resource: drafts, jobs, printer, session, health, ui (static files).
   testing/           Seam 1 helpers: harness, fake IPP printer, fixtures.
   *.test.ts          Seam 1 tests, next to the sources.
 ui/                Vite root.
@@ -169,14 +172,15 @@ test("…", async t => {
   - `opts.options`: extra keys for the options file, for example `{ upload_limit_mb: 1 }`.
   - `opts.now`: start time of the fake clock. `opts.ui`: files of a stand-in UI build.
   - `opts.beforeStart(printer)`: runs before the server starts, to script what the fake printer answers to the startup read of the margins.
-  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
+  - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `print(overrides?, files?)`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
   - `submit` posts `samplePrintOptions` from `server/testing/fixtures.ts` (one copy, black and white, A4, page 1), changed by `overrides`. A submit without valid Print Options is a 400.
+  - `print` sends a whole Print Job (new draft, one upload per file, submit) and returns `{ jobId, cupsJobId }`. Without `files` it sends `samplePdf()`.
   - `startupRequests` holds the IPP requests the server made while starting. They are taken out of `printer.requests`, so that list starts empty and holds only what the test caused.
 - `server.clock` is the server's only source of time: `clock.now()` and `clock.advance(ms)`. Server code takes `now` from its dependencies and never calls `Date.now()` itself. For anything that runs on a schedule, expose a function the test can call after `clock.advance(…)`, instead of faking timers.
 - `server.printer` is the fake IPP printer from `server/testing/fake-ipp.ts`. It answers like cupsd 2.4.10.
   - `printer.requests`: every IPP request received, decoded. Read attributes with `values(request, Tag.operation, "requesting-user-name")` or `findAttr(…)` from `server/printer/ipp-codec.ts`. `request.data` holds the document bytes.
-  - `printer.jobs`: the jobs by CUPS job number. `printer.setJob(id, JobState.processing, ["job-printing"], "message")` scripts a state change.
-  - `printer.printer`: the printer's `state`, `reasons` and `message`. `media` lists the entries of `media-col-database` (size and margins in 1/100 mm); `mediaColDatabase = false` leaves the margins out. `failNext = 503` makes the next request fail at HTTP level.
+  - `printer.jobs`: the jobs by CUPS job number. `printer.setJob(id, JobState.processing, ["job-printing"], "message", ["media-empty-warning"])` scripts a state change; the last argument is `job-printer-state-reasons`.
+  - `printer.printer`: the printer's `state`, `reasons` and `message`. `media` lists the entries of `media-col-database` (size and margins in 1/100 mm); `mediaColDatabase = false` leaves the margins out. `failNext = 503` makes the next request fail at HTTP level. `unreachable = true` drops every connection, like a CUPS that is down. `acceptingJobs = false` makes it refuse Print-Job with an IPP error.
   - Cancel-Job from a user who doesn't own the job gets HTTP 401, as with real CUPS.
 - `server/testing/fixtures.ts` holds small test files. Add new ones there, built in code and without dates or random ids.
 
@@ -213,7 +217,36 @@ test("…", async () => {
 - `ui/src/testing/setup.ts` unmounts the rendered app and removes the `fetch` stub after each test.
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
+- A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet: a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
 - Never import `pdfjs-dist` in a component. Wrap it in one module of ours and mock that module with `vi.mock`.
+
+### The layout module
+
+`layout()` in `shared/layout.ts` decides where every page or photo sits. The renderer and the preview both call it and add no geometry of their own.
+
+```ts
+import { layout, SHEET_SIZES } from "../shared/layout.ts"
+
+const sheets = layout({
+  source: { kind: "pdf", pages },      // page sizes in points as a reader shows them (the intake's facts)
+  // or { kind: "photos", photos }     // per photo: stored pixel width and height, EXIF orientation
+  options,                             // the Print Options
+  sheet: SHEET_SIZES[options.paper],   // portrait, envelopes too
+  margins,                             // the Printer's margins for that paper, in points
+})
+```
+
+- Everything is in points. `selection` holds PDF page numbers counted from 1, or photo indexes counted from 0. `photoRotations` is keyed by photo index. An entry of `selection` that isn't in the source throws, so check the selection against the draft's files first.
+- `source` takes the intake's facts: `PdfFacts` as it is, or `{ kind: "photos", photos }` with the `PhotoFacts` of the draft in order. `margins` is `PrinterInfo.margins[options.paper]`, or `printer.margins()[options.paper]` on the server.
+- The result has one entry per sheet, so its length is the sheet count for one copy. Each sheet has `placements`, `cutOff`, `emptySpace` and `sideways`.
+- `cutOff` means content lies outside the printable area, so it is true at Füllen whenever the Printer has margins. `emptySpace` means part of the printable area stays empty. A job is cut off when any sheet is.
+- A placement's `left`, `top`, `width` and `height` are its box on the sheet, measured from the sheet's top-left corner. `rotation` is the clockwise turn of the upright content. `scale` × 100 is the effective percentage.
+- **Renderer:** write `matrix` as the `cm` operator and draw the page or photo. It maps the content at its natural size, as stored, onto the sheet in PDF coordinates. EXIF orientation and every turn are already in it.
+  - An image XObject is a unit square, so scale it by `photoNaturalSize(pixels)` first.
+  - A PDF page's own `/Rotate` and CropBox are not in it: `layout()` gets the displayed page size, and the renderer adds the step from the embedded page to the displayed page.
+  - Clip each placement to its `clip` box. With two pages per sheet that is the half, and Füllen would otherwise run into the other half.
+- **Preview:** draw the upright picture (an `<img>` already shows a photo upright, pdf.js applies `/Rotate`) into the box, turned by `rotation`, clipped to `clip`.
+- **Two pages per sheet** is laid out the way CUPS lays out `number-up=2`. The sheet is read in landscape and split into a left and a right half. On a portrait sheet (all four papers) the pages therefore lie turned 90° clockwise, page 1 in the top half, and the sheet says `sideways: true`. The preview should show such a sheet turned 90° counter-clockwise. Photos always get one sheet each.
 
 ### Notes from the first build
 
@@ -225,14 +258,25 @@ test("…", async () => {
 - **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
 - **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
 - **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on (`init: false`). Anything that must finish before the process ends belongs in the server's `close()`.
-- **What the skeleton leaves open.** Submit sends the upload as it is (renderer). The job store is in memory and drafts are never deleted (job folders and cleanup). A failed submit shows nothing in the app (failures). The status screen shows only that CUPS accepted the job.
+- **What the skeleton leaves open.** The job store is in memory and drafts are never deleted (job folders and cleanup).
 
 ### Print Options and printer info
 
-- **Submit.** The body of `POST /api/drafts/:draftId/submit` is the Print Options object itself (`SubmitRequest` in `shared/api.ts`). `parsePrintOptions` in `shared/print-options.ts` checks all of it; anything invalid is a 400 `{ error: "invalid-options" }` and nothing is sent to CUPS. It doesn't check `selection` against the draft's files: that is for the renderer.
+- **Submit.** The body of `POST /api/drafts/:draftId/submit` is the Print Options object itself (`SubmitRequest` in `shared/api.ts`). `parsePrintOptions` in `shared/print-options.ts` checks all of it; anything invalid is a 400 `{ error: "invalid-options" }` and nothing is sent to CUPS. It doesn't check `selection` against the draft's files: the renderer does, with the same answer (see the renderer notes below).
 - **What CUPS gets.** `printer.printJob(pdf, options)` sends only `copies`, collated copies, `ColorMode`, `PageSize`, `Quality` and `MediaType`. Our paper names are the PPD's `PageSize` names. Everything else in the Print Options has to be drawn into the PDF.
 - **Printable margins.** `GET /api/printer` answers `PrinterInfo`: `margins` per paper plus the printer's `state`, `reasons` and `message`. Margins are in points, for the sheet in portrait, as `{ top, right, bottom, left }`. On the server the same values come from `printer.margins()`. They are read once, while the server starts; a paper CUPS doesn't report gets 9 pt left and right, 12 pt top and bottom, with one warning in the log. When CUPS doesn't answer the state read, `state` is `unknown` and the margins are still there.
-- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts with one copy, black and white, A4, Normal, and an empty `selection`, because the app doesn't know the page count yet. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
+- **Options screen.** `OptionsScreen` owns the Print Options in a store and hands them to `onPrint`. A new file starts from the default Preset of its file type (see Presets below) with everything selected: `selection` is every page of the PDF or every photo, from the `facts` prop. The four rows (Kopien, Farbe, Papier, Qualität) are the rows of the prototype's options drawer, shown on the screen itself until the summary line with "Ändern" exists. `ui/src/controls/` has `Stepper` and `ChoiceGroup` (a `radiogroup` of buttons); tests find them by role and German name.
+
+### Presets
+
+- **Where.** `ui/src/presets.ts` has the built-in Presets, the `PresetValues` type (the seven fields a Preset stores) and `createPresets(kind)`, which reads and writes browser storage. `PresetChips` and `PresetActions` under `ui/src/controls/` are the two parts on the screen. Both take the Print Options and call `onPick`; `OptionsScreen` applies the Preset to its store.
+- **A new field in the Print Options.** If a Preset should store it, add it to `PresetValues`, to `sameValues` and to `save` in `presets.ts`, and to the built-ins. Print size, Position and pages per sheet are already stored and compared, so their controls only have to write the Print Options store. `rotation`, `selection` and `photoRotations` belong to the file and are never touched by a Preset.
+- **File type.** `OptionsScreen` takes `kind: "pdf" | "photo"`. `fileKind(facts)` in `presets.ts` is the one place that decides it: the `kind` the server found for the first file of the Print Job, because a draft never mixes the two. `App` calls it. The kind picks the chips, the default Preset and which star is set. It is read once: a new file gets a new `OptionsScreen`.
+- **Starting options.** A new file starts from the starred Preset of its type plus `rotation: 0` and `selection: []`. Nothing from a Print Job is written to storage, so the next file can't inherit it.
+- **Which chip is marked.** The Preset whose seven fields all equal the Print Options. If several are equal, the one tapped or saved last, else the first in chip order. If none, the last chip reads "✎ Eigene"; otherwise it reads "Eigene …". That chip does nothing when tapped until the options drawer exists (summary line ticket). The Preset actions sit below the option rows for the same reason and move into the drawer with them.
+- **Chips per type.** PDFs get Dokument s/w, Dokument Farbe and Umschlag DL; photos get Foto and Foto s/w Toner sparen. An own Preset belongs to the file type it was saved for.
+- **Storage.** One `localStorage` key, `print-buddy.presets`: `{ own: Preset[], defaults: { pdf?: id, photo?: id } }`. Entries that don't pass `parsePrintOptions` are dropped on load. A starred id that no longer exists falls back to the built-in default. The Seam 3 setup file clears `localStorage` after each test; a test "reopens the app" with `cleanup()` and a second render.
+- **Tests.** In `ui/src/presets.test.tsx` the chips are the `radiogroup` named "Voreinstellung". Saving and deleting ask on the screen itself (a name field, "Voreinstellung löschen?"), not with `window.prompt` or `window.confirm`.
 
 ### Notes from upload intake (ticket 03)
 
@@ -240,6 +284,34 @@ test("…", async () => {
 - **Refusals.** A refused upload answers `{ refusal }` (type `Refusal`) with status 413 (`too-large`, which also carries `limitMb`), 415 (`unsupported-type`) or 409 (the other three). The draft stays as it was. In the app, `addFile()` resolves with the facts or the Refusal and throws only for other failures. The German texts are in `ui/src/screens/RefusalScreen.tsx`.
 - **Upload limit.** `hono/body-limit` counts the bytes as they arrive and answers 413 at `upload_limit_mb` plus 64 kB of multipart overhead, so an oversized file is never held. A file within the limit is read into memory once (at most `upload_limit_mb`), as the stack exploration recommended; there is no streaming to disk and no `busboy`.
 - **Drafts on disk.** A draft's files are `drafts/<draft-id>/<n>.pdf|jpg|png`, numbered in upload order. `intake.files(draftId)` gives the path and the facts of each.
-- **Photos can't print yet.** Submit still sends the draft's first file as it is, so Drucken on a photo draft sends a JPEG or PNG labelled as PDF. The renderer (ticket 07) ends that.
 - **In the app.** The options screen state holds `files` (the phone's copies, in picked order) and `facts` (same order). `ui/src/controls/FilePicker.tsx` is the one "Datei auswählen"; the start and Refusal screens share it.
 - **Fixtures.** `server/testing/fixtures.ts` has `pdfWithPages()` (sizes, `/Rotate`, CropBox), `sampleJpeg()` (40×30), `withExifOrientation()`, `samplePng(w, h)` and `encryptedPdf()`. Make test files different in size, so a test can tell them apart in a rendered PDF.
+
+### Notes from the status screen (ticket 05)
+
+- **Reading a Print Job.** `GET /api/jobs/:jobId` answers `JobStatus` (`shared/api.ts`): `state`, `reason`, `details`, `cupsJobId`, `sentAt`, `endedAt` and `sheets`. `state` is a `ScreenState` key (`waiting`, `printing`, `done`, `cancelled`, `error`); the German words are in `ui/src/screens/StatusScreen.tsx`. `reason` is a German sentence, or null when there is nothing to explain. `details` is what CUPS said: `jobState` as the IPP keyword, `jobStateReasons`, `printerStateReasons` (`job-printer-state-reasons`) and `printerMessage` (`job-printer-state-message`).
+- **Each read asks CUPS** with Get-Job-Attributes, until the job has ended. The first read that sees the end sets `endedAt` from the server's clock, so it can be up to one poll late. After that the stored state is answered and CUPS is not asked again. When CUPS can't answer, or no longer knows the job, the read answers the last state seen, with a warning in the log.
+- **Status mapper.** `mapStatus(details, cancelledByPrintBuddy)` in `server/status-mapper.ts` is the one place that decides state and reason. A `processing` job whose printer message says the Printer isn't connected yet (`notConnectedMessages`) is Wartet, and `processing-stopped` is Wartet too. The reasons are described under "Notes from failures" below.
+- **Cancel.** `POST /api/jobs/:jobId/cancel` answers the new `JobStatus`, or 409 `{ error: "not-cancellable" }`. It is allowed exactly while the job reads as Wartet. The job store's `cancelled` flag records Print Buddy's own cancel, because CUPS marks every cancelled job the same way. `printer.cancelJob()` resolves false when CUPS refuses (`IppRefusal`: a bare HTTP status or an IPP error status) and throws only when CUPS can't be reached.
+- **Sheet count.** `sheets` is set at submit: the number of sheets in the rendered PDF times `copies`. So it follows `selection` and `pagesPerSheet`.
+- **Job store.** `jobs.update(job, changes)` returns the changed record; records are never changed in place. `details`, `endedAt` and `cancelled` are the fields that change after `add`.
+- **Status screen.** It assumes Wartet until the first answer. It polls with a timeout chain, 2 s after each answer, and stops once `endedAt` is set. The running timer counts from when the screen opened, on the phone's clock; "gedauert" is `endedAt - sentAt` from the server. The 60 s hint shows while the state is Wartet and the timer is at 60 s or more. Every ended state offers "Schließen" and "Nochmal drucken". `reason` is shown in every state that has one.
+- **Nochmal drucken.** The status screen state in `App.tsx` keeps `files` and `options`. `print(files, options)` without a draft id uploads the files into a new draft and submits it with the same Print Options, without going back to the options screen.
+
+### Notes from failures (ticket 06)
+
+- **Reasons.** `reasonTexts` in `server/status-mapper.ts` maps reason keywords to German sentences. The mapper looks through the job's reasons, then the Printer's, and takes the first keyword it knows, with a trailing `-report`, `-warning` or `-error` removed. After that it checks the backend message (`messageTexts`). To teach it a new reason, add a line to one of the two tables and a case to the table test in `server/status.test.ts`.
+- **Which states have a reason.** Fehler always has one: the known reason, or "Beim Drucken ist ein Fehler aufgetreten.", or the sentence for a job somebody else cancelled. Wartet and Wird gedruckt have one only when CUPS names a known reason. Fertig and Abgebrochen have none.
+- **Fehler on the status screen.** It adds "Details" (`ui/src/controls/Collapsible.tsx`, a button with `aria-expanded`; the content is in the page only while open) and the link to the CUPS web page. The address is the constant `cupsWebPage` in `StatusScreen.tsx`.
+- **A submit that can't be sent.** `POST /api/drafts/:draftId/submit` answers `SubmitFailure` (`shared/api.ts`): 502 `cups-unreachable` or `cups-rejected`, 500 `render-failed`. No Print Job is created and the draft stays, so the same submit can be repeated. The cause goes to the server log.
+- **"Drucken hat nicht geklappt".** Anything that throws inside `print()` in `App.tsx` (upload or submit, an error status or no network) leads to `SendFailedScreen`. Its screen state keeps `files` and `options`. "Erneut versuchen" calls `print(files, options)` without a draft id, so the phone's copy is uploaded into a new draft, as with "Nochmal drucken". A screen that must come before it for one kind of failure (the expired login) has to catch that failure first.
+
+### Notes from the renderer (ticket 07)
+
+- **What CUPS receives.** Submit calls `render(files, options, margins)` in `server/renderer.ts` and sends its PDF, never an uploaded file. The result also has `sheets`, the sheet count of that PDF (one copy). Photo drafts print: all photos of a draft are one PDF and one Print Job.
+- **Print Options that don't fit the draft** are a 400 `{ error: "invalid-options" }`, the same answer as for malformed ones: an empty `selection`, a page number outside 1 to the page count, a photo index outside 0 to the photo count minus 1, or `pagesPerSheet: 2` for photos. The app must never submit an empty selection; ticket 09 makes Drucken unavailable then.
+- **Test options.** `samplePrintOptions` selects page 1, which is also valid for a draft of two or more photos (photo index 1) but not for a single photo: pass `{ selection: [0] }` there.
+- **Reading the printed PDF in a test.** `readRenderedPdf(request.data)` in `server/testing/rendered-pdf.ts` gives the sheets with their size and items. Each item has `kind`, `size` (to tell fixtures apart: the embedded page's CropBox size before `/Rotate`, or the photo's pixels), `box` and `clip` on the sheet measured from the top-left corner, and `corners`, which show rotation and mirroring. Numbers are rounded to 0.01 pt. `server/render.test.ts` sets the fake printer's margins to zero where that keeps the expected numbers simple.
+- **Fixtures.** Pages of `pdfWithPages()` now have a content stream, because pdf-lib can't embed a page without one. `{ blank: true }` makes a page without `/Contents`; it prints as an empty sheet.
+- **Margins in tests.** The printer client rounds margins to 0.01 pt (9.01 and 11.99 pt for the fake printer), and the renderer uses exactly those, like the preview does through `GET /api/printer`.
+- **PNG memory.** Photos are embedded one after the other, and each selected photo once. pdf-lib unpacks a PNG to raw pixels (about 360 MB for 4000×3000 on a Mac), so a large PNG batch is slow on the Pi; not measured there.

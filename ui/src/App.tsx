@@ -5,23 +5,28 @@ import { sharedParam } from "../../shared/share-target.ts"
 import { addFile, createDraft, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
 import { phoneFiles } from "./phone-files.ts"
+import { fileKind } from "./presets.ts"
 import { OpeningScreen } from "./screens/OpeningScreen.tsx"
 import { OptionsScreen } from "./screens/OptionsScreen.tsx"
 import { RefusalScreen } from "./screens/RefusalScreen.tsx"
+import { SendFailedScreen } from "./screens/SendFailedScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
+
+/** The server's copy of picked files: `facts[i]` is what it found out about `files[i]`. */
+type Draft = { draftId: string; facts: FileFacts[] }
 
 type Screen =
   | { name: "start" }
   /** A share has just come in and its files are on their way to the server. */
   | { name: "opening" }
-  /**
-   * One PDF, or photos in the order they were shared or picked. `files` is the phone's copy, `draftId`
-   * is the server's copy of them, and `facts[i]` is what the server found out about `files[i]`.
-   */
-  | { name: "options"; files: File[]; facts: FileFacts[]; draftId: string }
+  /** One PDF, or photos in the order they were shared or picked. The phone keeps `files` until the person leaves the job. */
+  | ({ name: "options"; files: File[] } & Draft)
   | { name: "refusal"; refusal: Refusal }
-  | { name: "status"; job: JobSubmitted }
+  /** `files` and `options` are what was sent, kept for "Nochmal drucken". */
+  | { name: "status"; files: File[]; options: PrintOptions; job: JobSubmitted }
+  /** Sending didn't work. `files` and `options` are what the person wanted to print, kept for "Erneut versuchen". */
+  | { name: "send-failed"; files: File[]; options: PrintOptions }
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
@@ -57,27 +62,31 @@ export function App() {
     update.setJobInProgress(false)
   }
 
-  /**
-   * Uploads the phone's copy to a new draft and opens the options screen with it. Every way into a job
-   * goes through here: a share, "Datei auswählen", and printing the same files again.
-   */
-  async function openHeld() {
-    const files = await phoneFiles.held()
-    // Chrome can deliver a share without its files (crbug 563075800); "Datei auswählen" is the way in then
-    if (files.length === 0) return leaveJob()
+  /** Uploads the files into a new draft. Resolves with the Refusal when the server won't take one of them. */
+  async function upload(files: File[]): Promise<Draft | Refusal> {
     const { draftId } = await createDraft()
     const facts: FileFacts[] = []
     // one at a time, so the server holds the photos in the order they were shared or picked
     for (const file of files) {
       const answer = await addFile(draftId, file)
-      if ("refusal" in answer) {
-        // nothing prints, so there is no job to keep the files for
-        await phoneFiles.clear()
-        return setScreen({ name: "refusal", refusal: answer })
-      }
+      if ("refusal" in answer) return answer
       facts.push(answer)
     }
-    setScreen({ name: "options", files, facts, draftId })
+    return { draftId, facts }
+  }
+
+  /** Uploads the phone's copy and opens the options screen with it. The way in for a share and for "Datei auswählen". */
+  async function openHeld() {
+    const files = await phoneFiles.held()
+    // Chrome can deliver a share without its files (crbug 563075800); "Datei auswählen" is the way in then
+    if (files.length === 0) return leaveJob()
+    const draft = await upload(files)
+    if ("refusal" in draft) {
+      // nothing prints, so there is no job to keep the files for
+      await phoneFiles.clear()
+      return setScreen({ name: "refusal", refusal: draft })
+    }
+    setScreen({ name: "options", files, ...draft })
   }
 
   async function pick(files: File[]) {
@@ -88,11 +97,25 @@ export function App() {
 
   // a second tap while the first is on its way must not print twice
   let sending = false
-  async function print(draftId: string, options: PrintOptions) {
+  /**
+   * Sends the draft as a Print Job. Without a draft ("Nochmal drucken", "Erneut versuchen") the phone's copy is uploaded again first.
+   * When that doesn't work, for whatever reason, the person lands on "Drucken hat nicht geklappt".
+   */
+  async function print(files: File[], options: PrintOptions, draftId?: string) {
     if (sending) return
     sending = true
     try {
-      setScreen({ name: "status", job: await submitDraft(draftId, options) })
+      if (draftId === undefined) {
+        const draft = await upload(files)
+        if ("refusal" in draft) {
+          setScreen({ name: "refusal", refusal: draft })
+          return
+        }
+        draftId = draft.draftId
+      }
+      setScreen({ name: "status", files, options, job: await submitDraft(draftId, options) })
+    } catch {
+      setScreen({ name: "send-failed", files, options })
     } finally {
       sending = false
     }
@@ -114,11 +137,25 @@ export function App() {
           {options => (
             <OptionsScreen
               fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
-              onPrint={chosen => void print(options().draftId, chosen)}
+              kind={fileKind(options().facts)}
+              facts={options().facts}
+              onPrint={chosen => void print(options().files, chosen, options().draftId)}
             />
           )}
         </Match>
-        <Match when={on("status")}>{status => <StatusScreen job={status().job} />}</Match>
+        {/* keyed: a new Print Job gets a new status screen */}
+        <Match when={on("status")} keyed>
+          {status => (
+            <StatusScreen
+              job={status.job}
+              onClose={() => setScreen({ name: "start" })}
+              onPrintAgain={() => void print(status.files, status.options)}
+            />
+          )}
+        </Match>
+        <Match when={on("send-failed")}>
+          {failed => <SendFailedScreen onRetry={() => void print(failed().files, failed().options)} />}
+        </Match>
       </Switch>
     </div>
   )

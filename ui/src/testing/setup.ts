@@ -13,4 +13,5 @@ afterEach(() => {
   vi.unstubAllGlobals()
   // a test that opened the app after a share leaves the app's address as it found it
   history.replaceState(null, "", "/")
+  localStorage.clear()
 })

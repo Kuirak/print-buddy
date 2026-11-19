@@ -5,6 +5,7 @@ import type { Now } from "./clock.ts"
 import type { Config } from "./config.ts"
 import { draftRoutes } from "./http/drafts.ts"
 import { healthRoutes } from "./http/health.ts"
+import { jobRoutes } from "./http/jobs.ts"
 import { sessionRoutes } from "./http/session.ts"
 import { shareTargetRoutes } from "./http/share-target.ts"
 import { printerRoutes } from "./http/printer.ts"
@@ -34,6 +35,7 @@ export async function createApp(deps: AppDeps) {
   app.route("/", healthRoutes())
   app.route("/", sessionRoutes())
   app.route("/", draftRoutes({ intake, jobs, printer }))
+  app.route("/", jobRoutes({ jobs, printer, now: deps.now }))
   app.route("/", printerRoutes({ printer }))
   app.route("/", shareTargetRoutes())
   // keep these two last: they catch what no route above answered
