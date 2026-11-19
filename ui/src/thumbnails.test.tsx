@@ -258,11 +258,11 @@ test("picking a Preset leaves the page selection and the rotation alone", async 
   await tap("Seite 2")
   await tap("Drehen")
 
-  await user.click(choice("Voreinstellung", "Dokument Farbe"))
+  await user.click(choice("Voreinstellung", "Dokument s/w"))
 
-  expect(choice("Voreinstellung", "Dokument Farbe")).toBeChecked()
+  expect(choice("Voreinstellung", "Dokument s/w")).toBeChecked()
   expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 3"])
-  expect(await print()).toMatchObject({ color: "color", rotation: 90, selection: [1, 3] })
+  expect(await print()).toMatchObject({ color: "mono", rotation: 90, selection: [1, 3] })
 })
 
 test("picking a Preset leaves the photo selection and each photo's rotation alone", async () => {

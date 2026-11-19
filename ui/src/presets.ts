@@ -27,8 +27,8 @@ const fitCentre = { copies: 1, printSize: { kind: "fit" }, position: "center", p
 
 /** The first one of each file type is its default until the person stars another. */
 const builtIns: readonly Preset[] = [
-  { id: "document-mono", name: "Dokument s/w", kind: "pdf", values: { ...fitCentre, color: "mono", paper: "A4", quality: "normal" } },
   { id: "document-color", name: "Dokument Farbe", kind: "pdf", values: { ...fitCentre, color: "color", paper: "A4", quality: "normal" } },
+  { id: "document-mono", name: "Dokument s/w", kind: "pdf", values: { ...fitCentre, color: "mono", paper: "A4", quality: "normal" } },
   { id: "envelope-dl", name: "Umschlag DL", kind: "pdf", values: { ...fitCentre, color: "mono", paper: "EnvDL", quality: "normal" } },
   { id: "photo", name: "Foto", kind: "photo", values: { ...fitCentre, color: "color", paper: "A4", quality: "normal" } },
   { id: "photo-mono-draft", name: "Foto s/w Toner sparen", kind: "photo", values: { ...fitCentre, color: "mono", paper: "A4", quality: "draft" } },

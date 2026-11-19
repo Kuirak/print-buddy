@@ -50,7 +50,7 @@ async function openOptions(facts: FileFacts, count = 1) {
 test("the summary line names everything that is chosen for a PDF", async () => {
   const { summary } = await openOptions(pdfOf(6))
 
-  expect(summary()).toBe("1× · S/W · A4 · Normal · Einpassen (97 %) · Mitte · 1 Seite pro Blatt · alle 6 Seiten")
+  expect(summary()).toBe("1× · Farbe · A4 · Normal · Einpassen (97 %) · Mitte · 1 Seite pro Blatt · alle 6 Seiten")
 })
 
 test("the summary line follows every change", async () => {
@@ -58,7 +58,7 @@ test("the summary line follows every change", async () => {
 
   await change(async () => {
     await copies(3)
-    await user.click(choice("Farbe", "Farbe"))
+    await user.click(choice("Farbe", "S/W"))
     await user.click(choice("Papier", "Umschlag DL"))
     await user.click(choice("Qualität", "Toner sparen"))
     await user.click(choice("Seiten pro Blatt", "2"))
@@ -67,7 +67,7 @@ test("the summary line follows every change", async () => {
   await user.click(choice("Position", "oben links"))
   await tap("Seite 4")
 
-  expect(summary()).toBe("3× · Farbe · Umschlag DL · Toner sparen · 100 % · oben links · 2 Seiten pro Blatt · Seiten 1-3, 5-6")
+  expect(summary()).toBe("3× · S/W · Umschlag DL · Toner sparen · 100 % · oben links · 2 Seiten pro Blatt · Seiten 1-3, 5-6")
 
   await tap("Keine")
   expect(summary()).toContain(" · keine Seiten")
@@ -165,7 +165,7 @@ test("Drucken is not available before the printer info is there, so the confirma
   await user.click(print)
   expect(within(confirmation()).getAllByRole("listitem").map(line => line.textContent)).toEqual([
     "1 Seite × 1 Kopie = 1 Blatt",
-    "Schwarz-Weiß · A4 · Einpassen (97 %)",
+    "Farbe · A4 · Einpassen (97 %)",
   ])
 })
 
@@ -200,7 +200,7 @@ test("Abbrechen in the confirmation returns to the options screen with nothing c
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   expect(submits()).toHaveLength(0)
   expect(summary()).toBe(before)
-  expect(before).toBe("2× · S/W · A5 · Normal · Einpassen (67 %) · Mitte · 1 Seite pro Blatt · Seiten 1, 3")
+  expect(before).toBe("2× · Farbe · A5 · Normal · Einpassen (67 %) · Mitte · 1 Seite pro Blatt · Seiten 1, 3")
   expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("Seite 3 · 2/2")
   expect(choice("Voreinstellung", "✎ Eigene")).toBeChecked()
 
@@ -253,18 +253,18 @@ test("the confirmation lists colour, paper and Print size", async () => {
   const { user, tap, choice, change, lines } = await openOptions(pdfOf(1))
 
   await tap("Drucken")
-  expect(lines()).toEqual(["1 Seite × 1 Kopie = 1 Blatt", "Schwarz-Weiß · A4 · Einpassen (97 %)"])
+  expect(lines()).toEqual(["1 Seite × 1 Kopie = 1 Blatt", "Farbe · A4 · Einpassen (97 %)"])
   await user.click(within(confirmation()).getByRole("button", { name: "Abbrechen" }))
 
   await change(async () => {
-    await user.click(choice("Farbe", "Farbe"))
+    await user.click(choice("Farbe", "S/W"))
     await user.click(choice("Papier", "Umschlag C5"))
     await user.click(choice("Qualität", "Toner sparen"))
   })
   await tap("Kleiner drucken")
   await tap("Drucken")
 
-  expect(lines()[1]).toMatch(/^Farbe · Umschlag C5 · \d+ % · Toner sparen$/)
+  expect(lines()[1]).toMatch(/^Schwarz-Weiß · Umschlag C5 · \d+ % · Toner sparen$/)
 })
 
 test("the confirmation repeats the cut-off warning when content will be cut off", async () => {
@@ -280,7 +280,7 @@ test("the confirmation repeats the cut-off warning when content will be cut off"
 
   const dialog = within(confirmation())
   expect(dialog.getByText("⚠ Teile des Inhalts werden abgeschnitten.")).toBeInTheDocument()
-  expect(dialog.getAllByRole("listitem")[1]).toHaveTextContent("Schwarz-Weiß · A4 · Füllen (100 %)")
+  expect(dialog.getAllByRole("listitem")[1]).toHaveTextContent("Farbe · A4 · Füllen (100 %)")
 })
 
 test("the confirmation warns when only a later sheet is cut off", async () => {

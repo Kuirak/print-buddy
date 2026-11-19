@@ -33,17 +33,17 @@ async function openOptions() {
   return { user, print, choice }
 }
 
-test("a new PDF is submitted with one copy, black and white, on A4, in normal quality", async () => {
+test("a new PDF is submitted with one copy, in colour, on A4, in normal quality", async () => {
   const { print, choice } = await openOptions()
 
   expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
-  expect(choice("Farbe", "S/W")).toBeChecked()
-  expect(choice("Farbe", "Farbe")).not.toBeChecked()
+  expect(choice("Farbe", "Farbe")).toBeChecked()
+  expect(choice("Farbe", "S/W")).not.toBeChecked()
   expect(choice("Papier", "A4")).toBeChecked()
   expect(choice("Qualität", "Normal")).toBeChecked()
 
   expect(await print()).toEqual({
-    copies: 1, color: "mono", paper: "A4", quality: "normal",
+    copies: 1, color: "color", paper: "A4", quality: "normal",
     printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
   })
 })
@@ -53,18 +53,18 @@ test("changing copies, colour, paper and quality changes the submitted Print Opt
 
   await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
   await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
-  await user.click(choice("Farbe", "Farbe"))
+  await user.click(choice("Farbe", "S/W"))
   await user.click(choice("Papier", "Umschlag DL"))
   await user.click(choice("Qualität", "Toner sparen"))
 
   expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("3")
-  expect(choice("Farbe", "Farbe")).toBeChecked()
-  expect(choice("Farbe", "S/W")).not.toBeChecked()
+  expect(choice("Farbe", "S/W")).toBeChecked()
+  expect(choice("Farbe", "Farbe")).not.toBeChecked()
   expect(choice("Papier", "Umschlag DL")).toBeChecked()
   expect(choice("Papier", "A4")).not.toBeChecked()
   expect(choice("Qualität", "Toner sparen")).toBeChecked()
 
-  expect(await print()).toMatchObject({ copies: 3, color: "color", paper: "EnvDL", quality: "draft" })
+  expect(await print()).toMatchObject({ copies: 3, color: "mono", paper: "EnvDL", quality: "draft" })
 })
 
 test.each([
@@ -84,12 +84,12 @@ test.each([
 test("a choice can be changed back", async () => {
   const { user, print, choice } = await openOptions()
 
-  await user.click(choice("Farbe", "Farbe"))
   await user.click(choice("Farbe", "S/W"))
+  await user.click(choice("Farbe", "Farbe"))
   await user.click(choice("Qualität", "Toner sparen"))
   await user.click(choice("Qualität", "Normal"))
 
-  expect(await print()).toMatchObject({ color: "mono", quality: "normal" })
+  expect(await print()).toMatchObject({ color: "color", quality: "normal" })
 })
 
 test("the copies never go below 1", async () => {

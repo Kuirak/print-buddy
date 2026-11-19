@@ -87,9 +87,14 @@ const documentMono = {
   printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1,
 }
 
+const documentColor = {
+  copies: 1, color: "color", paper: "A4", quality: "normal",
+  printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1,
+}
+
 test.each([
-  ["pdf", "★ Dokument s/w", { color: "mono", paper: "A4", quality: "normal" }],
-  ["pdf", "Dokument Farbe", { color: "color", paper: "A4", quality: "normal" }],
+  ["pdf", "★ Dokument Farbe", { color: "color", paper: "A4", quality: "normal" }],
+  ["pdf", "Dokument s/w", { color: "mono", paper: "A4", quality: "normal" }],
   ["pdf", "Umschlag DL", { color: "mono", paper: "EnvDL", quality: "normal" }],
   ["photo", "★ Foto", { color: "color", paper: "A4", quality: "normal" }],
   ["photo", "Foto s/w Toner sparen", { color: "mono", paper: "A4", quality: "draft" }],
@@ -108,14 +113,14 @@ test.each([
   })
 })
 
-test("a new PDF starts from Dokument s/w and offers the document Presets", async () => {
+test("a new PDF starts from Dokument Farbe and offers the document Presets, colour first", async () => {
   const { print, chip, chips } = await openOptions("pdf")
 
-  expect(chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
-  expect(chip("★ Dokument s/w")).toBeChecked()
-  expect(chip("Dokument Farbe")).not.toBeChecked()
+  expect(chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Eigene …"])
+  expect(chip("★ Dokument Farbe")).toBeChecked()
+  expect(chip("Dokument s/w")).not.toBeChecked()
   expect(chip("Eigene …")).not.toBeChecked()
-  expect(await print()).toMatchObject({ color: "mono", paper: "A4", quality: "normal" })
+  expect(await print()).toMatchObject({ color: "color", paper: "A4", quality: "normal" })
 })
 
 test("a new photo share starts from Foto and offers the photo Presets", async () => {
@@ -132,21 +137,21 @@ test("changing an option shows Eigene until the Print Options match a Preset aga
   const { set, tap, chip, chips } = await openOptions()
 
   await set("Qualität", "Toner sparen")
-  expect(chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "✎ Eigene"])
+  expect(chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "✎ Eigene"])
   expect(chip("✎ Eigene")).toBeChecked()
-  expect(chip("★ Dokument s/w")).not.toBeChecked()
+  expect(chip("★ Dokument Farbe")).not.toBeChecked()
 
   await set("Qualität", "Normal")
-  expect(chip("★ Dokument s/w")).toBeChecked()
+  expect(chip("★ Dokument Farbe")).toBeChecked()
   expect(chip("Eigene …")).not.toBeChecked()
 
-  await set("Farbe", "Farbe")
-  expect(chip("Dokument Farbe")).toBeChecked()
-  expect(chip("★ Dokument s/w")).not.toBeChecked()
+  await set("Farbe", "S/W")
+  expect(chip("Dokument s/w")).toBeChecked()
+  expect(chip("★ Dokument Farbe")).not.toBeChecked()
 
   await tap("Mehr Kopien")
   expect(chip("✎ Eigene")).toBeChecked()
-  expect(chip("Dokument Farbe")).not.toBeChecked()
+  expect(chip("Dokument s/w")).not.toBeChecked()
 })
 
 test("a Preset sets Print size, Position, pages per sheet and copies, and is told apart by them", async () => {
@@ -160,20 +165,20 @@ test("a Preset sets Print size, Position, pages per sheet and copies, and is tol
   const { print, chip, pick, set, details } = await openOptions()
 
   for (const name of ["Zwei auf eins", "Oben", "Füllen", "Doppelt", "Eigene …"]) expect(chip(name)).not.toBeChecked()
-  expect(chip("★ Dokument s/w")).toBeChecked()
+  expect(chip("★ Dokument Farbe")).toBeChecked()
 
   // each differs from Dokument s/w in one field only, so with colour it is no longer Dokument Farbe
   for (const name of ["Oben", "Füllen", "Doppelt"]) {
     await pick(name)
     expect(chip(name)).toBeChecked()
-    expect(chip("★ Dokument s/w")).not.toBeChecked()
+    expect(chip("Dokument s/w")).not.toBeChecked()
     await set("Farbe", "Farbe")
     expect(chip("✎ Eigene")).toBeChecked()
   }
 
   await pick("Zwei auf eins")
   expect(chip("Zwei auf eins")).toBeChecked()
-  expect(chip("★ Dokument s/w")).not.toBeChecked()
+  expect(chip("Dokument s/w")).not.toBeChecked()
   await details()
   expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("3")
 
@@ -198,15 +203,15 @@ test("the current Print Options can be saved as an own Preset, which is still th
 
   await first.saveAs("Bastelpapier")
 
-  expect(first.chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Bastelpapier", "Eigene …"])
+  expect(first.chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Bastelpapier", "Eigene …"])
   expect(first.chip("Bastelpapier")).toBeChecked()
   expect(screen.queryByLabelText('Name der Voreinstellung (z. B. "Bastelpapier")')).not.toBeInTheDocument()
 
   const { user, print, chip } = await reopen()
-  expect(chip("★ Dokument s/w")).toBeChecked()
+  expect(chip("★ Dokument Farbe")).toBeChecked()
   await user.click(chip("Bastelpapier"))
   expect(chip("Bastelpapier")).toBeChecked()
-  expect(await print()).toEqual({ ...documentMono, paper: "A5", copies: 2, rotation: 0, selection: [1] })
+  expect(await print()).toEqual({ ...documentColor, paper: "A5", copies: 2, rotation: 0, selection: [1] })
 })
 
 test("saving without a name, or backing out, saves nothing", async () => {
@@ -220,13 +225,13 @@ test("saving without a name, or backing out, saves nothing", async () => {
   await user.type(screen.getByLabelText('Name der Voreinstellung (z. B. "Bastelpapier")'), "Doch nicht")
   await tap("Abbrechen")
 
-  expect(chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "✎ Eigene"])
-  expect((await reopen()).chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
+  expect(chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "✎ Eigene"])
+  expect((await reopen()).chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Eigene …"])
 })
 
 test("an own Preset can be deleted and stays deleted; the Print Options go back to the default Preset", async () => {
   const first = await openOptions()
-  await first.set("Farbe", "Farbe")
+  await first.set("Farbe", "S/W")
   await first.set("Papier", "A5")
   await first.saveAs("Bastelpapier")
 
@@ -238,12 +243,12 @@ test("an own Preset can be deleted and stays deleted; the Print Options go back 
   await first.tap("Löschen")
   await first.tap("Löschen")
 
-  expect(first.chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
-  expect(first.chip("★ Dokument s/w")).toBeChecked()
+  expect(first.chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Eigene …"])
+  expect(first.chip("★ Dokument Farbe")).toBeChecked()
   expect(first.choice("Papier", "A4")).toBeChecked()
-  expect(first.choice("Farbe", "S/W")).toBeChecked()
+  expect(first.choice("Farbe", "Farbe")).toBeChecked()
 
-  expect((await reopen()).chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
+  expect((await reopen()).chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Eigene …"])
 })
 
 test("built-in Presets can't be deleted, and neither can Print Options that match no Preset", async () => {
@@ -266,17 +271,17 @@ test("a starred Preset is what new PDFs start from, also after reopening the app
   await first.details()
   expect(screen.getByRole("button", { name: "★ Standard" })).toBeDisabled()
 
-  await first.pick("Dokument Farbe")
+  await first.pick("Dokument s/w")
   await first.tap("Als Standard festlegen")
 
-  expect(first.chips()).toEqual(["Dokument s/w", "★ Dokument Farbe", "Umschlag DL", "Eigene …"])
+  expect(first.chips()).toEqual(["Dokument Farbe", "★ Dokument s/w", "Umschlag DL", "Eigene …"])
   expect(screen.getByRole("button", { name: "★ Standard" })).toBeDisabled()
   expect(screen.queryByRole("button", { name: "Als Standard festlegen" })).not.toBeInTheDocument()
 
   const second = await reopen()
-  expect(second.chips()).toEqual(["Dokument s/w", "★ Dokument Farbe", "Umschlag DL", "Eigene …"])
-  expect(second.chip("★ Dokument Farbe")).toBeChecked()
-  expect(await second.print()).toMatchObject({ color: "color", paper: "A4" })
+  expect(second.chips()).toEqual(["Dokument Farbe", "★ Dokument s/w", "Umschlag DL", "Eigene …"])
+  expect(second.chip("★ Dokument s/w")).toBeChecked()
+  expect(await second.print()).toMatchObject({ color: "mono", paper: "A4" })
 
   const photos = await reopen("photo")
   expect(photos.chips()).toEqual(["★ Foto", "Foto s/w Toner sparen", "Eigene …"])
@@ -295,7 +300,7 @@ test("photos have their own starred Preset, which can be an own one", async () =
   expect(await photos.print()).toMatchObject({ color: "color", paper: "A5" })
 
   const pdfs = await reopen("pdf")
-  expect(pdfs.chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
+  expect(pdfs.chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Eigene …"])
 })
 
 test("the star can't be set while the Print Options match no Preset", async () => {
@@ -318,18 +323,18 @@ test("deleting the starred own Preset gives the star back to the built-in defaul
   await first.tap("Löschen")
   await first.tap("Löschen")
 
-  expect(first.chips()).toEqual(["★ Dokument s/w", "Dokument Farbe", "Umschlag DL", "Eigene …"])
-  expect((await reopen()).chip("★ Dokument s/w")).toBeChecked()
+  expect(first.chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Eigene …"])
+  expect((await reopen()).chip("★ Dokument Farbe")).toBeChecked()
 })
 
 test("a new file never starts from the Print Options of the previous Print Job", async () => {
   const first = await openOptions()
-  await first.set("Farbe", "Farbe")
+  await first.set("Farbe", "S/W")
   await first.set("Papier", "Umschlag C5")
   await first.tap("Mehr Kopien")
-  expect(await first.print()).toMatchObject({ copies: 2, color: "color", paper: "EnvC5" })
+  expect(await first.print()).toMatchObject({ copies: 2, color: "mono", paper: "EnvC5" })
 
   const second = await reopen()
-  expect(second.chip("★ Dokument s/w")).toBeChecked()
-  expect(await second.print()).toEqual({ ...documentMono, rotation: 0, selection: [1] })
+  expect(second.chip("★ Dokument Farbe")).toBeChecked()
+  expect(await second.print()).toEqual({ ...documentColor, rotation: 0, selection: [1] })
 })

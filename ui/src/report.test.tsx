@@ -174,7 +174,7 @@ test("Bericht kopieren on Drucken hat nicht geklappt says what the server answer
   expect(report).toContain("Was passiert ist: Der Druckauftrag konnte nicht gesendet werden: Der Server antwortete mit 502 (cups-unreachable).\n")
   expect(report).toContain(`Dateityp: application/pdf\nGröße: ${file.size} Bytes\nDateien: 1\n`)
   expect(report).toContain("Druckoptionen:\n  copies: 2\n")
-  expect(report).toContain("\n  color: mono\n")
+  expect(report).toContain("\n  color: color\n")
   expect(report).not.toContain("CUPS-Auftrag")
   expect(report).not.toMatch(secrets)
 })
