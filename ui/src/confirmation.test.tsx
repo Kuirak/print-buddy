@@ -28,7 +28,9 @@ async function openOptions(facts: FileFacts, count = 1) {
     ? new File(["%PDF-1.4"], "Brief.pdf", { type: "application/pdf" })
     : new File(["\xff\xd8\xff"], `Strand ${index + 1}.jpg`, { type: "image/jpeg" }))
   await user.upload(screen.getByLabelText("Datei auswählen"), files)
-  await screen.findByRole("status", { name: "Blatt in der Vorschau" })
+  // the upload is done and the margins have arrived: the file is laid out from the server's facts
+  await screen.findByRole("button", { name: "Drucken" })
+  await screen.findByRole("status", { name: "Druckgröße in Prozent" })
 
   const tap = (name: string) => user.click(screen.getByRole("button", { name }))
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })

@@ -189,7 +189,8 @@ export function OptionsScreen(props: {
           grey={options.color === "mono"}
           zoom={zoom()}
         />
-        <Show when={sheets()}>
+        {/* nothing to step through on a single sheet; with nothing selected it says so */}
+        <Show when={sheets()?.length !== 1 && sheets()}>
           {laidOut => <SheetSteps index={current()} count={laidOut().length} text={sheetText()} onChange={setStep} />}
         </Show>
       </div>
@@ -207,15 +208,18 @@ export function OptionsScreen(props: {
       <Show when={cutOff()}>
         <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
       </Show>
-      <Thumbnails
-        source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
-        refs={refs()}
-        selection={options.selection}
-        grey={options.color === "mono"}
-        onToggle={toggle}
-        onAll={() => select([...refs()])}
-        onNone={() => select([])}
-      />
+      {/* a single page or photo leaves nothing to choose */}
+      <Show when={refs().length > 1}>
+        <Thumbnails
+          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+          refs={refs()}
+          selection={options.selection}
+          grey={options.color === "mono"}
+          onToggle={toggle}
+          onAll={() => select([...refs()])}
+          onNone={() => select([])}
+        />
+      </Show>
       <SummaryLine kind={kind} total={refs().length} options={options} percent={percent()} onChange={() => setOver("details")} />
       {/* the last thing on the screen, so that at the end of the page nothing lies under it */}
       <div class="sticky bottom-0 z-10 -mx-4 mt-auto border-t border-gray-200 bg-white px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">

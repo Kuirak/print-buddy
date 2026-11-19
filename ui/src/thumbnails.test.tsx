@@ -24,7 +24,9 @@ async function openOptions(facts: FileFacts, count = 1) {
     ? new File(["%PDF-1.4"], "Brief.pdf", { type: "application/pdf" })
     : new File(["\xff\xd8\xff"], `Strand ${index + 1}.jpg`, { type: "image/jpeg" }))
   await user.upload(screen.getByLabelText("Datei auswählen"), files)
-  await screen.findByRole("status", { name: "Blatt in der Vorschau" })
+  // the upload is done and the margins have arrived: the file is laid out from the server's facts
+  await screen.findByRole("button", { name: "Drucken" })
+  await screen.findByRole("status", { name: "Druckgröße in Prozent" })
 
   /** Taps Drucken and returns the Print Options the app submitted. */
   async function print() {
@@ -275,4 +277,51 @@ test("picking a Preset leaves the photo selection and each photo's rotation alon
 
   expect(thumbnails("Fotos").selected).toEqual(["Foto 2", "Foto 3"])
   expect(await print()).toMatchObject({ color: "mono", quality: "draft", rotation: 0, photoRotations: { 2: 90 }, selection: [1, 2] })
+})
+
+test.each([
+  ["a one-page PDF", pdfOf(1), 1, "Seite 1", { selection: [1] }],
+  ["a single photo", photo, 1, "Foto 1", { selection: [0] }],
+] as const)("%s shows no thumbnails, no Alle and Keine and no sheet stepper", async (_, facts, count, preview, submitted) => {
+  const { print } = await openOptions(facts, count)
+
+  expect(await screen.findByRole("img", { name: `Vorschau ${preview}` })).toBeInTheDocument()
+  expect(screen.queryByRole("group", { name: facts.kind === "pdf" ? "Seiten" : "Fotos" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: preview })).not.toBeInTheDocument()
+  expect(screen.queryByText(/zum Drucken antippen/)).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Alle" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Keine" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Nächstes Blatt" })).not.toBeInTheDocument()
+  expect(await print()).toMatchObject(submitted)
+})
+
+test("the sheet stepper hides while the selection gives one sheet, and the thumbnails stay", async () => {
+  const { tap, thumbnails, sheet, print } = await openOptions(pdfOf(3))
+
+  await tap("Seite 1")
+  await tap("Seite 3")
+
+  expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Vorheriges Blatt" })).not.toBeInTheDocument()
+  expect(screen.getByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
+  expect(thumbnails("Seiten").selected).toEqual(["Seite 2"])
+  expect(screen.getByRole("button", { name: "Alle" })).toBeInTheDocument()
+
+  await tap("Seite 3")
+  expect(sheet()).toBe("Seite 3 · 2/2")
+  expect(await print()).toMatchObject({ selection: [2, 3] })
+})
+
+test("the sheet stepper hides when two pages share the one sheet", async () => {
+  const { user, choice, thumbnails } = await openOptions(pdfOf(2))
+  expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("Seite 1 · 1/2")
+
+  await openDetails(user)
+  await user.click(choice("Seiten pro Blatt", "2"))
+  await closeDetails(user)
+
+  expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
+  expect(await screen.findByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
+  expect(thumbnails("Seiten").names).toEqual(["Seite 1", "Seite 2"])
 })
