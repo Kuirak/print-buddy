@@ -64,8 +64,12 @@ export function App() {
   }
   // a share opens the app in the middle of a job; from Start, a job begins with "Datei auswählen"
   const update = startAppUpdate()
-  let jobInProgress = opensInJob
-  update.setJobInProgress(jobInProgress)
+  update.setJobInProgress(opensInJob)
+  /**
+   * The phone holds the files of a job the person can come back to after a login. Not what `update` is
+   * told: on the Refusal screen the files are gone, and a new version must still not reload the page.
+   */
+  let filesHeld = opensInJob
   /** The Print Options the person last tapped Drucken with in this job, for the way back from the login. */
   let lastSent = interrupted?.options
 
@@ -76,7 +80,7 @@ export function App() {
     // what the page load of the login would lose; the files are on the phone already
     const current = screen()
     if (current.name === "status") interruptedJob.keep({ options: current.options, job: current.job, since: current.since })
-    else if (jobInProgress) interruptedJob.keep({ options: lastSent })
+    else if (filesHeld) interruptedJob.keep({ options: lastSent })
     setLoginExpired(true)
   })
 
@@ -97,7 +101,7 @@ export function App() {
    */
   function leaveJob(to: "start" | "share-again" = "start") {
     setScreen({ name: to })
-    jobInProgress = false
+    filesHeld = false
     lastSent = undefined
     update.setJobInProgress(false)
     return phoneFiles.clear()
@@ -127,6 +131,7 @@ export function App() {
         if ("refusal" in answer) {
           // nothing prints, so there is no job to keep the files for
           await phoneFiles.clear()
+          filesHeld = false
           setScreen({ name: "refusal", refusal: answer, file })
           return undefined
         }
@@ -149,7 +154,7 @@ export function App() {
   }
 
   async function pick(files: File[]) {
-    jobInProgress = true
+    filesHeld = true
     lastSent = undefined
     update.setJobInProgress(true)
     await phoneFiles.keep(files)

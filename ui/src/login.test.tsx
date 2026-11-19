@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises"
 import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, onTestFinished, test, vi } from "vitest"
@@ -285,6 +286,28 @@ test("when the login ran out with no job in progress, the login leads back to St
   expect(screen.getByRole("heading", { name: "Print Buddy" })).toBeInTheDocument()
   expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
   expect(location.search).toBe("")
+})
+
+test("when the login runs out on the Refusal screen, the login leads back to Start, because a refused file is no job to come back to", async () => {
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json({ refusal: "too-large", limitMb: 50 }, 413),
+    // what Bericht kopieren asks the server
+    "GET /api/report": loginExpired,
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Rechnung.pdf"))
+  await screen.findByText("Die Datei ist zu groß (höchstens 50 MB).")
+  await user.click(screen.getByRole("button", { name: "Bericht kopieren" }))
+  await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
+
+  await logInAgain(user)
+  render(() => <App />)
+
+  expect(screen.getByLabelText("Datei auswählen")).toBeInTheDocument()
+  await sleep(20)
+  expect(screen.getByRole("heading", { name: "Print Buddy" })).toBeInTheDocument()
 })
 
 /** Picks a PDF, asks for two copies and taps Drucken, which is when the login turns out to have run out. */
