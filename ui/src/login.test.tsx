@@ -1,11 +1,11 @@
-import { render, screen } from "@solidjs/testing-library"
+import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test, vi } from "vitest"
+import { expect, onTestFinished, test, vi } from "vitest"
 import { App } from "./App.tsx"
+import { phoneFiles } from "./phone-files.ts"
+import { jobStatus } from "./testing/job-status.ts"
+import { logInAgain, loginExpired } from "./testing/login.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
-
-/** What Cloudflare Access answers to an API call once the login has run out. The body is Cloudflare's, not the API's JSON. */
-const loginExpired = () => new Response("Unauthorized", { status: 401 })
 
 test("the app asks the session check when it opens, and a 401 shows Anmeldung abgelaufen with Neu anmelden", async () => {
   const api = mockApi({ "GET /api/session": loginExpired })
@@ -23,6 +23,7 @@ test("Neu anmelden leaves the app for a full page load of the login address", as
   mockApi({ "GET /api/session": loginExpired })
   // stands in for the browser, which would leave the page here
   const pageLoad = vi.spyOn(location, "assign").mockImplementation(() => {})
+  onTestFinished(() => pageLoad.mockRestore())
   const user = userEvent.setup()
   render(() => <App />)
 
@@ -60,4 +61,50 @@ test("a 401 when the person taps Drucken shows Anmeldung abgelaufen, not Drucken
   expect(await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })).toBeInTheDocument()
   expect(screen.queryByRole("heading", { name: "Drucken hat nicht geklappt" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Erneut versuchen" })).not.toBeInTheDocument()
+})
+
+const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
+
+test("after the login the options screen opens with the same file and the same Print Options, and Drucken sends them", async () => {
+  let drafts = 0
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
+    "POST /api/drafts/d1/files": () => json(pdfFacts, 201),
+    "POST /api/drafts/d1/submit": loginExpired,
+    "POST /api/drafts/d2/files": () => json(pdfFacts, 201),
+    "POST /api/drafts/d2/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus(),
+  })
+  const user = userEvent.setup()
+  const file = pdf("Rechnung.pdf")
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), file)
+  await user.click(await screen.findByRole("button", { name: "Mehr Kopien" }))
+  await user.click(choice("Farbe", "Farbe"))
+  await user.click(choice("Papier", "A5"))
+  await user.click(choice("Qualität", "Toner sparen"))
+  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  await screen.findByRole("heading", { name: "Anmeldung abgelaufen" })
+
+  await logInAgain(user)
+  render(() => <App />)
+
+  expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
+  expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("2")
+  expect(choice("Farbe", "Farbe")).toBeChecked()
+  expect(choice("Papier", "A5")).toBeChecked()
+  expect(choice("Qualität", "Toner sparen")).toBeChecked()
+  // the file comes from the phone's copy: nobody shared or picked it again
+  expect((api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData).get("file")).toBe(file)
+  // a reload must not take this for another return from the login
+  expect(location.search).toBe("")
+
+  await user.click(screen.getByRole("button", { name: "Drucken" }))
+
+  expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
+  expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toEqual({
+    copies: 2, color: "color", paper: "A5", quality: "draft",
+    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
+  })
+  expect((await phoneFiles.held()).map(held => held.name)).toEqual(["Rechnung.pdf"])
 })

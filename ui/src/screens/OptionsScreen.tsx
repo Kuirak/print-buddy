@@ -40,11 +40,20 @@ function everything(facts: readonly FileFacts[]): number[] {
   return pdf ? Array.from({ length: pdf.pageCount }, (_, i) => i + 1) : facts.map((_, i) => i)
 }
 
-/** `facts`: what the server found out about the files of the Print Job, in order. */
-export function OptionsScreen(props: { fileName: string; kind: FileKind; facts: readonly FileFacts[]; onPrint: (options: PrintOptions) => void }) {
+/**
+ * `facts`: what the server found out about the files of the Print Job, in order.
+ * `initial`: the Print Options the person had chosen for these files before the login ran out.
+ */
+export function OptionsScreen(props: {
+  fileName: string
+  kind: FileKind
+  facts: readonly FileFacts[]
+  initial?: PrintOptions
+  onPrint: (options: PrintOptions) => void
+}) {
   const presets = createPresets(untrack(() => props.kind))
   // a new file starts from the starred Preset, never from the settings of the job before
-  const [options, setOptions] = createStore<PrintOptions>({
+  const [options, setOptions] = createStore<PrintOptions>(structuredClone(untrack(() => props.initial)) ?? {
     ...structuredClone(presets.starred().values),
     rotation: 0,
     selection: untrack(() => everything(props.facts)),

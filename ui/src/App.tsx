@@ -1,9 +1,11 @@
 import { createSignal, Match, onSettled, Switch } from "solid-js"
 import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
+import { loggedInParam } from "../../shared/login.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { sharedParam } from "../../shared/share-target.ts"
 import { addFile, checkSession, createDraft, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
+import { interruptedJob } from "./interrupted-job.ts"
 import { phoneFiles } from "./phone-files.ts"
 import { fileKind } from "./presets.ts"
 import { LoginExpiredScreen } from "./screens/LoginExpiredScreen.tsx"
@@ -22,8 +24,11 @@ type Screen =
   | { name: "start" }
   /** A share has just come in and its files are on their way to the server. */
   | { name: "opening" }
-  /** One PDF, or photos in the order they were shared or picked. */
-  | ({ name: "options" } & Draft)
+  /**
+   * One PDF, or photos in the order they were shared or picked. `initial`: the Print Options the screen
+   * starts with after the login, when the person had chosen them before it ran out.
+   */
+  | ({ name: "options"; initial?: PrintOptions } & Draft)
   | { name: "refusal"; refusal: Refusal }
   /** `options` is what was sent, kept for "Nochmal drucken". */
   | { name: "status"; options: PrintOptions; job: JobSubmitted }
@@ -32,32 +37,44 @@ type Screen =
 
 /** The app shell: decides which screen shows and moves between them. One screen per file under `screens/`. */
 export function App() {
+  const address = new URLSearchParams(location.search)
   /** The service worker has put a share on the phone and sent the browser here. */
-  const shared = new URLSearchParams(location.search).has(sharedParam)
-  const [screen, setScreen] = createSignal<Screen>({ name: shared ? "opening" : "start" })
+  const shared = address.has(sharedParam)
+  // taken on every open, so that it can't outlive the page load it was kept for
+  const kept = interruptedJob.take()
+  /** The person is back from the login, which ran out in the middle of this job. */
+  const interrupted = address.has(loggedInParam) ? kept : undefined
+  /** The app opens in the middle of a job, and the phone holds its files. */
+  const opensInJob = shared || interrupted !== undefined
+  const [screen, setScreen] = createSignal<Screen>({ name: opensInJob ? "opening" : "start" })
   const on = <N extends Screen["name"]>(name: N) => {
     const current = screen()
     return current.name === name ? (current as Extract<Screen, { name: N }>) : undefined
   }
   // a share opens the app in the middle of a job; from Start, a job begins with "Datei auswählen"
   const update = startAppUpdate()
-  update.setJobInProgress(shared)
+  let jobInProgress = opensInJob
+  update.setJobInProgress(jobInProgress)
+  /** The Print Options the person last tapped Drucken with in this job, for the way back from the login. */
+  let lastSent = interrupted?.options
 
   /** Cloudflare Access has answered a call with 401. Nothing else shows until the person has logged in again. */
   const [loginExpired, setLoginExpired] = createSignal(false)
-  onLoginExpired(() => setLoginExpired(true))
+  onLoginExpired(() => {
+    if (loginExpired()) return
+    // what the page load of the login would lose; the files are on the phone already
+    if (jobInProgress) interruptedJob.keep({ options: lastSent })
+    setLoginExpired(true)
+  })
 
   onSettled(() => {
     // only the 401 matters, and that one is reported to onLoginExpired; offline shows when the person prints
     void checkSession().catch(() => {})
-    if (shared) {
-      // the files are on the phone now; a reload must not take this for a new share
-      history.replaceState(null, "", location.pathname)
-      void openHeld()
-    } else {
-      // opened without a share, no job is in progress: nothing of an earlier one stays on the phone
-      void phoneFiles.clear()
-    }
+    // the address has said how the app was opened; a reload must not take it for a new share or another login
+    if (address.size > 0) history.replaceState(null, "", location.pathname)
+    if (opensInJob) void openHeld(interrupted?.options)
+    // opened without a job in progress: nothing of an earlier one stays on the phone
+    else void phoneFiles.clear()
   })
 
   /**
@@ -66,6 +83,8 @@ export function App() {
    */
   function leaveJob() {
     setScreen({ name: "start" })
+    jobInProgress = false
+    lastSent = undefined
     update.setJobInProgress(false)
     return phoneFiles.clear()
   }
@@ -105,13 +124,18 @@ export function App() {
     }
   }
 
-  /** Opens the options screen with the phone's copy. The way in for a share and for "Datei auswählen". */
-  async function openHeld() {
+  /**
+   * Opens the options screen with the phone's copy. The way in for a share, for "Datei auswählen" and
+   * for the way back from the login, which brings the Print Options chosen before it as `initial`.
+   */
+  async function openHeld(initial?: PrintOptions) {
     const draft = await uploadHeld()
-    if (draft) setScreen({ name: "options", ...draft })
+    if (draft) setScreen({ name: "options", ...draft, initial })
   }
 
   async function pick(files: File[]) {
+    jobInProgress = true
+    lastSent = undefined
     update.setJobInProgress(true)
     await phoneFiles.keep(files)
     await openHeld()
@@ -126,6 +150,7 @@ export function App() {
   async function print(options: PrintOptions, draftId?: string) {
     if (sending) return
     sending = true
+    lastSent = options
     try {
       draftId ??= (await uploadHeld())?.draftId
       if (draftId === undefined) return
@@ -159,6 +184,7 @@ export function App() {
               fileName={options().files.length === 1 ? options().files[0]!.name : `${options().files.length} Fotos`}
               kind={fileKind(options().facts)}
               facts={options().facts}
+              initial={options().initial}
               onPrint={chosen => void print(chosen, options().draftId)}
             />
           )}
