@@ -2,6 +2,14 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month.
 
+## 2026.11.1
+
+- No more waiting after picking or sharing a file: the options screen opens at once, and the file goes to Print Buddy in the background. Until it is there, "Drucken" reads "Wird hochgeladen … 60 %".
+- "‹ Zurück" at the top of the options screen goes back to the start and forgets the file.
+- PDFs start in colour ("Dokument Farbe"), and that preset comes first. A preset starred on a phone stays that phone's default.
+- The options screen is less crowded: print size and position sit side by side, and nothing hides behind the "Drucken" bar any more.
+- The row of presets has no scrollbar; a faded edge shows that more presets follow, and the chosen one is in view when the screen opens.
+
 ## 2026.11.0
 
 - First release. Print a PDF or up to 20 photos (JPG, PNG) from the phone on the household printer: pick the files in the app, or share them from another app once Print Buddy is installed from Chrome.
