@@ -1,7 +1,7 @@
 name: "Print Buddy"
 # The one source of the version: the server reads this line, and the release workflow
 # refuses a tag that differs from it. Format YYYY.MM.N, always quoted.
-version: "2026.11.4"
+version: "2026.11.5"
 slug: "print-buddy"
 description: "Vom Handy drucken: PDFs und Fotos an den Drucker im Haus"
 url: "https://github.com/Kuirak/print-buddy"
