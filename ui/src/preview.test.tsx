@@ -165,15 +165,13 @@ test.each([
   [2, 180, "94 %"],
   [3, 270, "73 %"],
   [4, 0, "94 %"],
-])("%i taps on Drehen turn the whole PDF to %i°", async (taps, rotation, shownPercent) => {
+])("%i taps on Drehen turn every page of the PDF to %i°", async (taps, turn, shownPercent) => {
   const { tap, percent, print } = await openOptions()
 
   for (let i = 0; i < taps; i++) await tap("Drehen")
 
   expect(await percent()).toHaveTextContent(shownPercent)
-  const submitted = await print()
-  expect(submitted).toMatchObject({ rotation })
-  expect(submitted).not.toHaveProperty("photoRotations")
+  expect(await print()).toMatchObject({ items: [{ count: 1, turn }, { count: 1, turn }] })
 })
 
 test.each([
@@ -182,14 +180,13 @@ test.each([
   [2, 180, "80 %"],
   [3, 270, "60 %"],
   [4, 0, "80 %"],
-])("%i taps on Drehen turn the photo in the preview to %i°", async (taps, rotation, shownPercent) => {
+])("%i taps on Drehen turn the photo in the preview to %i°", async (taps, turn, shownPercent) => {
   const { tap, percent, print } = await openOptions(landscapePhoto)
 
   for (let i = 0; i < taps; i++) await tap("Drehen")
 
   expect(await percent()).toHaveTextContent(shownPercent)
-  // photos turn one by one: the one in the preview is the first, photo 0
-  expect(await print()).toMatchObject({ rotation: 0, photoRotations: { 0: rotation } })
+  expect(await print()).toMatchObject({ items: [{ count: 1, turn }] })
 })
 
 test("a landscape photo on a portrait sheet is turned at Einpassen and Füllen, and not at a percentage", async () => {
@@ -207,7 +204,7 @@ test("a landscape photo on a portrait sheet is turned at Einpassen and Füllen, 
   for (let i = 0; i < 7; i++) await tap("Kleiner drucken")
   expect(await percent()).toHaveTextContent("65 %")
   expect(screen.getByText("Achtung: Teile des Inhalts werden abgeschnitten.")).toBeInTheDocument()
-  expect(await print()).toMatchObject({ rotation: 0 })
+  expect(await print()).toMatchObject({ items: [{ count: 1, turn: 0 }] })
 })
 
 test("a landscape PDF page is never turned on its own", async () => {

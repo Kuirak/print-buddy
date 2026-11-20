@@ -4,7 +4,7 @@ import { expect, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
-import { closeDetails, confirmation, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, confirmation, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 test("pick a PDF, tap Drucken, and follow the Print Job on the status screen", async () => {
   const api = mockApi({
@@ -115,7 +115,7 @@ test("Nochmal drucken on Fertig sends the same file with the same Print Options 
   ])
   const again = api.calls.find(call => call.path === "/api/drafts/d2/files")!
   expect((again.body as FormData).get("file")).toBe(pdf)
-  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1] }
+  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1) }
   for (const draft of ["d1", "d2"]) {
     const submit = api.calls.find(call => call.path === `/api/drafts/${draft}/submit`)!
     expect(JSON.parse(submit.body as string)).toEqual(sent)
@@ -211,8 +211,8 @@ test("Drucken submits every page of the PDF", async () => {
   await printAndConfirm(user)
 
   await screen.findByText("Auftrag Nr. 42")
-  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
-  expect(submitted.selection).toEqual([1, 2, 3])
+  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { items: unknown }
+  expect(submitted.items).toEqual(items(1, 1, 1))
 })
 
 test("Drucken submits every picked photo, in the order they were picked", async () => {
@@ -229,8 +229,8 @@ test("Drucken submits every picked photo, in the order they were picked", async 
   await printAndConfirm(user)
 
   await screen.findByText("Auftrag Nr. 42")
-  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { selection: number[] }
-  expect(submitted.selection).toEqual([0, 1, 2])
+  const submitted = JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as { items: unknown }
+  expect(submitted.items).toEqual(items(1, 1, 1))
 })
 
 test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, which sends the same file with the same Print Options", async () => {
@@ -268,7 +268,7 @@ test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, wh
 
   expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
   expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
-  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1] }
+  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1) }
   for (const draft of ["d1", "d2", "d3"]) {
     const upload = api.calls.find(call => call.path === `/api/drafts/${draft}/files`)!
     expect((upload.body as FormData).get("file")).toBe(pdf)

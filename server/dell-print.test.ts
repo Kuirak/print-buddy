@@ -8,7 +8,7 @@ import { ENGINE_FORMAT, GRID, type DellEngine } from "./dell-engine.ts"
 import { Op, Tag, findAttr, values } from "./printer/ipp-codec.ts"
 import { RASTERS } from "./printer/hbpl.ts"
 import type { FakeIpp } from "./testing/fake-ipp.ts"
-import { jpegWithPixels, pdfWithPages, pngWithPixels, withExifOrientation } from "./testing/fixtures.ts"
+import { items, jpegWithPixels, pdfWithPages, pngWithPixels, withExifOrientation } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 
 /**
@@ -41,7 +41,7 @@ const noMargins = (printer: FakeIpp) => {
 }
 
 const colourPhotos: Partial<PrintOptions> = {
-  color: "color", printSize: { kind: "percent", value: 100 }, position: "top-left", selection: [0],
+  color: "color", printSize: { kind: "percent", value: 100 }, position: "top-left",
 }
 
 async function start(t: { after(fn: () => unknown): void }) {
@@ -80,7 +80,7 @@ test("with Dell's engine in the share folder, a colour photo goes to CUPS as raw
 test("the copies of a Dell job are in its data, collated: the sheets in order, then again", async t => {
   const server = await start(t)
 
-  await server.print({ ...colourPhotos, paper: "A5", copies: 2, selection: [0, 1] }, [halfBlack(), white()])
+  await server.print({ ...colourPhotos, paper: "A5", copies: 2, items: items(1, 1) }, [halfBlack(), white()])
 
   const request = server.printer.requests.at(-1)!
   const { width, height } = RASTERS.A5
@@ -95,7 +95,7 @@ test("a colour PDF goes to CUPS as raw HBPL too: its pages rasterised and toned 
   // the second page has a 10 pt square in its bottom left corner, which at 100 % and top left is the sheet's
   const page: [number, number] = [595, 842]
 
-  await server.print({ ...colourPhotos, copies: 2, selection: [1, 2] }, [pdfWithPages([{ size: page, blank: true }, { size: page }])])
+  await server.print({ ...colourPhotos, copies: 2, items: items(1, 1) }, [pdfWithPages([{ size: page, blank: true }, { size: page }])])
 
   const request = server.printer.requests.at(-1)!
   assert.deepEqual(values(request, Tag.operation, "document-format"), ["application/vnd.cups-raw"])
@@ -184,7 +184,7 @@ test("while a colour photo job is prepared its progress counts the finished shee
   t.after(server.close)
   const draftId = await draftWith(server, [halfBlack(), white()])
 
-  const submitted = server.submit(draftId, { ...colourPhotos, paper: "A5", selection: [0, 1] })
+  const submitted = server.submit(draftId, { ...colourPhotos, paper: "A5", items: items(1, 1) })
   await firstSheetRead.promise
 
   assert.deepEqual(await progressOf(server, draftId), { phase: "preparing", sheetsDone: 1, sheets: 2 })
@@ -196,7 +196,7 @@ test("while a colour photo job is prepared its progress counts the finished shee
   assert.equal(server.printer.jobs.size, 0)
   assert.equal(await progressOf(server, draftId), 404)
   // the draft is as it was, so the same submit can be sent again
-  assert.equal((await server.submit(draftId, { ...colourPhotos, paper: "A5", selection: [0, 1] })).status, 201)
+  assert.equal((await server.submit(draftId, { ...colourPhotos, paper: "A5", items: items(1, 1) })).status, 201)
 })
 
 test("once CUPS is getting the job a submit can't be stopped, and a second submit of the draft is refused meanwhile", async t => {

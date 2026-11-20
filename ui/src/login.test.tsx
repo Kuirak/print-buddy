@@ -7,7 +7,7 @@ import { phoneFiles } from "./phone-files.ts"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { logInAgain, loginExpired } from "./testing/login.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
-import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 import { share } from "./testing/share.ts"
 
 test("the app asks the session check when it opens, and a 401 shows Anmeldung abgelaufen with Neu anmelden", async () => {
@@ -108,7 +108,7 @@ test("after the login the options screen opens with the same file and the same P
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
   expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toEqual({
     copies: 2, color: "color", paper: "A5", quality: "draft",
-    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
+    printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1),
   })
   expect((await phoneFiles.held()).map(held => held.name)).toEqual(["Rechnung.pdf"])
 })
@@ -224,7 +224,7 @@ test("a 401 while the status screen follows a Print Job shows Anmeldung abgelauf
 
   expect(await screen.findByText("Auftrag Nr. 43")).toBeInTheDocument()
   expect((api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData).get("file")).toBe(file)
-  expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toMatchObject({ copies: 2, selection: [1] })
+  expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toMatchObject({ copies: 2, items: items(1) })
 })
 
 test("back on the status screen after the login, läuft seit still counts from when the Print Job was sent", async () => {

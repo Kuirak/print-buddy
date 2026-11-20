@@ -1,13 +1,16 @@
 // Small files and values for tests. Keep them deterministic: no dates, no random ids.
 import { crc32, deflateSync } from "node:zlib"
 import sharp from "sharp"
-import type { PrintOptions } from "../../shared/print-options.ts"
+import type { Item, PrintOptions } from "../../shared/print-options.ts"
 
 /** Valid Print Options for the one page of `samplePdf()`: what a new PDF starts with. */
 export const samplePrintOptions: PrintOptions = {
   copies: 1, color: "mono", paper: "A4", quality: "normal",
-  printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
+  printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: [{ count: 1, turn: 0 }],
 }
+
+/** One item per page or photo of the draft, in its order: how often each prints. None is turned. */
+export const items = (...counts: number[]): Item[] => counts.map(count => ({ count, turn: 0 }))
 
 /**
  * A valid one-page A4 PDF. The second line holds bytes above 0x7f, so a test notices

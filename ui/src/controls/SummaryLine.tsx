@@ -1,5 +1,5 @@
 import type { PrintOptions } from "../../../shared/print-options.ts"
-import { paperNames, positionNames, printSizeText, qualityNames, ranges } from "../job-text.ts"
+import { paperNames, positionNames, printedNumbers, printSizeText, qualityNames, ranges } from "../job-text.ts"
 
 /** Everything that is chosen in one line, and "Ändern", which opens the detailed controls. */
 export function SummaryLine(props: {
@@ -13,12 +13,12 @@ export function SummaryLine(props: {
 }) {
   /** Which pages or photos print: "alle 6 Seiten", "Seiten 1-3, 5", "2 von 3 Fotos". */
   const chosen = () => {
-    const { selection } = props.options
+    const printed = printedNumbers(props.options.items)
     const pdf = props.kind === "pdf"
-    if (selection.length === 0) return pdf ? "keine Seiten" : "keine Fotos"
+    if (printed.length === 0) return pdf ? "keine Seiten" : "keine Fotos"
     if (props.total === 1) return pdf ? "1 Seite" : "1 Foto"
-    if (selection.length === props.total) return `alle ${props.total} ${pdf ? "Seiten" : "Fotos"}`
-    return pdf ? `${selection.length === 1 ? "Seite" : "Seiten"} ${ranges(selection)}` : `${selection.length} von ${props.total} Fotos`
+    if (printed.length === props.total) return `alle ${props.total} ${pdf ? "Seiten" : "Fotos"}`
+    return pdf ? `${printed.length === 1 ? "Seite" : "Seiten"} ${ranges(printed)}` : `${printed.length} von ${props.total} Fotos`
   }
   const parts = () => [
     `${props.options.copies}×`,
@@ -28,7 +28,7 @@ export function SummaryLine(props: {
     printSizeText(props.options.printSize, props.percent),
     positionNames[props.options.position],
     // photos always get a sheet each
-    ...(props.kind === "pdf" ? [props.options.pagesPerSheet === 1 ? "1 Seite pro Blatt" : "2 Seiten pro Blatt"] : []),
+    ...(props.kind === "pdf" ? [props.options.layout.kind === "grid" && props.options.layout.perSheet === 2 ? "2 Seiten pro Blatt" : "1 Seite pro Blatt"] : []),
     chosen(),
   ]
   return (

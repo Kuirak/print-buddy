@@ -44,7 +44,7 @@ test("a new PDF is submitted with one copy, in colour, on A4, in normal quality"
 
   expect(await print()).toEqual({
     copies: 1, color: "color", paper: "A4", quality: "normal",
-    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
+    printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: [{ count: 1, turn: 0 }],
   })
 })
 

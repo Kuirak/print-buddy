@@ -3,7 +3,7 @@ import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import { JobState } from "./printer/ipp-codec.ts"
-import { pdfWithPages, sampleJpeg, samplePdf, samplePrintOptions, type PdfPageSpec } from "./testing/fixtures.ts"
+import { items, pdfWithPages, sampleJpeg, samplePdf, samplePrintOptions, type PdfPageSpec } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 import { readRenderedPdf } from "./testing/rendered-pdf.ts"
 
@@ -159,12 +159,12 @@ test("the sheet count is the number of sheets in the PDF the Printer received, f
   const photos = [sampleJpeg(), sampleJpeg()]
 
   const cases: { files: Uint8Array<ArrayBuffer>[]; options: Partial<PrintOptions>; rendered: number; sheets: number }[] = [
-    { files: pdf, options: { selection: [1, 2, 3], copies: 2 }, rendered: 3, sheets: 6 },
-    { files: pdf, options: { selection: [3, 1], copies: 2 }, rendered: 2, sheets: 4 },
-    { files: pdf, options: { selection: [1, 2, 3], pagesPerSheet: 2, copies: 1 }, rendered: 2, sheets: 2 },
-    { files: pdf, options: { selection: [1, 2, 3], pagesPerSheet: 2, copies: 5 }, rendered: 2, sheets: 10 },
-    { files: photos, options: { selection: [0, 1], copies: 3 }, rendered: 2, sheets: 6 },
-    { files: photos, options: { selection: [1], copies: 3 }, rendered: 1, sheets: 3 },
+    { files: pdf, options: { items: items(1, 1, 1), copies: 2 }, rendered: 3, sheets: 6 },
+    { files: pdf, options: { items: items(1, 0, 1), copies: 2 }, rendered: 2, sheets: 4 },
+    { files: pdf, options: { items: items(1, 1, 1), layout: { kind: "grid", perSheet: 2 }, copies: 1 }, rendered: 2, sheets: 2 },
+    { files: pdf, options: { items: items(1, 1, 1), layout: { kind: "grid", perSheet: 2 }, copies: 5 }, rendered: 2, sheets: 10 },
+    { files: photos, options: { items: items(1, 1), copies: 3 }, rendered: 2, sheets: 6 },
+    { files: photos, options: { items: items(0, 1), copies: 3 }, rendered: 1, sheets: 3 },
   ]
   for (const { files, options, rendered, sheets } of cases) {
     const { jobId } = await server.print(options, files)

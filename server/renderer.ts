@@ -46,22 +46,20 @@ export interface RenderWatch {
  * Where everything sits comes from the layout module; `margins` are the Printer's for the chosen paper.
  * With `dell`, colour Print Jobs become HBPL through Dell's engine; everything else is a PDF.
  *
- * The Print Options are invalid when the selection is empty, when it names a page or photo the draft
- * doesn't have, or when photos are to go two per sheet.
+ * The Print Options are invalid when `items` has not exactly one entry per page or photo of the draft, or when the
+ * layout isn't one that can be printed yet: one per sheet, or two pages of a PDF per sheet.
  */
 export async function render(
   files: readonly DraftFile[], options: PrintOptions, margins: Margins, dell?: DellPrinting, watch: RenderWatch = {},
 ): Promise<RenderResult> {
   const facts = files[0]?.facts
   if (!facts) return { outcome: "invalid-options" }
-  const { selection } = options
-  // pages are counted from 1, photos from 0
-  const firstRef = facts.kind === "pdf" ? 1 : 0
   const count = facts.kind === "pdf" ? facts.pages.length : files.length
+  const { layout: chosenLayout } = options
   const valid =
-    selection.length > 0 &&
-    selection.every(ref => ref >= firstRef && ref < firstRef + count) &&
-    (facts.kind === "pdf" || options.pagesPerSheet === 1)
+    options.items.length === count &&
+    chosenLayout.kind === "grid" &&
+    (chosenLayout.perSheet === 1 || (facts.kind === "pdf" && chosenLayout.perSheet === 2))
   if (!valid) return { outcome: "invalid-options" }
 
   const source: LayoutInput["source"] = facts.kind === "pdf" ? facts : { kind: "photos", photos: files.map(file => file.facts as PhotoFacts) }
@@ -86,7 +84,9 @@ export async function render(
 async function pdfOf(files: readonly DraftFile[], sheets: Sheet[], options: PrintOptions, watch: { onProgress?: (done: number) => void; signal?: AbortSignal } = {}): Promise<Uint8Array> {
   const sheet = SHEET_SIZES[options.paper]
   const out = await PDFDocument.create()
-  const chosen = [...new Set(options.selection)]
+  // pages are counted from 1, photos from 0; each is embedded once, however often it is drawn
+  const firstRef = files[0]!.facts.kind === "pdf" ? 1 : 0
+  const chosen = options.items.flatMap((item, index) => (item.count > 0 ? [firstRef + index] : []))
   let drawables = new Map<number, Drawable>()
   if (files[0]!.facts.kind === "pdf") {
     drawables = await embedPages(out, await readFile(files[0]!.path), chosen)

@@ -1,6 +1,6 @@
 import { Show } from "solid-js"
 import type { PrintOptions } from "../../../shared/print-options.ts"
-import { counted, paperNames, printSizeText, ranges } from "../job-text.ts"
+import { counted, paperNames, printedNumbers, printSizeText, ranges } from "../job-text.ts"
 import { Dialog } from "./Dialog.tsx"
 
 /**
@@ -23,11 +23,12 @@ export function Confirmation(props: {
 }) {
   /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos". */
   const content = () => {
-    const count = props.options.selection.length
+    const printed = printedNumbers(props.options.items)
+    const count = printed.length
     if (props.kind === "photos") return counted(count, "Foto", "Fotos")
     const notes = [
-      ...(count < props.total ? [ranges(props.options.selection)] : []),
-      ...(props.options.pagesPerSheet === 2 ? ["2 pro Blatt"] : []),
+      ...(count < props.total ? [ranges(printed)] : []),
+      ...(props.options.layout.kind === "grid" && props.options.layout.perSheet === 2 ? ["2 pro Blatt"] : []),
     ]
     return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
   }

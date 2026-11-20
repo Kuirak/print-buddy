@@ -233,7 +233,7 @@ test("Nochmal drucken asks first and says what will come out; Abbrechen in it pr
       file: { kind: "photo", bytes: 9_000, count: 3 },
       options: {
         copies: 2, color: "color", paper: "A4", quality: "draft",
-        printSize: { kind: "fill" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [0, 1, 2],
+        printSize: { kind: "fill" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: [{ count: 1, turn: 0 }, { count: 1, turn: 0 }, { count: 1, turn: 0 }],
       },
     }),
   })
@@ -266,7 +266,8 @@ test("Nochmal drucken names the pages of a PDF as the confirmation does", async 
       file: { kind: "pdf", bytes: 9_000, count: 5 },
       options: {
         copies: 1, color: "mono", paper: "A5", quality: "normal",
-        printSize: { kind: "percent", value: 71 }, position: "center", pagesPerSheet: 2, rotation: 0, selection: [1, 2, 4],
+        printSize: { kind: "percent", value: 71 }, position: "center", layout: { kind: "grid", perSheet: 2 },
+        items: [{ count: 1, turn: 0 }, { count: 1, turn: 0 }, { count: 0, turn: 0 }, { count: 1, turn: 0 }, { count: 0, turn: 0 }],
       },
     }),
   })

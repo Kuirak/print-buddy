@@ -63,7 +63,7 @@ test("the Print Job never carries scaling, page ranges or number-up", async t =>
   t.after(server.close)
 
   await server.post(`/api/drafts/${await draftWithPdf(server)}/submit`, {
-    ...base, printSize: { kind: "percent", value: 50 }, pagesPerSheet: 2, selection: [1],
+    ...base, printSize: { kind: "percent", value: 50 }, layout: { kind: "grid", perSheet: 2 },
   })
 
   const names = server.printer.requests.at(-1)!.groups.flatMap(group => group.attributes.map(a => a.name))
@@ -78,6 +78,7 @@ test("invalid Print Options are refused and no Print Job is sent", async t => {
   const server = await startTestServer()
   t.after(server.close)
   const draftId = await draftWithPdf(server)
+  const format = { kind: "format", format: "10x15", lage: "save", gap: true, cutLines: false }
 
   const invalid: unknown[] = [
     undefined,
@@ -96,11 +97,28 @@ test("invalid Print Options are refused and no Print Job is sent", async t => {
     { ...base, printSize: { kind: "percent", value: 0 } },
     { ...base, printSize: "fit" },
     { ...base, position: "middle" },
-    { ...base, pagesPerSheet: 3 },
-    { ...base, rotation: 45 },
-    { ...base, selection: "1-3" },
-    { ...base, selection: [1, -2] },
-    { ...base, photoRotations: { 0: 45 } },
+    { ...base, layout: undefined },
+    { ...base, layout: { kind: "grid", perSheet: 3 } },
+    { ...base, layout: { kind: "grid" } },
+    { ...base, layout: { kind: "pages", perSheet: 2 } },
+    { ...base, layout: { ...format, format: "20x30" } },
+    { ...base, layout: { ...format, format: { w: 19, h: 50 } } },
+    { ...base, layout: { ...format, format: { w: 50, h: 19.9 } } },
+    { ...base, layout: { ...format, format: { w: 50 } } },
+    { ...base, layout: { ...format, lage: "auto" } },
+    { ...base, layout: { ...format, gap: "yes" } },
+    { ...base, layout: { ...format, cutLines: undefined } },
+    { ...base, items: undefined },
+    { ...base, items: "1-3" },
+    { ...base, items: [] },
+    { ...base, items: [{ count: 0, turn: 0 }] },
+    { ...base, items: [{ count: 51, turn: 0 }] },
+    { ...base, items: [{ count: -1, turn: 0 }] },
+    { ...base, items: [{ count: 1.5, turn: 0 }] },
+    { ...base, items: [{ count: 1, turn: 45 }] },
+    { ...base, items: [{ count: 1 }] },
+    { ...base, items: [{ count: 1, turn: 0, size: "percent" }] },
+    { ...base, items: [{ count: 1, turn: 0 }, null] },
   ]
   for (const options of invalid) {
     const submitted = await server.post(`/api/drafts/${draftId}/submit`, options)

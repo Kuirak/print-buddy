@@ -70,7 +70,12 @@ export function OptionsDrawer(props: {
         </Row>
         <Show when={props.kind === "pdf"}>
           <Row label="Seiten pro Blatt">
-            <ChoiceGroup label="Seiten pro Blatt" choices={perSheet} value={props.options.pagesPerSheet} onChange={pagesPerSheet => props.onChange({ pagesPerSheet })} />
+            <ChoiceGroup
+              label="Seiten pro Blatt"
+              choices={perSheet}
+              value={props.options.layout.kind === "grid" ? props.options.layout.perSheet : undefined}
+              onChange={perSheet => props.onChange({ layout: { kind: "grid", perSheet } })}
+            />
           </Row>
         </Show>
       </section>

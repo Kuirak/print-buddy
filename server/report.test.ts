@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
 import { PrinterState, Tag, values } from "./printer/ipp-codec.ts"
-import { pdfWithPages, sampleJpeg, samplePdf, samplePng, samplePrintOptions } from "./testing/fixtures.ts"
+import { items, pdfWithPages, sampleJpeg, samplePdf, samplePng, samplePrintOptions } from "./testing/fixtures.ts"
 import { startTestServer } from "./testing/harness.ts"
 
 test("the server's part of a report is the Print Buddy version of the add-on config and the Printer's state", async t => {
@@ -41,12 +41,12 @@ test("a Print Job reads back with its file type, size and page count and its Pri
   const pdf = pdfWithPages([{ size: [595, 842] }, { size: [595, 842] }, { size: [420, 595] }])
   const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
   await server.upload(draftId, pdf, "Rechnung.pdf", "application/pdf")
-  const { jobId } = await (await server.submit(draftId, { copies: 2, selection: [1, 3] })).json() as { jobId: string }
+  const { jobId } = await (await server.submit(draftId, { copies: 2, items: items(1, 0, 1) })).json() as { jobId: string }
 
   const status = await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus
 
   assert.deepEqual(status.file, { kind: "pdf", bytes: pdf.length, count: 3 })
-  assert.deepEqual(status.options, { ...samplePrintOptions, copies: 2, selection: [1, 3] })
+  assert.deepEqual(status.options, { ...samplePrintOptions, copies: 2, items: items(1, 0, 1) })
 })
 
 test("a Print Job of photos reads back with their number and the size of all of them", async t => {
@@ -54,7 +54,7 @@ test("a Print Job of photos reads back with their number and the size of all of 
   t.after(server.close)
   const [jpeg, png] = [sampleJpeg(), samplePng(20, 10)]
 
-  const { jobId } = await server.print({ selection: [0] }, [jpeg, png])
+  const { jobId } = await server.print({ items: items(1, 0) }, [jpeg, png])
 
   const status = await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus
   assert.deepEqual(status.file, { kind: "photo", bytes: jpeg.length + png.length, count: 2 })

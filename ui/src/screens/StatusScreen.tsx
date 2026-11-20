@@ -5,7 +5,7 @@ import { Collapsible } from "../controls/Collapsible.tsx"
 import { Dialog } from "../controls/Dialog.tsx"
 import { ReportButton } from "../controls/ReportButton.tsx"
 import { ThumbScreen } from "../controls/ThumbScreen.tsx"
-import { counted, paperNames, printSizeText, ranges } from "../job-text.ts"
+import { counted, paperNames, printedNumbers, printSizeText, ranges } from "../job-text.ts"
 import { stateWords } from "../state-words.ts"
 
 const pollEveryMs = 2_000
@@ -24,11 +24,12 @@ function PrintAgain(props: { job: JobStatus; onConfirm: () => void; onBack: () =
   const options = () => props.job.options
   /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos". */
   const content = () => {
-    const count = options().selection.length
+    const printed = printedNumbers(options().items)
+    const count = printed.length
     if (props.job.file.kind === "photo") return counted(count, "Foto", "Fotos")
     const notes = [
-      ...(count < props.job.file.count ? [ranges(options().selection)] : []),
-      ...(options().pagesPerSheet === 2 ? ["2 pro Blatt"] : []),
+      ...(count < props.job.file.count ? [ranges(printed)] : []),
+      ...(options().layout.kind === "grid" && (options().layout as { perSheet: number }).perSheet === 2 ? ["2 pro Blatt"] : []),
     ]
     return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
   }

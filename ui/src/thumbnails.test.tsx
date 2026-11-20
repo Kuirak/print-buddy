@@ -4,7 +4,7 @@ import { expect, test } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { json, mockApi } from "./testing/mock-api.ts"
-import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 /** A PDF of that many A4 pages. */
 const pdfOf = (pageCount: number): FileFacts => ({ kind: "pdf", pageCount, pages: Array.from({ length: pageCount }, () => ({ width: 595, height: 842 })) })
@@ -67,7 +67,7 @@ test("a PDF shows one thumbnail per page, all selected", async () => {
   const { thumbnails, print } = await openOptions(pdfOf(3))
 
   expect(thumbnails("Seiten")).toEqual({ names: ["Seite 1", "Seite 2", "Seite 3"], selected: ["Seite 1", "Seite 2", "Seite 3"] })
-  expect(await print()).toMatchObject({ selection: [1, 2, 3] })
+  expect(await print()).toMatchObject({ items: items(1, 1, 1) })
 })
 
 test("photos show one thumbnail per photo, in the order picked, all selected", async () => {
@@ -77,7 +77,7 @@ test("photos show one thumbnail per photo, in the order picked, all selected", a
   // each thumbnail is the picture of its own file
   const pictures = within(screen.getByRole("group", { name: "Fotos" })).getAllByRole("button").map(thumbnail => thumbnail.querySelector("img")?.getAttribute("src"))
   expect(pictures).toEqual(["blob:Strand 1.jpg", "blob:Strand 2.jpg", "blob:Strand 3.jpg"])
-  expect(await print()).toMatchObject({ selection: [0, 1, 2] })
+  expect(await print()).toMatchObject({ items: items(1, 1, 1) })
 })
 
 test("a PDF's thumbnails are its pages, drawn small through pdf.js", async () => {
@@ -99,7 +99,7 @@ test("tapping a thumbnail leaves the page out, and the sheet count follows", asy
 
   expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 3"])
   expect(sheet()).toBe("Seite 1 · 1/2")
-  expect(await print()).toMatchObject({ selection: [1, 3] })
+  expect(await print()).toMatchObject({ items: items(1, 0, 1) })
 })
 
 test("a page brought back prints at its place in the PDF, and the preview goes to it", async () => {
@@ -114,7 +114,7 @@ test("a page brought back prints at its place in the PDF, and the preview goes t
 
   expect(sheet()).toBe("Seite 1 · 1/3")
   expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 2", "Seite 3"])
-  expect(await print()).toMatchObject({ selection: [1, 2, 3] })
+  expect(await print()).toMatchObject({ items: items(1, 1, 1) })
 })
 
 test("tapping a photo's thumbnail leaves the photo out, and the sheet count follows", async () => {
@@ -126,7 +126,7 @@ test("tapping a photo's thumbnail leaves the photo out, and the sheet count foll
   expect(thumbnails("Fotos").selected).toEqual(["Foto 2", "Foto 3"])
   expect(sheet()).toBe("Foto 1/2")
   expect(screen.getByRole("img", { name: "Vorschau Foto 2" })).toBeInTheDocument()
-  expect(await print()).toMatchObject({ selection: [1, 2] })
+  expect(await print()).toMatchObject({ items: items(0, 1, 1) })
 })
 
 test("the preview steps forwards and backwards through the sheets of the selection", async () => {
@@ -176,7 +176,7 @@ test("Drehen turns only the photo in the preview", async () => {
   await tap("Drehen")
   await tap("Drehen")
 
-  expect(await print()).toMatchObject({ rotation: 0, photoRotations: { 1: 90, 2: 180 }, selection: [0, 1, 2] })
+  expect(await print()).toMatchObject({ items: [{ count: 1, turn: 0 }, { count: 1, turn: 90 }, { count: 1, turn: 180 }] })
 })
 
 test("Drehen turns the photo shown, not the first one, when the first is left out", async () => {
@@ -185,7 +185,7 @@ test("Drehen turns the photo shown, not the first one, when the first is left ou
   await tap("Foto 1")
   await tap("Drehen")
 
-  expect(await print()).toEqual(expect.objectContaining({ photoRotations: { 1: 90 }, selection: [1] }))
+  expect(await print()).toMatchObject({ items: [{ count: 0, turn: 0 }, { count: 1, turn: 90 }] })
 })
 
 test("a PDF can be printed with two pages per sheet, and the preview shows both halves", async () => {
@@ -201,7 +201,7 @@ test("a PDF can be printed with two pages per sheet, and the preview shows both 
   expect(sheet()).toBe("Seiten 1 und 2 · 1/3")
   expect(await screen.findByRole("img", { name: "Vorschau Seite 1" })).toBeInTheDocument()
   expect(await screen.findByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
-  expect(await print()).toMatchObject({ pagesPerSheet: 2, selection: [1, 2, 3, 4, 5] })
+  expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 2 }, items: items(1, 1, 1, 1, 1) })
 })
 
 test("with two pages per sheet the sheet count follows the selection", async () => {
@@ -222,7 +222,7 @@ test("with two pages per sheet the sheet count follows the selection", async () 
   // brought back, page 2 is on the first sheet again
   await tap("Seite 2")
   expect(sheet()).toBe("Seiten 1 und 2 · 1/2")
-  expect(await print()).toMatchObject({ pagesPerSheet: 2, selection: [1, 2, 3, 5] })
+  expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 2 }, items: items(1, 1, 1, 0, 1) })
 })
 
 test("two pages per sheet are not offered for photos", async () => {
@@ -233,7 +233,7 @@ test("two pages per sheet are not offered for photos", async () => {
   expect(screen.queryByRole("radiogroup", { name: "Seiten pro Blatt" })).not.toBeInTheDocument()
   expect(screen.queryByText("Seiten pro Blatt")).not.toBeInTheDocument()
   await closeDetails(user)
-  expect(await print()).toMatchObject({ pagesPerSheet: 1 })
+  expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 1 } })
 })
 
 test.each([
@@ -266,10 +266,10 @@ test("Keine leaves everything out and Alle selects everything again", async () =
   await tap("Alle")
   expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 2", "Seite 3"])
   expect(sheet()).toBe("Seite 1 · 1/3")
-  expect(await print()).toMatchObject({ selection: [1, 2, 3] })
+  expect(await print()).toMatchObject({ items: items(1, 1, 1) })
 })
 
-test("picking a Preset leaves the page selection and the rotation alone", async () => {
+test("picking a Preset leaves which pages print and how they are turned alone", async () => {
   const { user, tap, choice, thumbnails, print } = await openOptions(pdfOf(3))
   await tap("Seite 2")
   await tap("Drehen")
@@ -278,10 +278,10 @@ test("picking a Preset leaves the page selection and the rotation alone", async 
 
   expect(choice("Voreinstellung", "Dokument s/w")).toBeChecked()
   expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 3"])
-  expect(await print()).toMatchObject({ color: "mono", rotation: 90, selection: [1, 3] })
+  expect(await print()).toMatchObject({ color: "mono", items: [{ count: 1, turn: 90 }, { count: 0, turn: 90 }, { count: 1, turn: 90 }] })
 })
 
-test("picking a Preset leaves the photo selection and each photo's rotation alone", async () => {
+test("picking a Preset leaves which photos print and how each is turned alone", async () => {
   const { user, tap, choice, thumbnails, print } = await openOptions(photo, 3)
   await tap("Foto 1")
   await tap("Nächstes Blatt")
@@ -290,12 +290,12 @@ test("picking a Preset leaves the photo selection and each photo's rotation alon
   await user.click(choice("Voreinstellung", "Foto s/w Toner sparen"))
 
   expect(thumbnails("Fotos").selected).toEqual(["Foto 2", "Foto 3"])
-  expect(await print()).toMatchObject({ color: "mono", quality: "draft", rotation: 0, photoRotations: { 2: 90 }, selection: [1, 2] })
+  expect(await print()).toMatchObject({ color: "mono", quality: "draft", items: [{ count: 0, turn: 0 }, { count: 1, turn: 0 }, { count: 1, turn: 90 }] })
 })
 
 test.each([
-  ["a one-page PDF", pdfOf(1), 1, "Seite 1", { selection: [1] }],
-  ["a single photo", photo, 1, "Foto 1", { selection: [0] }],
+  ["a one-page PDF", pdfOf(1), 1, "Seite 1", { items: items(1) }],
+  ["a single photo", photo, 1, "Foto 1", { items: items(1) }],
 ] as const)("%s shows no thumbnails, no Alle and Keine and no sheet stepper", async (_, facts, count, preview, submitted) => {
   const { print } = await openOptions(facts, count)
 
@@ -324,7 +324,7 @@ test("the sheet stepper hides while the selection gives one sheet, and the thumb
 
   await tap("Seite 3")
   expect(sheet()).toBe("Seite 3 · 2/2")
-  expect(await print()).toMatchObject({ selection: [2, 3] })
+  expect(await print()).toMatchObject({ items: items(0, 1, 1) })
 })
 
 test("the sheet stepper hides when two pages share the one sheet", async () => {

@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
 import { layout, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import type { PrintOptions, Rotation } from "../../../shared/print-options.ts"
+import type { Item, PrintOptions, Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { Confirmation } from "../controls/Confirmation.tsx"
 import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
@@ -47,17 +47,20 @@ export function OptionsScreen(props: {
     const facts = props.facts
     return facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
   })
-  /** Every page of the PDF, counted from 1, or every photo, counted from 0: what the thumbnails show and the selection picks from. */
+  /** Every page of the PDF, counted from 1, or every photo, counted from 0, in the order of `options.items`: what the thumbnails show. */
   const refs = createMemo(() => {
     const known = source()
     return known.kind === "pdf" ? known.pages.map((_, index) => index + 1) : known.photos.map((_, index) => index)
   })
-  // a new file starts from the starred Preset, never from the Print Options of the job before, with every page or photo selected
+  /** Each page or photo once, printed once, unturned. */
+  const everyOnce = () => refs().map((): Item => ({ count: 1, turn: 0 }))
+  // a new file starts from the starred Preset, never from the Print Options of the job before, with every page or photo printed once
   const [options, setOptions] = createStore<PrintOptions>(structuredClone(untrack(() => props.initial)) ?? {
     ...structuredClone(presets.starred().values),
-    rotation: 0,
-    selection: [...untrack(refs)],
+    items: untrack(everyOnce),
   })
+  /** The pages or photos that print, as `refs` counts them. */
+  const printed = () => refs().filter((_, index) => (options.items[index]?.count ?? 0) > 0)
   createEffect(() => JSON.stringify(options), () => props.onChange(snapshot(options)))
 
   const [margins, setMargins] = createSignal<PaperMargins>()
@@ -96,8 +99,8 @@ export function OptionsScreen(props: {
   /** Where everything sits, sheet by sheet. The preview, the percentage and the cut-off warning all read this. */
   const sheets = createMemo(() => {
     const known = margins()
-    // for a moment after the server's facts replaced the browser's, the selection may name pages that aren't there
-    if (!known || options.selection.some(ref => !refs().includes(ref))) return undefined
+    // for a moment after the server's facts replaced the browser's, the items may not match the pages
+    if (!known || options.items.length !== refs().length) return undefined
     return layout({ source: source(), options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
   })
   /** Which sheet the person stepped to, counted from 0. It may point past the end after pages were left out. */
@@ -123,39 +126,47 @@ export function OptionsScreen(props: {
   /** A Print Job is cut off when any of its sheets is. */
   const cutOff = () => sheets()?.some(sheet => sheet.cutOff) ?? false
 
-  /** Sets what the Preset stores. Page selection and rotation stay as they are. */
+  /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
   function apply(preset: Preset) {
     presets.pick(preset)
     setOptions(o => { Object.assign(o, structuredClone(preset.values)) })
   }
 
-  /** A quarter turn clockwise: of the whole PDF, or of the photo in the preview. */
+  /** A quarter turn clockwise: of every page of the PDF, or of the photo in the preview. */
   function turn() {
     const photo = shown()?.placements[0]?.ref
-    const quarterOn = (rotation: Rotation = 0) => ((rotation + 90) % 360) as Rotation
     setOptions(o => {
-      if (kind === "pdf") o.rotation = quarterOn(o.rotation)
-      else if (photo !== undefined) o.photoRotations = { ...o.photoRotations, [photo]: quarterOn(o.photoRotations?.[photo]) }
+      for (const [index, item] of o.items.entries()) {
+        if (kind === "pdf" || index === photo) item.turn = ((item.turn + 90) % 360) as Rotation
+      }
     })
   }
 
   /** Leaves a page or photo out, or brings it back to its place in the file's order. The preview goes to one brought back. */
   function toggle(ref: number) {
-    const selected = options.selection.includes(ref)
-    const selection = selected ? options.selection.filter(other => other !== ref) : [...options.selection, ref].sort((a, b) => a - b)
-    setOptions(o => { o.selection = selection })
-    if (!selected) setStep(Math.floor(selection.indexOf(ref) / (kind === "pdf" ? options.pagesPerSheet : 1)))
+    const index = refs().indexOf(ref)
+    const back = options.items[index]!.count === 0
+    setOptions(o => { o.items[index]!.count = back ? 1 : 0 })
+    if (!back) return
+    // its first appearance follows every appearance of the pages or photos before it
+    const before = options.items.slice(0, index).reduce((sum, item) => sum + item.count, 0)
+    const perSheet = kind === "pdf" && options.layout.kind === "grid" ? options.layout.perSheet : 1
+    setStep(Math.floor(before / perSheet))
   }
 
-  function select(selection: number[]) {
-    setOptions(o => { o.selection = selection })
+  /** Prints every page or photo once (`count` 1), or none of them (`count` 0). */
+  function select(count: 0 | 1) {
+    setOptions(o => { for (const item of o.items) item.count = count })
     setStep(0)
   }
 
   // The server's facts agree with the browser's, unless the browser read the file differently: then every
-  // page or photo the server found is selected.
+  // page or photo the server found prints once.
   createEffect(refs, (now, before) => {
-    if (before && now.length !== before.length) select([...now])
+    if (before && now.length !== before.length) {
+      setOptions(o => { o.items = everyOnce() })
+      setStep(0)
+    }
   })
 
   return (
@@ -216,11 +227,11 @@ export function OptionsScreen(props: {
         <Thumbnails
           source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
           refs={refs()}
-          selection={options.selection}
+          selection={printed()}
           grey={options.color === "mono"}
           onToggle={toggle}
-          onAll={() => select([...refs()])}
-          onNone={() => select([])}
+          onAll={() => select(1)}
+          onNone={() => select(0)}
         />
       </Show>
       <SummaryLine kind={kind} total={refs().length} options={options} percent={percent()} onChange={() => setOver("details")} />
@@ -231,12 +242,12 @@ export function OptionsScreen(props: {
         <button
           type="button"
           class="btn-primary"
-          disabled={props.uploading !== undefined || options.selection.length === 0 || !sheets()}
+          disabled={props.uploading !== undefined || printed().length === 0 || !sheets()}
           onClick={() => setOver("confirmation")}
         >
           {props.uploading !== undefined
             ? `Wird hochgeladen … ${Math.min(99, Math.round(props.uploading * 100))} %`
-            : options.selection.length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
+            : printed().length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
         </button>
       </div>
     </main>

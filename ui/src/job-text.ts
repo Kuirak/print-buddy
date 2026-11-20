@@ -1,5 +1,5 @@
 // The German words for the Print Options, as the summary line and the confirmation say them.
-import type { Paper, Position, PrintOptions, PrintSizeMode } from "../../shared/print-options.ts"
+import type { Item, Paper, Position, PrintOptions, PrintSizeMode } from "../../shared/print-options.ts"
 
 export const paperNames: Record<Paper, string> = { A4: "A4", A5: "A5", EnvDL: "Umschlag DL", EnvC5: "Umschlag C5" }
 
@@ -13,6 +13,9 @@ export const positionNames: Record<Position, string> = {
 
 /** "3 Seiten", "1 Seite": the number with the word in the right form. */
 export const counted = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+
+/** The pages or photos that print, numbered from 1 in the file's order, as people count them. */
+export const printedNumbers = (items: readonly Item[]) => items.flatMap((item, index) => (item.count > 0 ? [index + 1] : []))
 
 /** Page numbers in rising order as "1-3, 5". */
 export function ranges(numbers: readonly number[]) {

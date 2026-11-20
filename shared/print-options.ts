@@ -9,7 +9,32 @@ export type Position =
   | "left" | "center" | "right"
   | "bottom-left" | "bottom" | "bottom-right"
 
-export type Rotation = 0 | 90 | 180 | 270
+/** How a sheet is divided: into equal Cells, or into slots of a Photo format (see GLOSSARY.md). */
+export type Layout =
+  | { kind: "grid"; perSheet: 1 | 2 | 4 | 6 | 8 }
+  | {
+      /** Photos only. */
+      kind: "format"
+      /** A named Photo format, or an own size in mm. */
+      format: "10x15" | "9x13" | "13x18" | "pass" | { w: number; h: number }
+      lage: "save" | "portrait" | "landscape"
+      /** 2 mm between slots. */
+      gap: boolean
+      /** A hairline around each slot. */
+      cutLines: boolean
+    }
+
+/** What is chosen for one page of the PDF or one photo. */
+export type Item = {
+  /** Repeats, 0 to `maxCount`: how often it appears on the sheets of one copy. 0 leaves it out. */
+  count: number
+  /** Clockwise, added to the turn the layout module gives it by itself. */
+  turn: 0 | 90 | 180 | 270
+  /** Replaces `printSize` for this page or photo. */
+  size?: "fill" | "fit"
+}
+
+export type Rotation = Item["turn"]
 
 export type PrintOptions = {
   copies: number
@@ -19,13 +44,9 @@ export type PrintOptions = {
   quality: "normal" | "draft"
   printSize: PrintSizeMode
   position: Position
-  /** 2 only for PDFs. */
-  pagesPerSheet: 1 | 2
-  /** The whole PDF; photos turn one by one through `photoRotations`. */
-  rotation: Rotation
-  /** Selected PDF page numbers, or included photo indexes, in order. */
-  selection: number[]
-  photoRotations?: Record<number, Rotation>
+  layout: Layout
+  /** One per page of the PDF or per photo, in the file's order. */
+  items: Item[]
 }
 
 export type Paper = PrintOptions["paper"]
@@ -34,10 +55,24 @@ export const papers: readonly Paper[] = ["A4", "A5", "EnvDL", "EnvC5"]
 
 export const maxCopies = 100
 
+/** The most an item can be repeated on the sheets of one copy. */
+export const maxCount = 50
+
+/** The named Photo formats, upright, in mm. */
+export const photoFormats = {
+  "10x15": { w: 100, h: 150 },
+  "9x13": { w: 90, h: 130 },
+  "13x18": { w: 130, h: 180 },
+  pass: { w: 35, h: 45 },
+} as const satisfies Record<string, { w: number; h: number }>
+
+/** The smallest own size, in mm on each side. Whether an own size fits the paper is the layout module's to say. */
+export const minOwnSize = 20
+
 const positions: readonly Position[] = ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]
 const rotations: readonly unknown[] = [0, 90, 180, 270]
-
-const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0
+const perSheets: readonly unknown[] = [1, 2, 4, 6, 8]
+const lagen: readonly unknown[] = ["save", "portrait", "landscape"]
 
 function isPrintSize(value: unknown): value is PrintSizeMode {
   if (typeof value !== "object" || value === null) return false
@@ -46,10 +81,37 @@ function isPrintSize(value: unknown): value is PrintSizeMode {
   return size.kind === "percent" && typeof size.value === "number" && Number.isFinite(size.value) && size.value > 0
 }
 
+function parseLayout(value: unknown): Layout | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const l = value as Record<string, unknown>
+  if (l.kind === "grid") return perSheets.includes(l.perSheet) ? { kind: "grid", perSheet: l.perSheet as 1 | 2 | 4 | 6 | 8 } : undefined
+  if (l.kind !== "format" || !lagen.includes(l.lage) || typeof l.gap !== "boolean" || typeof l.cutLines !== "boolean") return undefined
+  let format: Extract<Layout, { kind: "format" }>["format"]
+  if (typeof l.format === "string" && Object.hasOwn(photoFormats, l.format)) format = l.format as keyof typeof photoFormats
+  else if (typeof l.format === "object" && l.format !== null) {
+    const { w, h } = l.format as Record<string, unknown>
+    const side = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= minOwnSize
+    if (!side(w) || !side(h)) return undefined
+    format = { w, h }
+  } else return undefined
+  return { kind: "format", format, lage: l.lage as "save" | "portrait" | "landscape", gap: l.gap, cutLines: l.cutLines }
+}
+
+function parseItem(value: unknown): Item | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const { count, turn, size } = value as Record<string, unknown>
+  if (!Number.isInteger(count) || (count as number) < 0 || (count as number) > maxCount) return undefined
+  if (!rotations.includes(turn)) return undefined
+  if (size !== undefined && size !== "fill" && size !== "fit") return undefined
+  return { count: count as number, turn: turn as Rotation, ...(size && { size }) }
+}
+
 /**
- * Checks Print Options that came from outside (the request body of a submit). Returns them with
- * unknown keys dropped, or `undefined` if anything is missing or out of range.
- * Whether `selection` fits the files of the draft is checked by the renderer.
+ * Checks Print Options that came from outside (the request body of a submit, or browser storage). Returns them with
+ * unknown keys dropped, or `undefined` if anything is missing or out of range: a count outside 0 to `maxCount`, every
+ * count 0, an own size under `minOwnSize`.
+ * Whether `items` fits the files of the draft, a format suits them, an own size fits the paper and the Print Job
+ * keeps to the sheet limit is checked by the renderer.
  */
 export function parsePrintOptions(value: unknown): PrintOptions | undefined {
   if (typeof value !== "object" || value === null) return undefined
@@ -60,25 +122,18 @@ export function parsePrintOptions(value: unknown): PrintOptions | undefined {
   if (o.quality !== "normal" && o.quality !== "draft") return undefined
   if (!isPrintSize(o.printSize)) return undefined
   if (!positions.includes(o.position as Position)) return undefined
-  if (o.pagesPerSheet !== 1 && o.pagesPerSheet !== 2) return undefined
-  if (!rotations.includes(o.rotation)) return undefined
-  if (!Array.isArray(o.selection) || !o.selection.every(isCount)) return undefined
-  const options: PrintOptions = {
+  const layout = parseLayout(o.layout)
+  if (!layout || !Array.isArray(o.items)) return undefined
+  const items = o.items.map(parseItem)
+  if (!items.every(item => item !== undefined) || !items.some(item => item.count > 0)) return undefined
+  return {
     copies: o.copies as number,
     color: o.color,
     paper: o.paper as Paper,
     quality: o.quality,
     printSize: o.printSize.kind === "percent" ? { kind: "percent", value: o.printSize.value } : { kind: o.printSize.kind },
     position: o.position as Position,
-    pagesPerSheet: o.pagesPerSheet,
-    rotation: o.rotation as Rotation,
-    selection: o.selection,
+    layout,
+    items,
   }
-  if (o.photoRotations !== undefined) {
-    if (typeof o.photoRotations !== "object" || o.photoRotations === null || Array.isArray(o.photoRotations)) return undefined
-    const entries = Object.entries(o.photoRotations)
-    if (!entries.every(([index, rotation]) => /^\d+$/.test(index) && rotations.includes(rotation))) return undefined
-    options.photoRotations = Object.fromEntries(entries.map(([index, rotation]) => [Number(index), rotation as Rotation]))
-  }
-  return options
 }

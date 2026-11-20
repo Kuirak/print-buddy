@@ -1,6 +1,10 @@
 // Seam 3 helpers: what a person taps on the options screen in nearly every test.
 import { screen, within } from "@solidjs/testing-library"
 import type { UserEvent } from "@testing-library/user-event"
+import type { Item } from "../../../shared/print-options.ts"
+
+/** The `items` of Print Options: how often each page or photo prints, in the file's order. None is turned. */
+export const items = (...counts: number[]): Item[] => counts.map(count => ({ count, turn: 0 }))
 
 /** The "Jetzt drucken?" confirmation, which has to be open. */
 export const confirmation = () => screen.getByRole("dialog", { name: "Jetzt drucken?" })

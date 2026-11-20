@@ -5,7 +5,7 @@ import type { FileFacts, PrinterInfo } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
-import { closeDetails, confirmation, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, confirmation, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 import { printerInfo } from "./testing/printer-info.ts"
 
 /** A PDF of that many A4 pages. */
@@ -141,7 +141,7 @@ test("Drucken opens the confirmation instead of printing, and confirming sends t
 
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
   expect(submits()).toHaveLength(1)
-  expect(JSON.parse(submits()[0]!.body as string)).toMatchObject({ copies: 1, selection: [1, 2] })
+  expect(JSON.parse(submits()[0]!.body as string)).toMatchObject({ copies: 1, items: items(1, 1) })
 })
 
 /** Opens the app and picks a one-page PDF, with `printer` answering the read of the printer info. Returns the options screen's Drucken. */
@@ -208,7 +208,7 @@ test("Abbrechen in the confirmation returns to the options screen with nothing c
 
   await printAndConfirm(user)
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
-  expect(JSON.parse(submits()[0]!.body as string)).toMatchObject({ copies: 2, paper: "A5", selection: [1, 3] })
+  expect(JSON.parse(submits()[0]!.body as string)).toMatchObject({ copies: 2, paper: "A5", items: items(1, 0, 1) })
 })
 
 // The sheet counts are the ones the server reports for the same Print Jobs: see "the sheet count is the number of

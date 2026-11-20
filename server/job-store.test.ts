@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { test } from "node:test"
 import type { JobStatus } from "../shared/api.ts"
 import { JobState, Op } from "./printer/ipp-codec.ts"
-import { sampleJpeg, samplePdf, samplePng, samplePrintOptions } from "./testing/fixtures.ts"
+import { items, sampleJpeg, samplePdf, samplePng, samplePrintOptions } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 
 /** What lies in the jobs directory besides the drafts. */
@@ -50,7 +50,7 @@ test("job.json holds the Print Options, sheet count, CUPS job number, times and 
     file: { kind: "pdf", bytes: samplePdf().length, count: 1 },
     options: {
       copies: 2, color: "color", paper: "A4", quality: "normal",
-      printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
+      printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: [{ count: 1, turn: 0 }],
     },
     details: { jobState: "pending", jobStateReasons: ["none"], printerStateReasons: [], printerMessage: "" },
     cancelled: false,
@@ -66,14 +66,14 @@ test("the photos of a Print Job move from the draft into the job folder, in uplo
   await server.upload(draftId, jpeg, "IMG_0001.jpg")
   await server.upload(draftId, png, "IMG_0002.png")
 
-  const { jobId } = await (await server.submit(draftId, { selection: [0, 1] })).json() as { jobId: string }
+  const { jobId } = await (await server.submit(draftId, { items: items(1, 1) })).json() as { jobId: string }
 
   const folder = join(server.jobsDir, `2026-11-19_${jobId}`)
   assert.deepEqual((await readdir(folder)).sort(), ["job.json", "print.pdf", "upload-1.jpg", "upload-2.png"])
   assert.deepEqual(await readFile(join(folder, "upload-1.jpg")), Buffer.from(jpeg))
   assert.deepEqual(await readFile(join(folder, "upload-2.png")), Buffer.from(png))
   assert.deepEqual(await readdir(join(server.jobsDir, "drafts")), [])
-  assert.equal((await server.submit(draftId, { selection: [0, 1] })).status, 404)
+  assert.equal((await server.submit(draftId, { items: items(1, 1) })).status, 404)
 })
 
 test("job.json follows the Print Job: what CUPS last said, and when the job ended", async t => {
@@ -138,7 +138,7 @@ test("a Print Job that CUPS accepted is answered and can be followed, even when 
   // the second photo is left out of the Print Job, so the first thing to fail is moving it into the job folder
   await rm(join(server.jobsDir, "drafts", draftId, "2.png"))
 
-  const submitted = await server.submit(draftId, { selection: [0] })
+  const submitted = await server.submit(draftId, { items: items(1, 0) })
 
   assert.equal(submitted.status, 201, await submitted.clone().text())
   const { jobId, cupsJobId } = await submitted.json() as { jobId: string; cupsJobId: number }
@@ -146,7 +146,7 @@ test("a Print Job that CUPS accepted is answered and can be followed, even when 
   server.printer.setJob(cupsJobId, JobState.completed, ["job-completed-successfully"])
   assert.equal((await (await server.request(`/api/jobs/${jobId}`)).json() as JobStatus).state, "done")
   // nothing is left that could be sent a second time
-  assert.equal((await server.submit(draftId, { selection: [0] })).status, 404)
+  assert.equal((await server.submit(draftId, { items: items(1, 0) })).status, 404)
   assert.equal(server.printer.requests.filter(request => request.code === Op.printJob).length, 1)
 })
 
@@ -267,7 +267,7 @@ test("cleanup deletes a draft that was not submitted within 1 hour", async t => 
   await server.cleanup()
   assert.deepEqual(await readdir(join(server.jobsDir, "drafts")), [])
   assert.equal((await server.upload(draftId, samplePng(20, 10), "IMG_0003.png")).status, 404)
-  assert.equal((await server.submit(draftId, { selection: [0, 1] })).status, 404)
+  assert.equal((await server.submit(draftId, { items: items(1, 1) })).status, 404)
   assert.equal(server.printer.requests.length, 0)
 })
 

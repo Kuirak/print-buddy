@@ -5,7 +5,7 @@ import type { FileKind } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
-import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 /** Opens the app, picks a file of the given type and waits for the options screen. */
 async function openOptions(kind: FileKind = "pdf") {
@@ -84,12 +84,12 @@ function stored(own: unknown[], defaults: Record<string, string> = {}) {
 
 const documentMono = {
   copies: 1, color: "mono", paper: "A4", quality: "normal",
-  printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1,
+  printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 },
 }
 
 const documentColor = {
   copies: 1, color: "color", paper: "A4", quality: "normal",
-  printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1,
+  printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 },
 }
 
 test.each([
@@ -109,7 +109,7 @@ test.each([
   expect(chip(name)).toBeChecked()
   expect(await print()).toEqual({
     copies: 1, ...values,
-    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: kind === "pdf" ? [1] : [0],
+    printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1),
   })
 })
 
@@ -154,13 +154,14 @@ test("changing an option shows Eigene until the Print Options match a Preset aga
   expect(chip("Dokument s/w")).not.toBeChecked()
 })
 
-test("a Preset sets Print size, Position, pages per sheet and copies, and is told apart by them", async () => {
+test("a Preset sets Print size, Position, the layout and copies, and is told apart by them", async () => {
+  const twoPerSheet = { kind: "grid", perSheet: 2 }
   stored([
-    // rotation and selection are not part of a Preset: tapping it must not set them even if storage has them
-    { id: "a", name: "Zwei auf eins", kind: "pdf", values: { ...documentMono, copies: 3, printSize: { kind: "percent", value: 85 }, position: "top-left", pagesPerSheet: 2, rotation: 90, selection: [2] } },
+    // how often each page prints and how it is turned are not part of a Preset: tapping it must not set them even if storage has them
+    { id: "a", name: "Zwei auf eins", kind: "pdf", values: { ...documentMono, copies: 3, printSize: { kind: "percent", value: 85 }, position: "top-left", layout: twoPerSheet, items: [{ count: 4, turn: 90 }] } },
     { id: "b", name: "Oben", kind: "pdf", values: { ...documentMono, position: "top" } },
     { id: "c", name: "Füllen", kind: "pdf", values: { ...documentMono, printSize: { kind: "fill" } } },
-    { id: "d", name: "Doppelt", kind: "pdf", values: { ...documentMono, pagesPerSheet: 2 } },
+    { id: "d", name: "Doppelt", kind: "pdf", values: { ...documentMono, layout: twoPerSheet } },
   ])
   const { print, chip, pick, set, details } = await openOptions()
 
@@ -183,9 +184,21 @@ test("a Preset sets Print size, Position, pages per sheet and copies, and is tol
   expect(screen.getByRole("status", { name: "Kopien" })).toHaveTextContent("3")
 
   expect(await print()).toEqual({
-    ...documentMono, copies: 3, printSize: { kind: "percent", value: 85 }, position: "top-left", pagesPerSheet: 2,
-    rotation: 0, selection: [1],
+    ...documentMono, copies: 3, printSize: { kind: "percent", value: 85 }, position: "top-left", layout: { kind: "grid", perSheet: 2 },
+    items: items(1),
   })
+})
+
+test("own Presets saved before Print Buddy knew layouts are dropped, and the built-in ones still print", async () => {
+  stored([
+    { id: "old", name: "Zwei auf eins", kind: "pdf", values: { ...documentMono, layout: undefined, pagesPerSheet: 2 } },
+    { id: "new", name: "Oben", kind: "pdf", values: { ...documentMono, position: "top" } },
+  ], { pdf: "old" })
+  const { chip, chips, print } = await openOptions()
+
+  expect(chips()).toEqual(["★ Dokument Farbe", "Dokument s/w", "Umschlag DL", "Oben", "Eigene …"])
+  expect(chip("★ Dokument Farbe")).toBeChecked()
+  expect(await print()).toEqual({ ...documentColor, items: items(1) })
 })
 
 test("own Presets are offered only for the file type they were saved for", async () => {
@@ -199,6 +212,7 @@ test("the current Print Options can be saved as an own Preset, which is still th
   const first = await openOptions()
   await first.set("Papier", "A5")
   await first.tap("Mehr Kopien")
+  await first.set("Seiten pro Blatt", "2")
   expect(first.chip("✎ Eigene")).toBeChecked()
 
   await first.saveAs("Bastelpapier")
@@ -211,7 +225,7 @@ test("the current Print Options can be saved as an own Preset, which is still th
   expect(chip("★ Dokument Farbe")).toBeChecked()
   await user.click(chip("Bastelpapier"))
   expect(chip("Bastelpapier")).toBeChecked()
-  expect(await print()).toEqual({ ...documentColor, paper: "A5", copies: 2, rotation: 0, selection: [1] })
+  expect(await print()).toEqual({ ...documentColor, paper: "A5", copies: 2, layout: { kind: "grid", perSheet: 2 }, items: items(1) })
 })
 
 test("saving without a name, or backing out, saves nothing", async () => {
@@ -336,5 +350,5 @@ test("a new file never starts from the Print Options of the previous Print Job",
 
   const second = await reopen()
   expect(second.chip("★ Dokument Farbe")).toBeChecked()
-  expect(await second.print()).toEqual({ ...documentColor, rotation: 0, selection: [1] })
+  expect(await second.print()).toEqual({ ...documentColor, items: items(1) })
 })

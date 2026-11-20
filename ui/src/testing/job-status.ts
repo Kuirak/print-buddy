@@ -17,7 +17,7 @@ export const jobStatus = (changes: Partial<JobStatus> = {}): JobStatus => ({
   file: { kind: "pdf", bytes: 48_213, count: 1 },
   options: {
     copies: 1, color: "mono", paper: "A4", quality: "normal",
-    printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1, rotation: 0, selection: [1],
+    printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: [{ count: 1, turn: 0 }],
   },
   ...changes,
 })

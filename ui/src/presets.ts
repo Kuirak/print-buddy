@@ -2,7 +2,7 @@
 // defined here; own Presets and the starred defaults are kept in this phone's browser storage.
 import { createSignal } from "solid-js"
 import type { FileFacts, FileKind } from "../../shared/api.ts"
-import { parsePrintOptions, type PrintOptions } from "../../shared/print-options.ts"
+import { parsePrintOptions, type Layout, type PrintOptions } from "../../shared/print-options.ts"
 
 /**
  * The file type of a Print Job, from what the server found out about its files. The only place that
@@ -12,8 +12,8 @@ export function fileKind(facts: readonly FileFacts[]): FileKind {
   return facts[0]?.kind ?? "pdf"
 }
 
-/** The part of the Print Options a Preset stores. Page selection and rotation belong to the file. */
-export type PresetValues = Pick<PrintOptions, "copies" | "color" | "paper" | "quality" | "printSize" | "position" | "pagesPerSheet">
+/** The part of the Print Options a Preset stores. How often each page or photo prints, and how it is turned or sized, belong to the file. */
+export type PresetValues = Pick<PrintOptions, "copies" | "color" | "paper" | "quality" | "printSize" | "position" | "layout">
 
 export type Preset = {
   id: string
@@ -23,7 +23,7 @@ export type Preset = {
   values: PresetValues
 }
 
-const fitCentre = { copies: 1, printSize: { kind: "fit" }, position: "center", pagesPerSheet: 1 } as const
+const fitCentre = { copies: 1, printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 } } as const
 
 /** The first one of each file type is its default until the person stars another. */
 const builtIns: readonly Preset[] = [
@@ -36,11 +36,20 @@ const builtIns: readonly Preset[] = [
 
 export const isBuiltIn = (preset: Preset) => builtIns.includes(preset)
 
+function sameLayout(a: Layout, b: Layout) {
+  if (a.kind === "grid") return b.kind === "grid" && a.perSheet === b.perSheet
+  if (b.kind === "grid") return false
+  const sameFormat = typeof a.format === "string" || typeof b.format === "string"
+    ? a.format === b.format
+    : a.format.w === b.format.w && a.format.h === b.format.h
+  return sameFormat && a.lage === b.lage && a.gap === b.gap && a.cutLines === b.cutLines
+}
+
 function sameValues(a: PresetValues, b: PresetValues) {
   return a.copies === b.copies && a.color === b.color && a.paper === b.paper && a.quality === b.quality
     && a.printSize.kind === b.printSize.kind
     && (a.printSize.kind !== "percent" || b.printSize.kind !== "percent" || a.printSize.value === b.printSize.value)
-    && a.position === b.position && a.pagesPerSheet === b.pagesPerSheet
+    && a.position === b.position && sameLayout(a.layout, b.layout)
 }
 
 /** What browser storage holds. `defaults` are the ids of the starred Presets. */
@@ -62,9 +71,10 @@ function load(): Saved {
   for (const entry of Array.isArray(own) ? own as Partial<Preset>[] : []) {
     if (typeof entry?.id !== "string" || typeof entry.name !== "string") continue
     if (entry.kind !== "pdf" && entry.kind !== "photo") continue
-    const options = parsePrintOptions({ ...entry.values, rotation: 0, selection: [] })
+    // one printed item stands in for the file's; a Preset from before `layout` (with `pagesPerSheet`) fails here
+    const options = parsePrintOptions({ ...entry.values, items: [{ count: 1, turn: 0 }] })
     if (!options) continue
-    const { rotation, selection, ...values } = options
+    const { items, ...values } = options
     saved.own.push({ id: entry.id, name: entry.name, kind: entry.kind, values })
   }
   if (typeof defaults === "object" && defaults !== null) {
@@ -121,7 +131,7 @@ export function createPresets(kind: FileKind): Presets {
       setPickedId(preset.id)
     },
     save(name, options) {
-      // field by field: `options` may be the whole Print Options, and selection and rotation stay out
+      // field by field: `options` may be the whole Print Options, and the items stay out
       const values: PresetValues = {
         copies: options.copies,
         color: options.color,
@@ -129,7 +139,11 @@ export function createPresets(kind: FileKind): Presets {
         quality: options.quality,
         printSize: { ...options.printSize },
         position: options.position,
-        pagesPerSheet: options.pagesPerSheet,
+        // copied by hand: `options` may be a store, which structuredClone can't copy
+        layout: options.layout.kind === "grid" ? { ...options.layout } : {
+          ...options.layout,
+          format: typeof options.layout.format === "string" ? options.layout.format : { ...options.layout.format },
+        },
       }
       const preset: Preset = { id: crypto.randomUUID(), name, kind, values }
       store({ ...saved(), own: [...saved().own, preset] })
