@@ -7,7 +7,7 @@ import { phoneFiles } from "./phone-files.ts"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { logInAgain, loginExpired } from "./testing/login.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
-import { closeDetails, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, items, openDetails, printAndConfirm, shownSettings } from "./testing/options-screen.ts"
 import { share } from "./testing/share.ts"
 
 test("the app asks the session check when it opens, and a 401 shows Anmeldung abgelaufen with Neu anmelden", async () => {
@@ -67,8 +67,6 @@ test("a 401 when the person taps Drucken shows Anmeldung abgelaufen, not Drucken
 })
 
 const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
-/** The summary line of the options screen, which begins with copies, colour, paper and quality. */
-const summary = () => screen.getByRole("status", { name: "Gewählte Einstellungen" })
 
 test("after the login the options screen opens with the same file and the same Print Options, and Drucken sends them", async () => {
   let drafts = 0
@@ -97,7 +95,7 @@ test("after the login the options screen opens with the same file and the same P
   render(() => <App />)
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
-  expect(summary()).toHaveTextContent(/^2× · Farbe · A5 · Toner sparen · /)
+  expect(await shownSettings(user)).toEqual({ copies: "2", color: "Farbe", paper: "A5", quality: "Toner sparen" })
   // the file comes from the phone's copy: nobody shared or picked it again
   expect((api.calls.find(call => call.path === "/api/drafts/d2/files")!.body as FormData).get("file")).toBe(file)
   // a reload must not take this for another return from the login
@@ -146,7 +144,7 @@ test("when the phone's copy is gone after the login, the app says Bitte nochmal 
   await user.upload(screen.getByLabelText("Datei auswählen"), pdf("Neu.pdf"))
 
   expect(await screen.findByText("Neu.pdf")).toBeInTheDocument()
-  expect(summary()).toHaveTextContent(/^1× · /)
+  expect((await shownSettings(user)).copies).toBe("1")
 })
 
 test("a share that went to the server, as one lost to the login does, says Bitte nochmal teilen and never opens what an earlier job left", async () => {
@@ -362,5 +360,5 @@ test("a file shared after the login ran out on another one starts with its own P
   render(() => <App />)
 
   expect(await screen.findByText("Neu.pdf")).toBeInTheDocument()
-  expect(summary()).toHaveTextContent(/^1× · /)
+  expect((await shownSettings(userEvent.setup())).copies).toBe("1")
 })

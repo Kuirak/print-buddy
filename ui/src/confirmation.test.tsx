@@ -2,10 +2,12 @@ import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, onTestFinished, test, vi } from "vitest"
 import type { FileFacts, PrinterInfo } from "../../shared/api.ts"
+import { SHEET_SIZES } from "../../shared/layout.ts"
 import { App } from "./App.tsx"
+import { Confirmation } from "./controls/Confirmation.tsx"
 import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
-import { closeDetails, confirmation, items, laidOut, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, confirmation, items, laidOut, openDetails, printAndConfirm, shownSettings } from "./testing/options-screen.ts"
 import { printerInfo } from "./testing/printer-info.ts"
 
 /** A PDF of that many A4 pages. */
@@ -33,71 +35,37 @@ async function openOptions(facts: FileFacts, count = 1) {
 
   const tap = (name: string) => user.click(screen.getByRole("button", { name }))
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
-  /** Changes detailed controls behind "Ändern" and comes back. */
+  /** Changes detailed controls behind "Einstellungen" and comes back. */
   async function change(taps: () => Promise<void>) {
     await openDetails(user)
     await taps()
     await closeDetails(user)
   }
   const copies = async (count: number) => { for (let i = 1; i < count; i++) await tap("Mehr Kopien") }
-  /** The one line that says everything that is chosen. */
-  const summary = () => screen.getByRole("status", { name: "Gewählte Einstellungen" }).textContent
-  /** The lines of the confirmation, top to bottom. */
-  const lines = () => within(confirmation()).getAllByRole("listitem").map(line => line.textContent)
   const submits = () => api.calls.filter(call => call.path === "/api/drafts/d1/submit")
-  return { api, user, tap, choice, change, copies, summary, lines, submits }
+  return { api, user, tap, choice, change, copies, submits }
 }
 
-test("the summary line names everything that is chosen for a PDF", async () => {
-  const { summary } = await openOptions(pdfOf(6))
+/** What the open confirmation says, part by part. */
+function panel() {
+  const dialog = within(confirmation())
+  return {
+    total: dialog.getByRole("status", { name: "Blätter insgesamt" }).textContent,
+    settings: within(dialog.getByRole("list", { name: "Einstellungen" })).getAllByRole("listitem").map(chip => chip.textContent),
+    message: dialog.getByRole("status", { name: "Hinweis" }).textContent,
+    has: (text: string) => dialog.queryAllByText(text).length > 0,
+    /** The badges of the pages or photos, in order. */
+    badges: (group: "Seiten" | "Fotos") => within(dialog.getByRole("list", { name: group })).getAllByRole("listitem").map(item => item.textContent),
+    drucken: dialog.getByRole("button", { name: "Drucken" }),
+  }
+}
 
-  expect(summary()).toBe("1× · Farbe · A4 · Normal · Einpassen (97 %) · Mitte · 1 Seite pro Blatt · alle 6 Seiten")
-})
-
-test("the summary line follows every change", async () => {
-  const { tap, user, choice, change, copies, summary } = await openOptions(pdfOf(6))
-
-  await change(async () => {
-    await copies(3)
-    await user.click(choice("Farbe", "S/W"))
-    await user.click(choice("Papier", "Umschlag DL"))
-    await user.click(choice("Qualität", "Toner sparen"))
-  })
-  await user.click(choice("Aufteilung", "2×"))
-  await user.click(choice("Größe für alle", "100 %"))
-  await user.click(choice("Position", "oben links"))
-  await tap("Seite 4")
-
-  expect(summary()).toBe("3× · S/W · Umschlag DL · Toner sparen · 100 % · oben links · 2 Seiten pro Blatt · Seiten 1-3, 5-6")
-
-  for (const page of [1, 2, 3, 5, 6]) await tap(`Seite ${page}`)
-  expect(summary()).toContain(" · keine Seiten")
-})
-
-test.each([
-  [1, "1× · Farbe · A4 · Normal · Einpassen (80 %) · Mitte · 1 Foto"],
-  [3, "1× · Farbe · A4 · Normal · Einpassen (80 %) · Mitte · alle 3 Fotos"],
-])("the summary line for %i photos has no pages per sheet", async (count, line) => {
-  const { summary } = await openOptions(photo, count)
-
-  expect(summary()).toBe(line)
-})
-
-test("the summary line says how many photos are left when some are left out", async () => {
-  const { tap, summary } = await openOptions(photo, 3)
-
-  await tap("Foto 2")
-  expect(summary()).toContain(" · 2 von 3 Fotos")
-
-  for (const index of [1, 3]) await tap(`Foto ${index}`)
-  expect(summary()).toContain(" · keine Fotos")
-})
-
-test("the detailed controls are behind Ändern and go away with Fertig", async () => {
+test("the summary line under the preview is gone; the detailed controls are behind Einstellungen and go away with Fertig", async () => {
   const { user, choice } = await openOptions(pdfOf(1))
+  expect(screen.queryByRole("status", { name: "Gewählte Einstellungen" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Ändern" })).not.toBeInTheDocument()
   for (const group of ["Farbe", "Papier", "Qualität"]) expect(screen.queryByRole("radiogroup", { name: group })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Mehr Kopien" })).not.toBeInTheDocument()
-  expect(screen.queryByRole("button", { name: "Als Voreinstellung speichern …" })).not.toBeInTheDocument()
 
   await openDetails(user)
 
@@ -131,12 +99,10 @@ test("Drucken opens the confirmation instead of printing, and confirming sends t
 
   await tap("Drucken")
 
-  const dialog = within(confirmation())
-  expect(dialog.getByRole("heading", { name: "Jetzt drucken?" })).toBeInTheDocument()
-  expect(dialog.getByText("Brief.pdf")).toBeInTheDocument()
+  expect(panel().total).toBe("2")
   expect(submits()).toHaveLength(0)
 
-  await user.click(dialog.getByRole("button", { name: "Drucken" }))
+  await user.click(panel().drucken)
 
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
   expect(submits()).toHaveLength(1)
@@ -164,10 +130,8 @@ test("Drucken is not available before the printer info is there, so the confirma
 
   await expect.poll(() => print).toBeEnabled()
   await user.click(print)
-  expect(within(confirmation()).getAllByRole("listitem").map(line => line.textContent)).toEqual([
-    "1 Seite × 1 Kopie = 1 Blatt",
-    "Farbe · A4 · Einpassen (97 %)",
-  ])
+  expect(panel().total).toBe("1")
+  expect(panel().settings).toEqual(["Farbe", "A4", "Normal", "Einpassen (97 %)", "Mitte"])
 })
 
 test("the printer info is read again when the read fails, so Drucken doesn't stay unavailable", async () => {
@@ -186,24 +150,22 @@ test("the printer info is read again when the read fails, so Drucken doesn't sta
 })
 
 test("Abbrechen in the confirmation returns to the options screen with nothing changed", async () => {
-  const { user, tap, choice, change, copies, summary, submits } = await openOptions(pdfOf(3))
+  const { user, tap, choice, change, copies, submits } = await openOptions(pdfOf(3))
   await change(async () => {
     await copies(2)
     await user.click(choice("Papier", "A5"))
   })
   await tap("Seite 2")
   await tap("Nächstes Blatt")
-  const before = summary()
 
   await tap("Drucken")
   await user.click(within(confirmation()).getByRole("button", { name: "Abbrechen" }))
 
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   expect(submits()).toHaveLength(0)
-  expect(summary()).toBe(before)
-  expect(before).toBe("2× · Farbe · A5 · Normal · Einpassen (67 %) · Mitte · 1 Seite pro Blatt · Seiten 1, 3")
   expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("Seite 3 · 2/2")
   expect(choice("Voreinstellung", "✎ Eigene")).toBeChecked()
+  expect(await shownSettings(user)).toEqual({ copies: "2", color: "Farbe", paper: "A5", quality: "Normal" })
 
   await printAndConfirm(user)
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
@@ -213,74 +175,122 @@ test("Abbrechen in the confirmation returns to the options screen with nothing c
 // The sheet counts are the ones the server reports for the same Print Jobs: see "the sheet count is the number of
 // sheets in the PDF the Printer received" in server/status.test.ts.
 test.each([
-  { pages: 1, leftOut: [], perSheet: "Normal", copies: 1, line: "1 Seite × 1 Kopie = 1 Blatt" },
-  { pages: 3, leftOut: [], perSheet: "Normal", copies: 2, line: "3 Seiten × 2 Kopien = 6 Blätter" },
-  { pages: 3, leftOut: [2], perSheet: "Normal", copies: 2, line: "2 Seiten (1, 3) × 2 Kopien = 4 Blätter" },
-  { pages: 6, leftOut: [3, 4], perSheet: "Normal", copies: 1, line: "4 Seiten (1-2, 5-6) × 1 Kopie = 4 Blätter" },
-  { pages: 3, leftOut: [], perSheet: "2×", copies: 1, line: "3 Seiten (2 pro Blatt) × 1 Kopie = 2 Blätter" },
-  { pages: 3, leftOut: [], perSheet: "2×", copies: 5, line: "3 Seiten (2 pro Blatt) × 5 Kopien = 10 Blätter" },
-  { pages: 2, leftOut: [], perSheet: "2×", copies: 1, line: "2 Seiten (2 pro Blatt) × 1 Kopie = 1 Blatt" },
-  { pages: 5, leftOut: [2], perSheet: "2×", copies: 2, line: "4 Seiten (1, 3-5; 2 pro Blatt) × 2 Kopien = 4 Blätter" },
-  { pages: 9, leftOut: [], perSheet: "8×", copies: 3, line: "9 Seiten (8 pro Blatt) × 3 Kopien = 6 Blätter" },
-])("the confirmation for a PDF reads $line", async ({ pages, leftOut, perSheet, copies: count, line }) => {
-  const { user, tap, choice, change, copies, lines } = await openOptions(pdfOf(pages))
+  { pages: 1, leftOut: [], perSheet: "Normal", copies: 1, total: "1", line: "1 Kopie" },
+  { pages: 3, leftOut: [], perSheet: "Normal", copies: 2, total: "6", line: "3 × 2 Kopien" },
+  { pages: 3, leftOut: [2], perSheet: "Normal", copies: 2, total: "4", line: "2 × 2 Kopien" },
+  { pages: 3, leftOut: [], perSheet: "2×", copies: 5, total: "10", line: "2 × 5 Kopien" },
+  { pages: 5, leftOut: [2], perSheet: "2×", copies: 1, total: "2", line: "1 Kopie" },
+  { pages: 9, leftOut: [], perSheet: "8×", copies: 3, total: "6", line: "2 × 3 Kopien" },
+])("a PDF of $pages pages at $perSheet, $copies copies: $total sheets, $line", async ({ pages, leftOut, perSheet, copies: count, total, line }) => {
+  const { user, tap, choice, change, copies } = await openOptions(pdfOf(pages))
   await change(() => copies(count))
   await user.click(choice("Aufteilung", perSheet))
   for (const page of leftOut) await tap(`Seite ${page}`)
 
   await tap("Drucken")
 
-  expect(lines()[0]).toBe(line)
+  expect(panel().total).toBe(total)
+  expect(panel().has(line)).toBe(true)
+  expect(panel().has(perSheet)).toBe(true)
+  expect(panel().has(total === "1" ? "Blatt" : "Blätter")).toBe(true)
 })
 
-test.each([
-  { photos: 1, leftOut: [], copies: 1, line: "1 Foto × 1 Kopie = 1 Blatt" },
-  { photos: 2, leftOut: [], copies: 3, line: "2 Fotos × 3 Kopien = 6 Blätter" },
-  { photos: 2, leftOut: [1], copies: 3, line: "1 Foto × 3 Kopien = 3 Blätter" },
-  { photos: 20, leftOut: [], copies: 1, line: "20 Fotos × 1 Kopie = 20 Blätter" },
-])("the confirmation for photos reads $line", async ({ photos, leftOut, copies: count, line }) => {
-  const { tap, change, copies, lines } = await openOptions(photo, photos)
-  await change(() => copies(count))
-  for (const index of leftOut) await tap(`Foto ${index}`)
+test("the photos show with how often each prints, and the layout with its name", async () => {
+  const { user, tap, choice } = await openOptions(photo, 3)
+  await tap("Foto 2 öfter")
+  await tap("Foto 3")
+  await user.click(choice("Aufteilung", "4×"))
 
   await tap("Drucken")
 
-  expect(lines()[0]).toBe(line)
-  expect(within(confirmation()).getByText(photos === 1 ? "Strand 1.jpg" : `${photos} Fotos`)).toBeInTheDocument()
+  expect(panel().badges("Fotos")).toEqual(["1×", "2×", "aus"])
+  expect(panel().total).toBe("1")
+  expect(panel().has("4×")).toBe(true)
 })
 
-test("the confirmation lists colour, paper and Print size", async () => {
-  const { user, tap, choice, change, lines } = await openOptions(pdfOf(1))
+test("a PDF of more than 30 pages says its pages in one line", async () => {
+  const { tap } = await openOptions(pdfOf(40))
 
   await tap("Drucken")
-  expect(lines()).toEqual(["1 Seite × 1 Kopie = 1 Blatt", "Farbe · A4 · Einpassen (97 %)"])
-  await user.click(within(confirmation()).getByRole("button", { name: "Abbrechen" }))
+  expect(within(confirmation()).queryByRole("list", { name: "Seiten" })).not.toBeInTheDocument()
+  expect(panel().has("40 von 40 Seiten, je 1×")).toBe(true)
+  await tap("Abbrechen")
 
+  await tap("Seite 3")
+  await tap("Alle öfter")
+  await tap("Drucken")
+  expect(panel().has("39 von 40 Seiten, je 2× · 1 aus")).toBe(true)
+  expect(panel().total).toBe("78")
+})
+
+test("every setting in use shows as a chip: for a PDF, colour, paper, quality, size, Position and the copies", async () => {
+  const { user, tap, choice, change, copies } = await openOptions(pdfOf(1))
   await change(async () => {
+    await copies(2)
     await user.click(choice("Farbe", "S/W"))
     await user.click(choice("Papier", "Umschlag C5"))
     await user.click(choice("Qualität", "Toner sparen"))
   })
+  await user.click(choice("Größe für alle", "100 %"))
   await tap("Kleiner drucken")
+  await user.click(choice("Position", "oben links"))
+
   await tap("Drucken")
 
-  expect(lines()[1]).toMatch(/^Schwarz-Weiß · Umschlag C5 · \d+ % · Toner sparen$/)
+  expect(panel().settings).toEqual(["S/W", "Umschlag C5", "Toner sparen", "95 %", "oben links", "2 Kopien"])
+  // the chips only show: there is nothing to tap on them
+  expect(within(within(confirmation()).getByRole("list", { name: "Einstellungen" })).queryAllByRole("button")).toEqual([])
 })
 
-test("the confirmation repeats the cut-off warning when content will be cut off", async () => {
-  const { user, tap, choice } = await openOptions(pdfOf(1))
-
-  await tap("Drucken")
-  expect(within(confirmation()).queryByText(/abgeschnitten/)).not.toBeInTheDocument()
-  await user.click(within(confirmation()).getByRole("button", { name: "Abbrechen" }))
-
+test("at a Photo format the chips say the Lage, the gap and the cut lines instead of the Position, and the name says the format", async () => {
+  const { user, tap, choice } = await openOptions(photo, 2)
+  await user.click(choice("Aufteilung", "Passbild"))
+  await user.click(screen.getByRole("switch", { name: "Schnittlinien" }))
   await user.click(choice("Größe für alle", "Füllen"))
-  expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
+
+  await tap("Drucken")
+  expect(panel().settings).toEqual(["Farbe", "A4", "Normal", expect.stringMatching(/^Füllen/), "Platz sparen", "Abstand", "Schnittlinien"])
+  expect(panel().has("Passbild")).toBe(true)
+  await tap("Abbrechen")
+
+  await user.click(choice("Aufteilung", "Eigenes"))
+  await user.click(screen.getByRole("switch", { name: "Abstand zum Schneiden" }))
+  await tap("Drucken")
+  expect(panel().settings).toEqual(["Farbe", "A4", "Normal", expect.stringMatching(/^Füllen/), "Platz sparen", "Schnittlinien"])
+  expect(panel().has("Eigenes 60 × 90 mm")).toBe(true)
+})
+
+test("when pages or photos have sizes of their own that differ, the size chip says so", async () => {
+  const { user, tap } = await openOptions(photo, 2)
+  await user.click(screen.getByRole("img", { name: "Vorschau Foto 1" }))
+  await user.click(within(screen.getByRole("toolbar", { name: "Foto 1" })).getByRole("button", { name: "Einpassen" }))
+
   await tap("Drucken")
 
-  const dialog = within(confirmation())
-  expect(dialog.getByText("⚠ Teile des Inhalts werden abgeschnitten.")).toBeInTheDocument()
-  expect(dialog.getAllByRole("listitem")[1]).toHaveTextContent("Farbe · A4 · Füllen (100 %)")
+  expect(panel().settings).toContain("Größe je Foto")
+})
+
+test("the cut-off warning shows for a grid that cuts content off, and never at a Photo format", async () => {
+  const pdf = await openOptions(pdfOf(1))
+  await pdf.tap("Drucken")
+  expect(panel().message).toBe("")
+  await pdf.tap("Abbrechen")
+
+  await pdf.user.click(pdf.choice("Größe für alle", "Füllen"))
+  expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
+  await pdf.tap("Drucken")
+  expect(panel().message).toBe("⚠ Teile des Inhalts werden abgeschnitten.")
+  expect(panel().drucken).toBeEnabled()
+})
+
+test("the cut-off warning stays away at a Photo format, cropped as the photos are", async () => {
+  const { user, tap, choice } = await openOptions(photo, 2)
+  await user.click(choice("Aufteilung", "10×15"))
+  await user.click(choice("Größe für alle", "Füllen"))
+
+  await tap("Drucken")
+
+  expect(panel().message).toBe("")
 })
 
 test("the confirmation warns when only a later sheet is cut off", async () => {
@@ -291,5 +301,38 @@ test("the confirmation warns when only a later sheet is cut off", async () => {
 
   await tap("Drucken")
 
-  expect(within(confirmation()).getByText("⚠ Teile des Inhalts werden abgeschnitten.")).toBeInTheDocument()
+  expect(panel().message).toBe("⚠ Teile des Inhalts werden abgeschnitten.")
+})
+
+test("over 100 sheets the total is the one thing that counts: the panel says the limit and Drucken is unavailable", async () => {
+  const confirmed = vi.fn()
+  render(() => (
+    <Confirmation
+      kind="photos"
+      source={{ kind: "photos", urls: ["blob:a", "blob:b"] }}
+      refs={[0, 1]}
+      options={{
+        copies: 5, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" }, position: "center",
+        layout: { kind: "grid", perSheet: 8 }, items: items(50, 50),
+      }}
+      sheetsPerCopy={13}
+      overLimit
+      maxSheets={100}
+      paper={SHEET_SIZES.A4}
+      cells={[]}
+      layoutName="8×"
+      percent={undefined}
+      mixedSizes={false}
+      // the limit wins over the cut-off warning
+      cutOff
+      onConfirm={confirmed}
+      onBack={() => {}}
+    />
+  ))
+
+  expect(panel().total).toBe("65")
+  expect(panel().has("13 × 5 Kopien")).toBe(true)
+  expect(panel().message).toBe("⛔ Höchstens 100 Blätter pro Druck.")
+  expect(panel().drucken).toBeDisabled()
+  expect(panel().badges("Fotos")).toEqual(["50×", "50×"])
 })

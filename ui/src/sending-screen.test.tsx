@@ -6,11 +6,10 @@ import type { SubmitProgress } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
 import { json, mockApi } from "./testing/mock-api.ts"
-import { closeDetails, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, openDetails, printAndConfirm, shownSettings } from "./testing/options-screen.ts"
 
 const pdfFacts = { kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }
 const accepted = () => json({ jobId: "j1", cupsJobId: 42 }, 201)
-const summary = () => screen.getByRole("status", { name: "Gewählte Einstellungen" })
 
 /** Picks a PDF and chooses 2 copies on the options screen. */
 async function pickWithTwoCopies(user: UserEvent) {
@@ -102,7 +101,7 @@ test("Abbrechen while the Print Job is prepared stops it and goes back to the op
 
   await user.click(screen.getByRole("button", { name: "Abbrechen" }))
 
-  expect(await screen.findByRole("status", { name: "Gewählte Einstellungen" })).toHaveTextContent(/^2× /)
+  expect((await shownSettings(user)).copies).toBe("2")
   expect(screen.getByText("Rechnung.pdf")).toBeInTheDocument()
   expect(screen.queryByRole("heading", { name: "Drucken hat nicht geklappt" })).not.toBeInTheDocument()
 
@@ -167,8 +166,7 @@ test("Nochmal drucken shows the upload, and Abbrechen stops it and opens the opt
   await user.click(screen.getByRole("button", { name: "Abbrechen" }))
 
   expect(api.calls.find(call => call.path === "/api/drafts/d2/files")!.signal.aborted).toBe(true)
-  await screen.findByRole("status", { name: "Gewählte Einstellungen" })
-  expect(summary()).toHaveTextContent(/^2× /)
+  expect((await shownSettings(user)).copies).toBe("2")
   expect(screen.queryByRole("heading", { name: "Drucken hat nicht geklappt" })).not.toBeInTheDocument()
   expect(api.calls.filter(call => call.path.endsWith("/submit"))).toHaveLength(1)
 })

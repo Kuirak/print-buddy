@@ -1,4 +1,4 @@
-// The German words for the Print Options, as the summary line and the confirmation say them.
+// The German words for the Print Options, as the options screen, the confirmation and "Nochmal drucken?" say them.
 import type { Item, Paper, Position, PrintOptions, PrintSizeMode } from "../../shared/print-options.ts"
 
 export const paperNames: Record<Paper, string> = { A4: "A4", A5: "A5", EnvDL: "Umschlag DL", EnvC5: "Umschlag C5" }

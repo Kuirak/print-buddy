@@ -7,7 +7,7 @@ import { jpegFile, pdfFile } from "./testing/files.ts"
 import { jobStatus } from "./testing/job-status.ts"
 import { logInAgain, loginExpired } from "./testing/login.ts"
 import { json, mockApi, type ApiCall } from "./testing/mock-api.ts"
-import { closeDetails, confirmation, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, confirmation, openDetails, printAndConfirm, shownSettings } from "./testing/options-screen.ts"
 import { share } from "./testing/share.ts"
 
 const a4 = { width: 595, height: 842 }
@@ -145,7 +145,7 @@ test("once the upload is done, the server's facts count: the confirmation and th
 
   await user.click(await screen.findByRole("button", { name: "Drucken" }))
 
-  expect(within(confirmation()).getAllByRole("listitem")[0]).toHaveTextContent("3 Seiten × 1 Kopie = 3 Blätter")
+  expect(within(confirmation()).getByRole("status", { name: "Blätter insgesamt" })).toHaveTextContent("3")
   expect(screen.getByRole("button", { name: "Seite 3" })).toBeInTheDocument()
 })
 
@@ -187,7 +187,7 @@ test("a 401 during the upload shows Anmeldung abgelaufen, and after the login th
   })
   await logInAgain(user)
   render(() => <App />)
-  expect(await screen.findByRole("status", { name: "Gewählte Einstellungen" })).toHaveTextContent(/^2× /)
+  expect((await shownSettings(user)).copies).toBe("2")
 })
 
 test("an upload that gets no answer shows Drucken hat nicht geklappt, and Erneut versuchen opens the options screen again", async () => {

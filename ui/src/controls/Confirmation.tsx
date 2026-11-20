@@ -1,57 +1,129 @@
-import { Show } from "solid-js"
+import { For, Show } from "solid-js"
+import type { Box, Size } from "../../../shared/layout.ts"
 import type { PrintOptions } from "../../../shared/print-options.ts"
-import { counted, paperNames, printedNumbers, printSizeText, ranges } from "../job-text.ts"
+import { counted, paperNames, positionNames, printSizeText, qualityNames } from "../job-text.ts"
 import { Dialog } from "./Dialog.tsx"
+import { DisplayChip } from "./DisplayChip.tsx"
+import { PdfPage } from "./PdfPage.tsx"
+import type { PreviewSource } from "./Preview.tsx"
+
+/** More pages than this, and the confirmation says them in one line instead of showing each. */
+const onePerLineAbove = 30
+
+const lageNames = { save: "Platz sparen", portrait: "Alle hoch", landscape: "Alle quer" } as const
 
 /**
- * "Jetzt drucken?": what will come out of the Printer, before any paper is used.
- * Nothing in here is computed: the sheet count, the percentage and the warning come from the layout module.
+ * "Jetzt drucken?": what will come out of the Printer, before any paper is used, as a panel from the bottom. From top
+ * to bottom: the sheets of paper for all copies, big, beside the sketch of the layout; the pages or photos with how
+ * often each prints; every setting in use as a chip; one line for the one message that matters; Abbrechen and Drucken.
+ * Every part keeps its height, so the panel is as tall for any Print Job. Nothing in here is laid out: the sheets,
+ * the percentage and the cut-off come from the layout module.
  */
 export function Confirmation(props: {
-  fileName: string
   kind: "pdf" | "photos"
-  /** How many pages the PDF has, or how many photos were shared. */
-  total: number
+  source: PreviewSource
+  /** Every page number of the PDF (from 1) or every photo index (from 0), in the order of `options.items`. */
+  refs: readonly number[]
   options: PrintOptions
-  /** Sheets of paper for all copies. */
-  sheets: number
+  /** Sheets of paper for one copy. */
+  sheetsPerCopy: number
+  /** The Print Job takes more sheets than one may: Drucken is unavailable. */
+  overLimit: boolean
+  maxSheets: number
+  /** The layout as a sketch: the paper, the Cells or slots on it, and its short name. */
+  paper: Size
+  cells: readonly Box[]
+  layoutName: string
   /** The percentage the content is printed at, as the Print size row shows it. */
   percent: number | undefined
+  /** Several sizes are in use: the chip says the size is chosen page by page or photo by photo. */
+  mixedSizes: boolean
   cutOff: boolean
   onConfirm: () => void
   onBack: () => void
 }) {
-  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos (4 pro Blatt)". */
-  const content = () => {
-    const printed = printedNumbers(props.options.items)
-    const count = printed.length
-    const { layout } = props.options
-    const shared = layout.kind === "grid" && layout.perSheet > 1 ? [`${layout.perSheet} pro Blatt`] : []
-    if (props.kind === "photos") return counted(count, "Foto", "Fotos") + (shared.length ? ` (${shared[0]})` : "")
-    const notes = [...(count < props.total ? [ranges(printed)] : []), ...shared]
-    return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
+  const pdf = () => props.kind === "pdf"
+  const total = () => props.sheetsPerCopy * props.options.copies
+  const counts = () => props.options.items.map(item => item.count)
+  const settings = () => {
+    const { options } = props
+    const { layout } = options
+    return [
+      options.color === "color" ? "Farbe" : "S/W",
+      paperNames[options.paper],
+      qualityNames[options.quality],
+      props.mixedSizes ? (pdf() ? "Größe je Seite" : "Größe je Foto") : printSizeText(options.printSize, props.percent),
+      ...(layout.kind === "format"
+        ? [lageNames[layout.lage], ...(layout.gap ? ["Abstand"] : []), ...(layout.cutLines ? ["Schnittlinien"] : [])]
+        : [positionNames[options.position]]),
+      ...(options.copies > 1 ? [counted(options.copies, "Kopie", "Kopien")] : []),
+    ]
+  }
+  /** A long PDF in one line: "37 von 40 Seiten, je 1× · 3 aus". */
+  const pagesLine = () => {
+    const printed = counts().filter(count => count > 0)
+    const out = counts().length - printed.length
+    const same = printed.every(count => count === printed[0])
+    return `${printed.length} von ${counts().length} Seiten${same && printed.length > 0 ? `, je ${printed[0]}×` : ""}${out > 0 ? ` · ${out} aus` : ""}`
   }
   return (
     <Dialog label="Jetzt drucken?" at="bottom" onClose={props.onBack}>
-      <div>
-        <h2 class="text-lg font-bold">Jetzt drucken?</h2>
-        <p class="truncate text-muted">{props.fileName}</p>
+      <div class="flex items-center gap-4">
+        <div class="w-28 shrink-0 text-center">
+          <output aria-label="Blätter insgesamt" class={`block text-5xl font-extrabold ${props.overLimit ? "text-[#b3261e]" : ""}`}>{total()}</output>
+          <div class="font-semibold">{total() === 1 ? "Blatt" : "Blätter"}</div>
+          <div class="text-sm text-muted">{props.options.copies > 1 ? `${props.sheetsPerCopy} × ${props.options.copies} Kopien` : "1 Kopie"}</div>
+        </div>
+        <div class="flex min-w-0 flex-1 items-center gap-3 border-l border-gray-200 pl-4">
+          <svg aria-hidden="true" class="h-24 shrink-0" viewBox={`0 0 ${props.paper.width} ${props.paper.height}`}>
+            <rect width={props.paper.width} height={props.paper.height} fill="white" stroke="#999" stroke-width={props.paper.width / 80} />
+            <For each={props.cells}>
+              {cell => {
+                const inset = props.paper.width / 80
+                return <rect x={cell.left + inset} y={cell.top + inset} width={cell.width - 2 * inset} height={cell.height - 2 * inset} fill="#cfe0f7" />
+              }}
+            </For>
+          </svg>
+          <span class="font-semibold">{props.layoutName}</span>
+        </div>
       </div>
-      <ul class="flex list-disc flex-col gap-1 pl-5">
-        <li>
-          {content()} × {counted(props.options.copies, "Kopie", "Kopien")} = <strong>{counted(props.sheets, "Blatt", "Blätter")}</strong>
-        </li>
-        <li>
-          {props.options.color === "color" ? "Farbe" : "Schwarz-Weiß"} · {paperNames[props.options.paper]} · {printSizeText(props.options.printSize, props.percent)}
-          {props.options.quality === "draft" ? " · Toner sparen" : ""}
-        </li>
-      </ul>
-      <Show when={props.cutOff}>
-        <p class="text-[#a05a00]">⚠ Teile des Inhalts werden abgeschnitten.</p>
+      {/* one row of 56 px: the pages or photos with how often each prints, or a long PDF in one line */}
+      <Show
+        when={props.refs.length <= onePerLineAbove}
+        fallback={<p class="flex h-14 items-center rounded-lg bg-gray-50 px-3 text-sm">{pagesLine()}</p>}
+      >
+        <ul aria-label={pdf() ? "Seiten" : "Fotos"} class="flex h-14 gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <For each={props.refs}>
+            {(ref, index) => {
+              const count = () => counts()[index()] ?? 0
+              return (
+                <li class={`relative size-14 shrink-0 overflow-hidden rounded border ${count() > 0 ? "border-gray-300" : "border-gray-200 opacity-40"}`}>
+                  <div class="size-full" style={{ filter: props.options.color === "mono" ? "grayscale(1)" : "none" }}>
+                    <Show
+                      when={props.source.kind === "photos" && props.source}
+                      fallback={<PdfPage pdf={props.source.kind === "pdf" ? props.source.pdf : undefined} page={ref} longSide={112} fit="contain" />}
+                    >
+                      {photos => <img class="block size-full object-cover" src={photos().urls[ref]} alt="" />}
+                    </Show>
+                  </div>
+                  <span class="absolute top-0.5 right-0.5 rounded-full bg-white/90 px-1 text-[11px] font-bold">{count() > 0 ? `${count()}×` : "aus"}</span>
+                </li>
+              )
+            }}
+          </For>
+        </ul>
       </Show>
+      {/* two rows of chips always have room; more wrap to a third */}
+      <ul aria-label="Einstellungen" class="flex min-h-[62px] flex-wrap content-start gap-1.5">
+        <For each={settings()}>{setting => <li><DisplayChip text={setting} /></li>}</For>
+      </ul>
+      {/* one line of fixed height for the one message that matters most */}
+      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center rounded-lg px-2 text-sm ${props.overLimit ? "bg-[#fdecea] text-[#b3261e]" : "text-[#a05a00]"}`}>
+        {props.overLimit ? `⛔ Höchstens ${props.maxSheets} Blätter pro Druck.` : props.cutOff ? "⚠ Teile des Inhalts werden abgeschnitten." : ""}
+      </p>
       <div class="flex gap-2">
         <button type="button" class="btn-secondary" onClick={props.onBack}>Abbrechen</button>
-        <button type="button" class="btn-primary" onClick={props.onConfirm}>Drucken</button>
+        <button type="button" class="btn-primary" disabled={props.overLimit} onClick={props.onConfirm}>Drucken</button>
       </div>
     </Dialog>
   )

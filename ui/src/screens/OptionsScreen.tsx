@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
-import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
+import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import { maxCount, minOwnSize, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
@@ -14,7 +14,6 @@ import { Preview } from "../controls/Preview.tsx"
 import { asSizeChoice, PrintSize } from "../controls/PrintSize.tsx"
 import { SheetSteps } from "../controls/SheetSteps.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
-import { SummaryLine } from "../controls/SummaryLine.tsx"
 import { Thumbnails } from "../controls/Thumbnails.tsx"
 import { ToggleChip } from "../controls/ToggleChip.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
@@ -146,7 +145,7 @@ export function OptionsScreen(props: {
     const first = shown()?.placements[0]
     return first && Math.round(first.scale * 100)
   }
-  /** What lies over the screen: the detailed controls behind "Ändern", or "Jetzt drucken?". */
+  /** What lies over the screen: the detailed controls behind "Einstellungen", or "Jetzt drucken?". */
   const [over, setOver] = createSignal<"details" | "confirmation">()
   /** A Print Job is cut off when any of its sheets is. */
   const cutOff = () => sheets()?.some(sheet => sheet.cutOff) ?? false
@@ -209,6 +208,13 @@ export function OptionsScreen(props: {
   const formatProblem = () => {
     const format = atFormat()?.format
     return typeof format === "string" && noSlots() ? `${formatNames[format]} passt nicht auf ${paperNames[options.paper]}.` : undefined
+  }
+
+  /** The layout's short name, as the strip says it: "Normal", "8×", "10×15", or "Eigenes 60 × 90 mm". */
+  const layoutName = () => {
+    const { layout: chosen } = options
+    if (chosen.kind === "grid") return chosen.perSheet === 1 ? "Normal" : `${chosen.perSheet}×`
+    return typeof chosen.format === "string" ? formatNames[chosen.format] : `Eigenes ${chosen.format.w} × ${chosen.format.h} mm`
   }
 
   /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
@@ -308,7 +314,15 @@ export function OptionsScreen(props: {
       </div>
       <PresetChips presets={presets} options={options} onPick={apply} onOwn={() => setOver("details")} />
       <div class="flex flex-col gap-2">
-        <div class="flex items-center justify-end gap-2">
+        <div class="flex items-center justify-between gap-2">
+          {/* copies, colour, paper, quality and the Preset actions */}
+          <button
+            type="button"
+            class="min-h-10 cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 font-semibold"
+            onClick={() => setOver("details")}
+          >
+            Einstellungen
+          </button>
           <ViewZoom value={zoom()} onChange={setZoom} />
         </div>
         <div data-picks>
@@ -454,7 +468,6 @@ export function OptionsScreen(props: {
       <Show when={cutOff()}>
         <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
       </Show>
-      <SummaryLine kind={kind} total={refs().length} options={options} percent={percent()} onChange={() => setOver("details")} />
       {/* the last thing on the screen, so that at the end of the page nothing lies under it */}
       <div class="sticky bottom-0 z-10 -mx-4 mt-auto border-t border-gray-200 bg-white px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         {/* not before the layout is known: the confirmation says how many sheets, at what size, and whether something
@@ -487,12 +500,18 @@ export function OptionsScreen(props: {
     <Show when={over() === "confirmation" && sheets()}>
       {laidOut => (
         <Confirmation
-          fileName={props.fileName}
           kind={kind}
-          total={refs().length}
+          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+          refs={refs()}
           options={options}
-          sheets={sheetCount(laidOut(), options.copies)}
+          sheetsPerCopy={laidOut().length}
+          overLimit={tooMany()}
+          maxSheets={maxSheets}
+          paper={SHEET_SIZES[options.paper]}
+          cells={cells(options.layout, SHEET_SIZES[options.paper], margins()![options.paper], landscapeFirst(source(), options.items)).cells.map(cell => cell.box)}
+          layoutName={layoutName()}
           percent={percent()}
+          mixedSizes={mixedSizes() !== undefined}
           cutOff={cutOff()}
           onConfirm={() => props.onPrint(snapshot(options))}
           onBack={() => setOver(undefined)}

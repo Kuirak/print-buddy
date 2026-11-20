@@ -21,12 +21,22 @@ export async function printAndConfirm(user: UserEvent) {
   await user.click(within(confirmation()).getByRole("button", { name: "Drucken" }))
 }
 
-/** Taps "Ändern": opens the detailed controls (copies, colour, paper, quality, pages per sheet, the Preset actions). */
+/** Taps "Einstellungen": opens the detailed controls (copies, colour, paper, quality, the Preset actions). */
 export async function openDetails(user: UserEvent) {
-  await user.click(await screen.findByRole("button", { name: "Ändern" }))
+  await user.click(await screen.findByRole("button", { name: "Einstellungen" }))
 }
 
 /** Taps "Fertig" in the detailed controls: back on the options screen. */
 export async function closeDetails(user: UserEvent) {
   await user.click(within(screen.getByRole("dialog", { name: "Einstellungen" })).getByRole("button", { name: "Fertig" }))
+}
+
+/** What the detailed controls show for copies, colour, paper and quality: opens them, reads them and closes them again. */
+export async function shownSettings(user: UserEvent) {
+  await openDetails(user)
+  const chosen = (group: string) =>
+    within(screen.getByRole("radiogroup", { name: group })).getAllByRole("radio").find(radio => radio.getAttribute("aria-checked") === "true")?.textContent
+  const shown = { copies: screen.getByRole("status", { name: "Kopien" }).textContent, color: chosen("Farbe"), paper: chosen("Papier"), quality: chosen("Qualität") }
+  await closeDetails(user)
+  return shown
 }
