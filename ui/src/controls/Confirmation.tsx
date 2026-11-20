@@ -21,15 +21,14 @@ export function Confirmation(props: {
   onConfirm: () => void
   onBack: () => void
 }) {
-  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos". */
+  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos (4 pro Blatt)". */
   const content = () => {
     const printed = printedNumbers(props.options.items)
     const count = printed.length
-    if (props.kind === "photos") return counted(count, "Foto", "Fotos")
-    const notes = [
-      ...(count < props.total ? [ranges(printed)] : []),
-      ...(props.options.layout.kind === "grid" && props.options.layout.perSheet === 2 ? ["2 pro Blatt"] : []),
-    ]
+    const { layout } = props.options
+    const shared = layout.kind === "grid" && layout.perSheet > 1 ? [`${layout.perSheet} pro Blatt`] : []
+    if (props.kind === "photos") return counted(count, "Foto", "Fotos") + (shared.length ? ` (${shared[0]})` : "")
+    const notes = [...(count < props.total ? [ranges(printed)] : []), ...shared]
     return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
   }
   return (

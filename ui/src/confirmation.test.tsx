@@ -63,8 +63,8 @@ test("the summary line follows every change", async () => {
     await user.click(choice("Farbe", "S/W"))
     await user.click(choice("Papier", "Umschlag DL"))
     await user.click(choice("Qualität", "Toner sparen"))
-    await user.click(choice("Seiten pro Blatt", "2"))
   })
+  await user.click(choice("Aufteilung", "2×"))
   await user.click(choice("Druckgröße", "100 %"))
   await user.click(choice("Position", "oben links"))
   await tap("Seite 4")
@@ -96,14 +96,14 @@ test("the summary line says how many photos are left when some are left out", as
 
 test("the detailed controls are behind Ändern and go away with Fertig", async () => {
   const { user, choice } = await openOptions(pdfOf(1))
-  for (const group of ["Farbe", "Papier", "Qualität", "Seiten pro Blatt"]) expect(screen.queryByRole("radiogroup", { name: group })).not.toBeInTheDocument()
+  for (const group of ["Farbe", "Papier", "Qualität"]) expect(screen.queryByRole("radiogroup", { name: group })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Mehr Kopien" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Als Voreinstellung speichern …" })).not.toBeInTheDocument()
 
   await openDetails(user)
 
   const details = within(screen.getByRole("dialog", { name: "Einstellungen" }))
-  for (const group of ["Farbe", "Papier", "Qualität", "Seiten pro Blatt"]) expect(details.getByRole("radiogroup", { name: group })).toBeInTheDocument()
+  for (const group of ["Farbe", "Papier", "Qualität"]) expect(details.getByRole("radiogroup", { name: group })).toBeInTheDocument()
   expect(details.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
   expect(details.getByRole("button", { name: "Als Voreinstellung speichern …" })).toBeInTheDocument()
   expect(details.getByRole("button", { name: "★ Standard" })).toBeInTheDocument()
@@ -214,20 +214,19 @@ test("Abbrechen in the confirmation returns to the options screen with nothing c
 // The sheet counts are the ones the server reports for the same Print Jobs: see "the sheet count is the number of
 // sheets in the PDF the Printer received" in server/status.test.ts.
 test.each([
-  { pages: 1, leftOut: [], perSheet: "1", copies: 1, line: "1 Seite × 1 Kopie = 1 Blatt" },
-  { pages: 3, leftOut: [], perSheet: "1", copies: 2, line: "3 Seiten × 2 Kopien = 6 Blätter" },
-  { pages: 3, leftOut: [2], perSheet: "1", copies: 2, line: "2 Seiten (1, 3) × 2 Kopien = 4 Blätter" },
-  { pages: 6, leftOut: [3, 4], perSheet: "1", copies: 1, line: "4 Seiten (1-2, 5-6) × 1 Kopie = 4 Blätter" },
-  { pages: 3, leftOut: [], perSheet: "2", copies: 1, line: "3 Seiten (2 pro Blatt) × 1 Kopie = 2 Blätter" },
-  { pages: 3, leftOut: [], perSheet: "2", copies: 5, line: "3 Seiten (2 pro Blatt) × 5 Kopien = 10 Blätter" },
-  { pages: 2, leftOut: [], perSheet: "2", copies: 1, line: "2 Seiten (2 pro Blatt) × 1 Kopie = 1 Blatt" },
-  { pages: 5, leftOut: [2], perSheet: "2", copies: 2, line: "4 Seiten (1, 3-5; 2 pro Blatt) × 2 Kopien = 4 Blätter" },
+  { pages: 1, leftOut: [], perSheet: "Normal", copies: 1, line: "1 Seite × 1 Kopie = 1 Blatt" },
+  { pages: 3, leftOut: [], perSheet: "Normal", copies: 2, line: "3 Seiten × 2 Kopien = 6 Blätter" },
+  { pages: 3, leftOut: [2], perSheet: "Normal", copies: 2, line: "2 Seiten (1, 3) × 2 Kopien = 4 Blätter" },
+  { pages: 6, leftOut: [3, 4], perSheet: "Normal", copies: 1, line: "4 Seiten (1-2, 5-6) × 1 Kopie = 4 Blätter" },
+  { pages: 3, leftOut: [], perSheet: "2×", copies: 1, line: "3 Seiten (2 pro Blatt) × 1 Kopie = 2 Blätter" },
+  { pages: 3, leftOut: [], perSheet: "2×", copies: 5, line: "3 Seiten (2 pro Blatt) × 5 Kopien = 10 Blätter" },
+  { pages: 2, leftOut: [], perSheet: "2×", copies: 1, line: "2 Seiten (2 pro Blatt) × 1 Kopie = 1 Blatt" },
+  { pages: 5, leftOut: [2], perSheet: "2×", copies: 2, line: "4 Seiten (1, 3-5; 2 pro Blatt) × 2 Kopien = 4 Blätter" },
+  { pages: 9, leftOut: [], perSheet: "8×", copies: 3, line: "9 Seiten (8 pro Blatt) × 3 Kopien = 6 Blätter" },
 ])("the confirmation for a PDF reads $line", async ({ pages, leftOut, perSheet, copies: count, line }) => {
   const { user, tap, choice, change, copies, lines } = await openOptions(pdfOf(pages))
-  await change(async () => {
-    await copies(count)
-    await user.click(choice("Seiten pro Blatt", perSheet))
-  })
+  await change(() => copies(count))
+  await user.click(choice("Aufteilung", perSheet))
   for (const page of leftOut) await tap(`Seite ${page}`)
 
   await tap("Drucken")

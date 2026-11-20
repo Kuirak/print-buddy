@@ -20,17 +20,21 @@ export function SummaryLine(props: {
     if (printed.length === props.total) return `alle ${props.total} ${pdf ? "Seiten" : "Fotos"}`
     return pdf ? `${printed.length === 1 ? "Seite" : "Seiten"} ${ranges(printed)}` : `${printed.length} von ${props.total} Fotos`
   }
-  const parts = () => [
-    `${props.options.copies}×`,
-    props.options.color === "color" ? "Farbe" : "S/W",
-    paperNames[props.options.paper],
-    qualityNames[props.options.quality],
-    printSizeText(props.options.printSize, props.percent),
-    positionNames[props.options.position],
-    // photos always get a sheet each
-    ...(props.kind === "pdf" ? [props.options.layout.kind === "grid" && props.options.layout.perSheet === 2 ? "2 Seiten pro Blatt" : "1 Seite pro Blatt"] : []),
-    chosen(),
-  ]
+  const parts = () => {
+    const { layout } = props.options
+    const perSheet = layout.kind === "grid" ? layout.perSheet : 1
+    return [
+      `${props.options.copies}×`,
+      props.options.color === "color" ? "Farbe" : "S/W",
+      paperNames[props.options.paper],
+      qualityNames[props.options.quality],
+      printSizeText(props.options.printSize, props.percent),
+      positionNames[props.options.position],
+      // photos say it only when they share a sheet
+      ...(props.kind === "pdf" ? [perSheet === 1 ? "1 Seite pro Blatt" : `${perSheet} Seiten pro Blatt`] : perSheet > 1 ? [`${perSheet} Fotos pro Blatt`] : []),
+      chosen(),
+    ]
+  }
   return (
     <div class="flex items-center justify-between gap-3">
       <span role="status" aria-label="Gewählte Einstellungen" class="text-sm text-muted">{parts().join(" · ")}</span>

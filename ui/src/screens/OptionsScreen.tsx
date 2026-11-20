@@ -1,9 +1,10 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
-import { layout, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
+import { cells, landscapeFirst, layout, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import type { Item, PrintOptions, Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { Confirmation } from "../controls/Confirmation.tsx"
+import { gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
 import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
@@ -17,6 +18,8 @@ import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type Preset } from "../presets.ts"
 
 const readPrinterAgainAfterMs = 2_000
+
+const noMargins = { top: 0, right: 0, bottom: 0, left: 0 }
 
 export function OptionsScreen(props: {
   fileName: string
@@ -108,13 +111,14 @@ export function OptionsScreen(props: {
   /** The sheet in the preview, counted from 0: the one stepped to, or the last one there is. */
   const current = () => Math.max(0, Math.min(step(), (sheets()?.length ?? 1) - 1))
   const shown = () => sheets()?.[current()]
-  /** What the preview shows and which sheet of how many it is, for one copy. */
+  /** What the preview shows and which sheet of how many it is, for one copy: its page or photo, two pages by number, or else just the sheet. */
   const sheetText = () => {
     const onSheet = shown()?.placements.map(placement => placement.ref)
     if (!onSheet?.length) return kind === "pdf" ? "Keine Seiten ausgewählt" : "Keine Fotos ausgewählt"
     const place = `${current() + 1}/${sheets()!.length}`
-    if (kind === "photos") return `Foto ${place}`
-    return `${onSheet.length === 1 ? "Seite" : "Seiten"} ${onSheet.join(" und ")} · ${place}`
+    if (onSheet.length === 1) return kind === "photos" ? `Foto ${place}` : `Seite ${onSheet[0]} · ${place}`
+    if (kind === "pdf" && onSheet.length === 2 && onSheet[0] !== onSheet[1]) return `Seiten ${onSheet.join(" und ")} · ${place}`
+    return `Blatt ${place}`
   }
   const percent = () => {
     if (options.printSize.kind === "percent") return options.printSize.value
@@ -146,12 +150,13 @@ export function OptionsScreen(props: {
   function toggle(ref: number) {
     const index = refs().indexOf(ref)
     const back = options.items[index]!.count === 0
+    const items = options.items.map((item, at) => (at === index ? { ...item, count: back ? 1 : 0 } : item))
     setOptions(o => { o.items[index]!.count = back ? 1 : 0 })
     if (!back) return
     // its first appearance follows every appearance of the pages or photos before it
-    const before = options.items.slice(0, index).reduce((sum, item) => sum + item.count, 0)
-    const perSheet = kind === "pdf" && options.layout.kind === "grid" ? options.layout.perSheet : 1
-    setStep(Math.floor(before / perSheet))
+    const before = items.slice(0, index).reduce((sum, item) => sum + item.count, 0)
+    const perSheet = cells(options.layout, SHEET_SIZES[options.paper], margins()?.[options.paper] ?? noMargins, landscapeFirst(source(), items)).cells.length
+    setStep(Math.floor(before / Math.max(1, perSheet)))
   }
 
   /** Prints every page or photo once (`count` 1), or none of them (`count` 0). */
@@ -208,6 +213,17 @@ export function OptionsScreen(props: {
           {laidOut => <SheetSteps index={current()} count={laidOut().length} text={sheetText()} onChange={setStep} />}
         </Show>
       </div>
+      <LayoutStrip
+        choices={gridChoices}
+        value={options.layout}
+        paper={SHEET_SIZES[options.paper]}
+        margins={margins()?.[options.paper]}
+        landscape={landscapeFirst(source(), options.items)}
+        onChange={chosen => {
+          setOptions(o => { o.layout = chosen })
+          setStep(0)
+        }}
+      />
       {/* Print size and Position side by side, so that both fit on the screen with the preview */}
       <div class="flex items-start justify-between gap-3">
         <div class="flex min-w-0 flex-col gap-1">
@@ -254,7 +270,6 @@ export function OptionsScreen(props: {
     <Show when={over() === "details"}>
       <OptionsDrawer
         options={options}
-        kind={kind}
         presets={presets}
         onChange={changes => setOptions(o => { Object.assign(o, changes) })}
         onPickPreset={apply}

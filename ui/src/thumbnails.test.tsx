@@ -188,16 +188,20 @@ test("Drehen turns the photo shown, not the first one, when the first is left ou
   expect(await print()).toMatchObject({ items: [{ count: 0, turn: 0 }, { count: 1, turn: 90 }] })
 })
 
-test("a PDF can be printed with two pages per sheet, and the preview shows both halves", async () => {
+/** The tiles of the strip, in order, and the one that is chosen. */
+function strip() {
+  const tiles = within(screen.getByRole("radiogroup", { name: "Aufteilung" })).getAllByRole("radio")
+  return { names: tiles.map(tile => tile.textContent), chosen: tiles.filter(tile => tile.getAttribute("aria-checked") === "true").map(tile => tile.textContent) }
+}
+
+test("the strip offers Normal and 2× to 8×; with 2× the preview shows both halves", async () => {
   const { user, choice, sheet, print } = await openOptions(pdfOf(5))
-  await openDetails(user)
-  expect(choice("Seiten pro Blatt", "1")).toBeChecked()
+  expect(strip()).toEqual({ names: ["Normal", "2×", "4×", "6×", "8×"], chosen: ["Normal"] })
   expect(sheet()).toBe("Seite 1 · 1/5")
 
-  await user.click(choice("Seiten pro Blatt", "2"))
+  await user.click(choice("Aufteilung", "2×"))
 
-  expect(choice("Seiten pro Blatt", "2")).toBeChecked()
-  await closeDetails(user)
+  expect(strip().chosen).toEqual(["2×"])
   expect(sheet()).toBe("Seiten 1 und 2 · 1/3")
   expect(await screen.findByRole("img", { name: "Vorschau Seite 1" })).toBeInTheDocument()
   expect(await screen.findByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
@@ -206,9 +210,7 @@ test("a PDF can be printed with two pages per sheet, and the preview shows both 
 
 test("with two pages per sheet the sheet count follows the selection", async () => {
   const { user, tap, choice, sheet, print } = await openOptions(pdfOf(5))
-  await openDetails(user)
-  await user.click(choice("Seiten pro Blatt", "2"))
-  await closeDetails(user)
+  await user.click(choice("Aufteilung", "2×"))
 
   // pages 1, 3, 4 and 5 are left: two sheets
   await tap("Seite 2")
@@ -225,15 +227,46 @@ test("with two pages per sheet the sheet count follows the selection", async () 
   expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 2 }, items: items(1, 1, 1, 0, 1) })
 })
 
-test("two pages per sheet are not offered for photos", async () => {
-  const { user, print } = await openOptions(photo, 2)
+test("with more pages on a sheet the line under the preview names the sheet, and the stepper goes through every sheet", async () => {
+  const { user, tap, choice, sheet, print } = await openOptions(pdfOf(9))
+
+  await user.click(choice("Aufteilung", "4×"))
+  expect(sheet()).toBe("Blatt 1/3")
+  expect(await screen.findByRole("img", { name: "Vorschau Seite 4" })).toBeInTheDocument()
+  await tap("Nächstes Blatt")
+  await tap("Nächstes Blatt")
+  expect(sheet()).toBe("Seite 9 · 3/3")
+
+  // a page brought back shows on its sheet
+  await tap("Seite 6")
+  await tap("Seite 6")
+  expect(sheet()).toBe("Blatt 2/3")
+
+  await user.click(choice("Aufteilung", "8×"))
+  expect(sheet()).toBe("Blatt 1/2")
+  await user.click(choice("Aufteilung", "6×"))
+  expect(sheet()).toBe("Blatt 1/2")
+  expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 6 } })
+})
+
+test("photos share a sheet too", async () => {
+  const { user, choice, sheet, print } = await openOptions(photo, 5)
+  expect(strip().names).toEqual(["Normal", "2×", "4×", "6×", "8×"])
+
+  await user.click(choice("Aufteilung", "4×"))
+
+  expect(sheet()).toBe("Blatt 1/2")
+  expect(screen.getByRole("img", { name: "Vorschau Foto 4" })).toBeInTheDocument()
+  expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 4 }, items: items(1, 1, 1, 1, 1) })
+})
+
+test("pages per sheet are chosen on the options screen, not in the detailed controls", async () => {
+  const { user } = await openOptions(pdfOf(2))
 
   await openDetails(user)
   expect(screen.getByRole("radiogroup", { name: "Papier" })).toBeInTheDocument()
-  expect(screen.queryByRole("radiogroup", { name: "Seiten pro Blatt" })).not.toBeInTheDocument()
   expect(screen.queryByText("Seiten pro Blatt")).not.toBeInTheDocument()
   await closeDetails(user)
-  expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 1 } })
 })
 
 test.each([
@@ -331,9 +364,7 @@ test("the sheet stepper hides when two pages share the one sheet", async () => {
   const { user, choice, thumbnails } = await openOptions(pdfOf(2))
   expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("Seite 1 · 1/2")
 
-  await openDetails(user)
-  await user.click(choice("Seiten pro Blatt", "2"))
-  await closeDetails(user)
+  await user.click(choice("Aufteilung", "2×"))
 
   expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
   expect(await screen.findByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()

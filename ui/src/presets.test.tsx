@@ -68,7 +68,12 @@ async function openOptions(kind: FileKind = "pdf") {
     await user.type(screen.getByLabelText('Name der Voreinstellung (z. B. "Bastelpapier")'), name)
     await tap("Speichern")
   }
-  return { user, print, choice, chip, chips, pick, tap, set, saveAs, details }
+  /** Taps a tile of the strip on the options screen. */
+  async function strip(name: string) {
+    await overview()
+    await user.click(choice("Aufteilung", name))
+  }
+  return { user, print, choice, chip, chips, pick, tap, set, saveAs, details, strip }
 }
 
 /** Closes the app and opens it again with a new file. Browser storage stays. */
@@ -210,9 +215,9 @@ test("own Presets are offered only for the file type they were saved for", async
 
 test("the current Print Options can be saved as an own Preset, which is still there after reopening the app", async () => {
   const first = await openOptions()
+  await first.strip("2×")
   await first.set("Papier", "A5")
   await first.tap("Mehr Kopien")
-  await first.set("Seiten pro Blatt", "2")
   expect(first.chip("✎ Eigene")).toBeChecked()
 
   await first.saveAs("Bastelpapier")

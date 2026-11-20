@@ -22,15 +22,14 @@ function minutesSeconds(seconds: number) {
  */
 function PrintAgain(props: { job: JobStatus; onConfirm: () => void; onBack: () => void }) {
   const options = () => props.job.options
-  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos". */
+  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos (4 pro Blatt)". */
   const content = () => {
     const printed = printedNumbers(options().items)
     const count = printed.length
-    if (props.job.file.kind === "photo") return counted(count, "Foto", "Fotos")
-    const notes = [
-      ...(count < props.job.file.count ? [ranges(printed)] : []),
-      ...(options().layout.kind === "grid" && (options().layout as { perSheet: number }).perSheet === 2 ? ["2 pro Blatt"] : []),
-    ]
+    const { layout } = options()
+    const shared = layout.kind === "grid" && layout.perSheet > 1 ? [`${layout.perSheet} pro Blatt`] : []
+    if (props.job.file.kind === "photo") return counted(count, "Foto", "Fotos") + (shared.length ? ` (${shared[0]})` : "")
+    const notes = [...(count < props.job.file.count ? [ranges(printed)] : []), ...shared]
     return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
   }
   return (
