@@ -2,7 +2,7 @@
 // call `layout`, so the printout matches the preview. Keep this file free of DOM and Node imports.
 
 import type { Margins } from "./api.ts"
-import { photoFormats, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "./print-options.ts"
+import { photoFormats, type FormatLayout, type Item, type Layout, type PerSheet, type PrintOptions, type PrintSizeMode, type Rotation } from "./print-options.ts"
 
 /** In points (1/72 inch). */
 export type Size = { width: number; height: number }
@@ -164,8 +164,6 @@ export type Cell = {
 /** A sheet's Cells in the order they fill. `sideways`: the sheet is read turned a quarter, as `Sheet.sideways` says. */
 export type Cells = { cells: Cell[]; sideways: boolean }
 
-type PerSheet = Extract<Layout, { kind: "grid" }>["perSheet"]
-
 /**
  * The grids for portrait pages or photos: columns and rows as the sheet is read, and whether it is read in landscape.
  * Read so, portrait pages stand upright in their Cells.
@@ -188,8 +186,6 @@ export function landscapeFirst(source: LayoutInput["source"], items: readonly It
   return first !== undefined && first.width > first.height
 }
 
-type FormatLayout = Extract<Layout, { kind: "format" }>
-
 /**
  * The slots of a Photo format on the sheet, in the order they fill: as many of its size as fit the printable area,
  * `gap` apart, packed from the top left a row at a time. Upright slots for "portrait", sideways ones for "landscape";
@@ -201,7 +197,7 @@ function formatSlots(layout: FormatLayout, sheet: Size, margins: Margins): Box[]
   const short = Math.min(w, h) * POINTS_PER_MM
   const long = Math.max(w, h) * POINTS_PER_MM
   const gap = layout.gap ? GAP_MM * POINTS_PER_MM : 0
-  const width = sheet.width - margins.left - margins.right
+  const { width } = printableArea(sheet, margins)
   // slots of `slot` size in rows from `top`, as many as fit down to the printable area's bottom edge
   const block = (top: number, slot: Size): Box[] => {
     const fit = (length: number, size: number) => Math.max(0, Math.floor((length + gap + TOLERANCE) / (size + gap)))
@@ -241,8 +237,7 @@ function formatSlots(layout: FormatLayout, sheet: Size, margins: Margins): Box[]
 export function cells(layout: Layout, sheet: Size, margins: Margins, landscape = false): Cells {
   if (layout.kind === "format") return { cells: formatSlots(layout, sheet, margins).map(box => ({ box, printable: box })), sideways: false }
   if (layout.perSheet === 1) {
-    const printable = { left: margins.left, top: margins.top, width: sheet.width - margins.left - margins.right, height: sheet.height - margins.top - margins.bottom }
-    return { cells: [{ box: { left: 0, top: 0, ...sheet }, printable }], sideways: false }
+    return { cells: [{ box: { left: 0, top: 0, ...sheet }, printable: printableArea(sheet, margins) }], sideways: false }
   }
   const grid = GRIDS[layout.perSheet]
   const [columns, rows] = landscape ? [grid.rows, grid.columns] : [grid.columns, grid.rows]
@@ -264,6 +259,11 @@ export function cells(layout: Layout, sheet: Size, margins: Margins, landscape =
     }
   }
   return { cells: result, sideways }
+}
+
+/** The part of the sheet the Printer can print on. */
+export function printableArea(sheet: Size, margins: Margins): Box {
+  return { left: margins.left, top: margins.top, width: sheet.width - margins.left - margins.right, height: sheet.height - margins.top - margins.bottom }
 }
 
 /**

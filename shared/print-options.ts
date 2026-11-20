@@ -9,9 +9,12 @@ export type Position =
   | "left" | "center" | "right"
   | "bottom-left" | "bottom" | "bottom-right"
 
+/** How many equal Cells a grid divides the sheet into. */
+export type PerSheet = 1 | 2 | 4 | 6 | 8
+
 /** How a sheet is divided: into equal Cells, or into slots of a Photo format (see GLOSSARY.md). */
 export type Layout =
-  | { kind: "grid"; perSheet: 1 | 2 | 4 | 6 | 8 }
+  | { kind: "grid"; perSheet: PerSheet }
   | {
       /** Photos only. */
       kind: "format"
@@ -23,6 +26,8 @@ export type Layout =
       /** A hairline around each slot. */
       cutLines: boolean
     }
+
+export type FormatLayout = Extract<Layout, { kind: "format" }>
 
 /** What is chosen for one page of the PDF or one photo. */
 export type Item = {
@@ -84,9 +89,9 @@ function isPrintSize(value: unknown): value is PrintSizeMode {
 function parseLayout(value: unknown): Layout | undefined {
   if (typeof value !== "object" || value === null) return undefined
   const l = value as Record<string, unknown>
-  if (l.kind === "grid") return perSheets.includes(l.perSheet) ? { kind: "grid", perSheet: l.perSheet as 1 | 2 | 4 | 6 | 8 } : undefined
+  if (l.kind === "grid") return perSheets.includes(l.perSheet) ? { kind: "grid", perSheet: l.perSheet as PerSheet } : undefined
   if (l.kind !== "format" || !lagen.includes(l.lage) || typeof l.gap !== "boolean" || typeof l.cutLines !== "boolean") return undefined
-  let format: Extract<Layout, { kind: "format" }>["format"]
+  let format: FormatLayout["format"]
   if (typeof l.format === "string" && Object.hasOwn(photoFormats, l.format)) format = l.format as keyof typeof photoFormats
   else if (typeof l.format === "object" && l.format !== null) {
     const { w, h } = l.format as Record<string, unknown>

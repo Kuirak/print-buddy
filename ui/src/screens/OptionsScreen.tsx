@@ -1,40 +1,32 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
-import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import { maxCount, minOwnSize, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
+import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, printableArea, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
+import { maxCount, minOwnSize, type FormatLayout, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { Confirmation } from "../controls/Confirmation.tsx"
 import { ItemBar } from "../controls/ItemBar.tsx"
-import { formatChoices, formatNames, gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
+import { formatChoices, gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
 import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
-import { Preview } from "../controls/Preview.tsx"
+import { Preview, type PreviewSource } from "../controls/Preview.tsx"
 import { asSizeChoice, PrintSize } from "../controls/PrintSize.tsx"
 import { SheetSteps } from "../controls/SheetSteps.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
 import { Thumbnails } from "../controls/Thumbnails.tsx"
 import { ToggleChip } from "../controls/ToggleChip.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
-import { paperNames } from "../job-text.ts"
+import { formatNames, itemName, lageNames, paperNames, sizeNames } from "../job-text.ts"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type Preset } from "../presets.ts"
 
 const readPrinterAgainAfterMs = 2_000
 
-const noMargins = { top: 0, right: 0, bottom: 0, left: 0 }
-
 /** More pages than this, and the pictures of a PDF only switch pages on and off. */
 const onOffOnlyAbove = 30
 
-type FormatLayout = Extract<Layout, { kind: "format" }>
-
-const lagen = [
-  { value: "save", label: "Platz sparen" },
-  { value: "portrait", label: "Alle hoch" },
-  { value: "landscape", label: "Alle quer" },
-] as const
+const lagen = (["save", "portrait", "landscape"] as const).map(value => ({ value, label: lageNames[value] }))
 
 /** A length in points as whole millimetres, rounded down. */
 const wholeMm = (points: number) => Math.floor((points * 25.4) / 72)
@@ -90,6 +82,8 @@ export function OptionsScreen(props: {
   // what the preview draws: the PDF's pages through pdf.js, or the photos straight from the phone's copies
   const [pdf, setPdf] = createSignal<PdfPreview>()
   const photoUrls = kind === "photos" ? files.map(file => URL.createObjectURL(file)) : []
+  /** What the preview, the thumbnails and the confirmation draw the pages or photos from. */
+  const pictures = (): PreviewSource => (kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls })
   const [zoom, setZoom] = createSignal(1)
   onSettled(() => {
     let left = false
@@ -126,10 +120,18 @@ export function OptionsScreen(props: {
     if (!known || options.items.length !== refs().length) return undefined
     return layout({ source: source(), options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
   })
-  /** Which sheet the person stepped to, counted from 0. It may point past the end after pages were left out. */
-  const [step, setStep] = createSignal(0)
+  /**
+   * Which sheet the person stepped to, counted from 0, or the page or photo whose first sheet to show once it is laid
+   * out. A number may point past the end after pages were left out.
+   */
+  const [step, setStep] = createSignal<number | { first: number }>(0)
   /** The sheet in the preview, counted from 0: the one stepped to, or the last one there is. */
-  const current = () => Math.max(0, Math.min(step(), (sheets()?.length ?? 1) - 1))
+  const current = () => {
+    const laidOut = sheets()
+    const wanted = step()
+    const index = typeof wanted === "number" ? wanted : (laidOut?.findIndex(sheet => sheet.placements.some(placement => placement.ref === wanted.first)) ?? 0)
+    return Math.max(0, Math.min(index, (laidOut?.length ?? 1) - 1))
+  }
   const shown = () => sheets()?.[current()]
   /** What the preview shows and which sheet of how many it is, for one copy: its page or photo, two pages by number, or else just the sheet. */
   const sheetText = () => {
@@ -140,10 +142,15 @@ export function OptionsScreen(props: {
     if (kind === "pdf" && onSheet.length === 2 && onSheet[0] !== onSheet[1]) return `Seiten ${onSheet.join(" und ")} · ${place}`
     return `Blatt ${place}`
   }
+  /**
+   * The percentage on the shown sheet: the one given, or for Einpassen and Füllen read off its first page or photo that
+   * has no size of its own, else off its first one.
+   */
   const percent = () => {
     if (options.printSize.kind === "percent") return options.printSize.value
-    const first = shown()?.placements[0]
-    return first && Math.round(first.scale * 100)
+    const placements = shown()?.placements ?? []
+    const read = placements.find(placement => options.items[refs().indexOf(placement.ref)]?.size === undefined) ?? placements[0]
+    return read && Math.round(read.scale * 100)
   }
   /** What lies over the screen: the detailed controls behind "Einstellungen", or "Jetzt drucken?". */
   const [over, setOver] = createSignal<"details" | "confirmation">()
@@ -175,9 +182,9 @@ export function OptionsScreen(props: {
   }
   function chooseLayout(chosen: Layout) {
     setOptions(o => {
+      // a Photo format prints at Füllen, its default, or Einpassen: coming from a grid, or from a percentage, it starts at Füllen
+      if (chosen.kind === "format" && (o.layout.kind === "grid" || o.printSize.kind === "percent")) o.printSize = { kind: "fill" }
       o.layout = chosen
-      // a Photo format prints at Füllen or Einpassen only
-      if (chosen.kind === "format" && o.printSize.kind === "percent") o.printSize = { kind: "fill" }
     })
     setStep(0)
   }
@@ -202,19 +209,16 @@ export function OptionsScreen(props: {
     if (!noSlots()) return undefined
     const sheet = SHEET_SIZES[options.paper]
     const edge = margins()![options.paper]
-    return `Zu groß für ${paperNames[options.paper]}: höchstens ${wholeMm(sheet.width - edge.left - edge.right)} × ${wholeMm(sheet.height - edge.top - edge.bottom)} mm.`
+    // too large for the Lage chosen, but it fits lying the other way: that is what to change
+    const fitting = (["portrait", "landscape"] as const).find(lage => cells({ ...atFormat()!, lage }, sheet, edge).cells.length > 0)
+    if (fitting) return `Passt nur mit Lage ${lageNames[fitting]}.`
+    const area = printableArea(sheet, edge)
+    return `Zu groß für ${paperNames[options.paper]}: höchstens ${wholeMm(area.width)} × ${wholeMm(area.height)} mm.`
   }
   /** A named Photo format that doesn't fit the paper chosen after it, in German. */
   const formatProblem = () => {
     const format = atFormat()?.format
     return typeof format === "string" && noSlots() ? `${formatNames[format]} passt nicht auf ${paperNames[options.paper]}.` : undefined
-  }
-
-  /** The layout's short name, as the strip says it: "Normal", "8×", "10×15", or "Eigenes 60 × 90 mm". */
-  const layoutName = () => {
-    const { layout: chosen } = options
-    if (chosen.kind === "grid") return chosen.perSheet === 1 ? "Normal" : `${chosen.perSheet}×`
-    return typeof chosen.format === "string" ? formatNames[chosen.format] : `Eigenes ${chosen.format.w} × ${chosen.format.h} mm`
   }
 
   /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
@@ -231,8 +235,6 @@ export function OptionsScreen(props: {
   }
   // one that is left out has nothing left to change
   createEffect(() => pickedItem()?.count ?? 0, count => { if (count === 0) setPicked(undefined) })
-  /** How a page or photo is called on the screen: people count photos from 1. */
-  const nameOf = (ref: number) => (kind === "pdf" ? `Seite ${ref}` : `Foto ${ref + 1}`)
   /** A quarter turn of the picked page or photo, on top of the turn it gets by itself. */
   function turnPicked(by: 90 | 270) {
     const index = refs().indexOf(picked()!)
@@ -264,21 +266,13 @@ export function OptionsScreen(props: {
     return used.size > 1 ? [...used].filter(size => size !== undefined) : undefined
   }
 
-  /**
-   * How often a page or photo prints: 0 leaves it out, up to `maxCount`. The preview goes to one brought back, at its
-   * place in the file's order.
-   */
+  /** How often a page or photo prints: 0 leaves it out, up to `maxCount`. The preview goes to the first sheet of one brought back. */
   function setCount(ref: number, count: number) {
     const index = refs().indexOf(ref)
     const next = Math.max(0, Math.min(maxCount, count))
     const back = options.items[index]!.count === 0 && next > 0
-    const items = options.items.map((item, at) => (at === index ? { ...item, count: next } : item))
     setOptions(o => { o.items[index]!.count = next })
-    if (!back) return
-    // its first appearance follows every appearance of the pages or photos before it
-    const before = items.slice(0, index).reduce((sum, item) => sum + item.count, 0)
-    const perSheet = cells(options.layout, SHEET_SIZES[options.paper], margins()?.[options.paper] ?? noMargins, landscapeFirst(source(), items)).cells.length
-    setStep(Math.floor(before / Math.max(1, perSheet)))
+    if (back) setStep({ first: ref })
   }
 
   /** "Alle gleich": every page or photo that prints, prints `count` times. None is switched on or off. */
@@ -333,7 +327,7 @@ export function OptionsScreen(props: {
             paper={SHEET_SIZES[options.paper]}
             margins={margins()?.[options.paper]}
             sheet={shown()}
-            source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+            source={pictures()}
             grey={options.color === "mono"}
             zoom={zoom()}
             index={current()}
@@ -356,8 +350,8 @@ export function OptionsScreen(props: {
             }
           >
             <ItemBar
-              name={nameOf(picked()!)}
-              size={pickedSize() === "fill" ? "Füllen" : pickedSize() === "fit" ? "Einpassen" : `${percent()} %`}
+              name={itemName(kind, picked()!)}
+              size={pickedSize() ? sizeNames[pickedSize()!] : `${percent()} %`}
               onTurn={turnPicked}
               onSize={switchPickedSize}
               onClose={() => setPicked(undefined)}
@@ -427,7 +421,7 @@ export function OptionsScreen(props: {
         }
       >
         <Thumbnails
-          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+          source={pictures()}
           refs={refs()}
           counts={options.items.map(item => item.count)}
           onOffOnly={onOffOnly()}
@@ -506,15 +500,15 @@ export function OptionsScreen(props: {
       {laidOut => (
         <Confirmation
           kind={kind}
-          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+          source={pictures()}
           refs={refs()}
           options={options}
           sheetsPerCopy={laidOut().length}
+          sheets={sheetCount(laidOut(), options.copies)}
           overLimit={tooMany()}
           maxSheets={maxSheets}
           paper={SHEET_SIZES[options.paper]}
           cells={cells(options.layout, SHEET_SIZES[options.paper], margins()![options.paper], landscapeFirst(source(), options.items)).cells.map(cell => cell.box)}
-          layoutName={layoutName()}
           percent={percent()}
           mixedSizes={mixedSizes() !== undefined}
           cutOff={cutOff()}

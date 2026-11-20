@@ -5,7 +5,7 @@ import { Collapsible } from "../controls/Collapsible.tsx"
 import { Dialog } from "../controls/Dialog.tsx"
 import { ReportButton } from "../controls/ReportButton.tsx"
 import { ThumbScreen } from "../controls/ThumbScreen.tsx"
-import { counted, paperNames, printedNumbers, printSizeText, ranges } from "../job-text.ts"
+import { counted, layoutName, paperNames, printedNumbers, printSizeText, ranges } from "../job-text.ts"
 import { stateWords } from "../state-words.ts"
 
 const pollEveryMs = 2_000
@@ -22,15 +22,18 @@ function minutesSeconds(seconds: number) {
  */
 function PrintAgain(props: { job: JobStatus; onConfirm: () => void; onBack: () => void }) {
   const options = () => props.job.options
-  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "3 Fotos (4 pro Blatt)". */
+  /** What is printed: "3 Seiten (1-2, 5)", "6 Seiten (2 pro Blatt)", "4 Fotos (je 2×; Passbild)". */
   const content = () => {
-    const printed = printedNumbers(options().items)
+    const { items, layout } = options()
+    const printed = printedNumbers(items)
     const count = printed.length
-    const { layout } = options()
-    const shared = layout.kind === "grid" && layout.perSheet > 1 ? [`${layout.perSheet} pro Blatt`] : []
-    if (props.job.file.kind === "photo") return counted(count, "Foto", "Fotos") + (shared.length ? ` (${shared[0]})` : "")
-    const notes = [...(count < props.job.file.count ? [ranges(printed)] : []), ...shared]
-    return counted(count, "Seite", "Seiten") + (notes.length ? ` (${notes.join("; ")})` : "")
+    const counts = items.filter(item => item.count > 0).map(item => item.count)
+    const notes = [
+      ...(props.job.file.kind === "pdf" && count < props.job.file.count ? [ranges(printed)] : []),
+      ...(counts[0]! > 1 && counts.every(each => each === counts[0]) ? [`je ${counts[0]}×`] : []),
+      ...(layout.kind === "format" ? [layoutName(layout)] : layout.perSheet > 1 ? [`${layout.perSheet} pro Blatt`] : []),
+    ]
+    return (props.job.file.kind === "photo" ? counted(count, "Foto", "Fotos") : counted(count, "Seite", "Seiten")) + (notes.length ? ` (${notes.join("; ")})` : "")
   }
   return (
     <Dialog label="Nochmal drucken?" at="bottom" onClose={props.onBack}>

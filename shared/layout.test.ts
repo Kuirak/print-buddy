@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 import { cells, layout, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
-import type { Item, PrintOptions } from "./print-options.ts"
+import type { FormatLayout, Item, PrintOptions } from "./print-options.ts"
 
 // A made-up sheet with round numbers: 600 × 800 pt, and a different margin on every side.
 const sheet = { width: 600, height: 800 }
@@ -697,7 +697,6 @@ test("a Print Job may take at most 100 sheets, copies included", async t => {
   })
 })
 
-type FormatLayout = Extract<PrintOptions["layout"], { kind: "format" }>
 const format = (name: FormatLayout["format"], lage: FormatLayout["lage"] = "save", gap = true, cutLines = false): FormatLayout =>
   ({ kind: "format", format: name, lage, gap, cutLines })
 

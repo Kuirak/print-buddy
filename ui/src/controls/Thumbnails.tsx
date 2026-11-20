@@ -1,5 +1,6 @@
 import { createSignal, For, onSettled, Show } from "solid-js"
 import { maxCount } from "../../../shared/print-options.ts"
+import { itemName } from "../job-text.ts"
 import { FadingRow } from "./FadingRow.tsx"
 import { PdfPage } from "./PdfPage.tsx"
 import type { PreviewSource } from "./Preview.tsx"
@@ -13,8 +14,9 @@ const countText = (count: number) => (count > 0 ? `${count}×` : "aus")
 /**
  * "Wie oft": one small picture per page of the PDF or per photo, in the file's order (see `FadingRow`), each with how
  * often it prints. A tap on the picture leaves it out ("aus") or brings it back once; − and + under it count it down
- * to "aus" or up to `maxCount`. "Alle gleich" above sets every page or photo that prints to one count. The pictures
- * show the pages and photos upright, as they are in the file.
+ * to "aus" or up to `maxCount`. A long PDF has no − and +, so a page brought back there prints as often as the others.
+ * "Alle gleich" above sets every page or photo that prints to one count. The pictures show the pages and photos
+ * upright, as they are in the file.
  */
 export function Thumbnails(props: {
   source: PreviewSource
@@ -60,8 +62,7 @@ export function Thumbnails(props: {
         <For each={props.refs}>
           {(ref, index) => {
             const count = () => props.counts[index()] ?? 0
-            // people count from 1, photo indexes from 0
-            const name = () => `${pdf() ? "Seite" : "Foto"} ${pdf() ? ref : ref + 1}`
+            const name = () => itemName(props.source.kind, ref)
             // a PDF's pages are drawn as they scroll into view: a long PDF would otherwise draw hundreds at once
             const [seen, setSeen] = createSignal(false)
             let card!: HTMLDivElement
@@ -84,7 +85,7 @@ export function Thumbnails(props: {
                   aria-label={name()}
                   aria-pressed={count() > 0 ? "true" : "false"}
                   class="relative h-[88px] cursor-pointer"
-                  onClick={() => props.onCount(ref, count() > 0 ? 0 : 1)}
+                  onClick={() => props.onCount(ref, count() > 0 ? 0 : props.onOffOnly ? (common() ?? 1) : 1)}
                 >
                   <div class="size-full" style={{ filter: props.grey ? "grayscale(1)" : "none", opacity: count() > 0 ? 1 : 0.35 }}>
                     <Show

@@ -97,6 +97,21 @@ test("a percentage becomes Füllen at a Photo format, and there is no cut-off wa
   expect(await print()).toMatchObject({ printSize: { kind: "fill" }, layout: { kind: "format", format: "pass" } })
 })
 
+test("a Photo format starts at Füllen, its default, and keeps Einpassen once it is chosen there", async () => {
+  const { user, tile, choice, print } = await openOptions(photo, 2)
+  // the Preset Foto prints at Einpassen
+  expect(choice("Größe für alle", "Einpassen")).toBeChecked()
+
+  await user.click(tile("10×15"))
+  expect(choice("Größe für alle", "Füllen")).toBeChecked()
+
+  await user.click(choice("Größe für alle", "Einpassen"))
+  await user.click(tile("9×13"))
+
+  expect(choice("Größe für alle", "Einpassen")).toBeChecked()
+  expect(await print()).toMatchObject({ printSize: { kind: "fit" }, layout: { kind: "format", format: "9x13" } })
+})
+
 test("a format that doesn't fit the paper is greyed out, and Drucken says why when the paper changes under it", async () => {
   const { user, tile, choice, drucken } = await openOptions(photo, 2)
   await user.click(tile("13×18"))
@@ -144,6 +159,23 @@ test("Eigenes takes a width and a height in mm, at least 20 and no larger than t
   await user.click(tile("Eigenes"))
   expect(screen.getByRole("spinbutton", { name: "Breite" })).toHaveValue(100)
   expect(await print()).toMatchObject({ layout: { kind: "format", format: { w: 100, h: 90 }, lage: "save", gap: true, cutLines: false } })
+})
+
+test("an own size that only fits lying the other way says which Lage takes it", async () => {
+  const { user, tile, choice, own, drucken } = await openOptions(photo, 2)
+  await user.click(tile("Eigenes"))
+  await user.click(choice("Lage der Fotos", "Alle quer"))
+
+  // 250 mm across is wider than A4's printable 203 mm, but upright it is 150 wide and 250 high
+  await own("Breite", "250")
+  await own("Höhe", "150")
+
+  expect(screen.getByRole("alert")).toHaveTextContent("Passt nur mit Lage Alle hoch.")
+  expect(drucken()).toBeDisabled()
+
+  await user.click(choice("Lage der Fotos", "Alle hoch"))
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  expect(drucken()).toBeEnabled()
 })
 
 test("a Preset saved at a Photo format brings back the format, the own size, the Lage and the switches", async () => {

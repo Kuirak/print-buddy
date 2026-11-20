@@ -1,7 +1,7 @@
 import { For, Show } from "solid-js"
 import type { Box, Size } from "../../../shared/layout.ts"
 import type { PrintOptions } from "../../../shared/print-options.ts"
-import { counted, paperNames, positionNames, printSizeText, qualityNames } from "../job-text.ts"
+import { counted, lageNames, layoutName, paperNames, positionNames, printSizeText, qualityNames } from "../job-text.ts"
 import { Dialog } from "./Dialog.tsx"
 import { DisplayChip } from "./DisplayChip.tsx"
 import { PdfPage } from "./PdfPage.tsx"
@@ -9,8 +9,6 @@ import type { PreviewSource } from "./Preview.tsx"
 
 /** More pages than this, and the confirmation says them in one line instead of showing each. */
 const onePerLineAbove = 30
-
-const lageNames = { save: "Platz sparen", portrait: "Alle hoch", landscape: "Alle quer" } as const
 
 /**
  * "Jetzt drucken?": what will come out of the Printer, before any paper is used, as a panel from the bottom. From top
@@ -25,15 +23,15 @@ export function Confirmation(props: {
   /** Every page number of the PDF (from 1) or every photo index (from 0), in the order of `options.items`. */
   refs: readonly number[]
   options: PrintOptions
-  /** Sheets of paper for one copy. */
+  /** Sheets of paper for one copy, and for all copies: `sheetCount()` of the layout module. */
   sheetsPerCopy: number
+  sheets: number
   /** The Print Job takes more sheets than one may: Drucken is unavailable. */
   overLimit: boolean
   maxSheets: number
-  /** The layout as a sketch: the paper, the Cells or slots on it, and its short name. */
+  /** The layout as a sketch: the paper and the Cells or slots on it. */
   paper: Size
   cells: readonly Box[]
-  layoutName: string
   /** The percentage the content is printed at, as the Print size row shows it. */
   percent: number | undefined
   /** Several sizes are in use: the chip says the size is chosen page by page or photo by photo. */
@@ -43,7 +41,6 @@ export function Confirmation(props: {
   onBack: () => void
 }) {
   const pdf = () => props.kind === "pdf"
-  const total = () => props.sheetsPerCopy * props.options.copies
   const counts = () => props.options.items.map(item => item.count)
   const settings = () => {
     const { options } = props
@@ -70,8 +67,8 @@ export function Confirmation(props: {
     <Dialog label="Jetzt drucken?" at="bottom" onClose={props.onBack}>
       <div class="flex items-center gap-4">
         <div class="w-28 shrink-0 text-center">
-          <output aria-label="Blätter insgesamt" class={`block text-5xl font-extrabold ${props.overLimit ? "text-[#b3261e]" : ""}`}>{total()}</output>
-          <div class="font-semibold">{total() === 1 ? "Blatt" : "Blätter"}</div>
+          <output aria-label="Blätter insgesamt" class={`block text-5xl font-extrabold ${props.overLimit ? "text-[#b3261e]" : ""}`}>{props.sheets}</output>
+          <div class="font-semibold">{props.sheets === 1 ? "Blatt" : "Blätter"}</div>
           <div class="text-sm text-muted">{props.options.copies > 1 ? `${props.sheetsPerCopy} × ${props.options.copies} Kopien` : "1 Kopie"}</div>
         </div>
         <div class="flex min-w-0 flex-1 items-center gap-3 border-l border-gray-200 pl-4">
@@ -84,7 +81,7 @@ export function Confirmation(props: {
               }}
             </For>
           </svg>
-          <span class="font-semibold">{props.layoutName}</span>
+          <span class="font-semibold">{layoutName(props.options.layout)}</span>
         </div>
       </div>
       {/* one row of 56 px: the pages or photos with how often each prints, or a long PDF in one line */}

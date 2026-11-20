@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js"
 import type { Margins } from "../../../shared/api.ts"
 import type { Box, Sheet, Size } from "../../../shared/layout.ts"
+import { itemName } from "../job-text.ts"
 import type { PdfPreview } from "../pdf-preview.ts"
 import { PdfPage } from "./PdfPage.tsx"
 
@@ -97,8 +98,7 @@ export function Preview(props: {
       paperShown?.animate?.([{ transform: `translateX(${dx < 0 ? 24 : -24}px)`, opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 150, easing: "ease-out" })
     }
   }
-  /** How a page or photo is called on the screen: people count photos from 1. */
-  const name = (ref: number) => (props.source.kind === "pdf" ? `Seite ${ref}` : `Foto ${ref + 1}`)
+  const name = (ref: number) => itemName(props.source.kind, ref)
   return (
     <section
       aria-label="Vorschau"

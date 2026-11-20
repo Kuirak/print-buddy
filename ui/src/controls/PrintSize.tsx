@@ -1,12 +1,13 @@
 import { Show } from "solid-js"
 import type { PrintSizeMode } from "../../../shared/print-options.ts"
+import { sizeNames } from "../job-text.ts"
 import { ChoiceGroup } from "./ChoiceGroup.tsx"
 import { Stepper } from "./Stepper.tsx"
 
 /** The shortcuts of the Print size: Einpassen, Füllen, and 100 %. */
 export type SizeChoice = "fit" | "fill" | "100"
 
-const labels: Record<SizeChoice, string> = { fit: "Einpassen", fill: "Füllen", "100": "100 %" }
+const labels: Record<SizeChoice, string> = { ...sizeNames, "100": "100 %" }
 
 /** Which shortcut a Print size is, if any: a percentage other than 100 is none of them. */
 export const asSizeChoice = (size: PrintSizeMode): SizeChoice | undefined =>

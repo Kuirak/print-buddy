@@ -283,6 +283,31 @@ test("Nochmal drucken names the pages of a PDF as the confirmation does", async 
   ])
 })
 
+test("Nochmal drucken says how often each photo prints and at which Photo format", async () => {
+  mockApi({
+    "GET /api/jobs/j1": () => jobStatus({
+      state: "done",
+      endedAt: sentAt + 9_000,
+      sheets: 1,
+      file: { kind: "photo", bytes: 9_000, count: 4 },
+      options: {
+        copies: 1, color: "color", paper: "A4", quality: "normal",
+        printSize: { kind: "fill" }, position: "center", layout: { kind: "format", format: "pass", lage: "save", gap: true, cutLines: true },
+        items: [{ count: 2, turn: 0 }, { count: 2, turn: 0 }, { count: 2, turn: 0 }, { count: 2, turn: 0 }],
+      },
+    }),
+  })
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  renderStatusScreen()
+  await vi.advanceTimersByTimeAsync(0)
+
+  await user.click(screen.getByRole("button", { name: "Nochmal drucken" }))
+
+  expect(within(screen.getByRole("dialog", { name: "Nochmal drucken?" })).getAllByRole("listitem")[0]).toHaveTextContent(
+    "4 Fotos (je 2×; Passbild) × 1 Kopie = 1 Blatt",
+  )
+})
+
 test("Fehler has Details, closed at first, with what CUPS said and the CUPS job number", async () => {
   mockApi({
     "GET /api/jobs/j1": () => jobStatus({

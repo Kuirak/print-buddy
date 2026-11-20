@@ -1,10 +1,9 @@
 import { For, Show } from "solid-js"
 import type { Margins } from "../../../shared/api.ts"
 import { cells, type Size } from "../../../shared/layout.ts"
-import type { Layout } from "../../../shared/print-options.ts"
+import type { FormatLayout, Layout } from "../../../shared/print-options.ts"
+import { formatNames, layoutName } from "../job-text.ts"
 import { FadingRow } from "./FadingRow.tsx"
-
-type FormatLayout = Extract<Layout, { kind: "format" }>
 
 /**
  * One tile of the strip: a layout and the short word under its sketch. `own` is the own size: drawn as "mm" and never
@@ -13,13 +12,10 @@ type FormatLayout = Extract<Layout, { kind: "format" }>
 export type LayoutChoice = { layout: Layout; label: string; own?: true }
 
 /** `Normal` and `2×` to `8×`: the grids, for PDFs and photos. */
-export const gridChoices: readonly LayoutChoice[] = ([1, 2, 4, 6, 8] as const).map(perSheet => ({
-  layout: { kind: "grid", perSheet },
-  label: perSheet === 1 ? "Normal" : `${perSheet}×`,
-}))
-
-/** The short words of the named Photo formats. */
-export const formatNames: Record<Exclude<FormatLayout["format"], object>, string> = { "10x15": "10×15", "9x13": "9×13", "13x18": "13×18", pass: "Passbild" }
+export const gridChoices: readonly LayoutChoice[] = ([1, 2, 4, 6, 8] as const).map(perSheet => {
+  const layout = { kind: "grid", perSheet } as const
+  return { layout, label: layoutName(layout) }
+})
 
 /**
  * `10×15`, `9×13`, `13×18`, `Passbild` and `Eigenes`, for photos only: each with the Lage and the switches given,
@@ -27,7 +23,10 @@ export const formatNames: Record<Exclude<FormatLayout["format"], object>, string
  */
 export function formatChoices(switches: Pick<FormatLayout, "lage" | "gap" | "cutLines">, own: { w: number; h: number }): LayoutChoice[] {
   return [
-    ...(Object.keys(formatNames) as (keyof typeof formatNames)[]).map(format => ({ layout: { kind: "format", format, ...switches } as const, label: formatNames[format] })),
+    ...(Object.keys(formatNames) as (keyof typeof formatNames)[]).map(format => {
+      const layout = { kind: "format", format, ...switches } as const
+      return { layout, label: layoutName(layout) }
+    }),
     { layout: { kind: "format", format: { ...own }, ...switches }, label: "Eigenes", own: true },
   ]
 }

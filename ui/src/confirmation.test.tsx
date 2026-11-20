@@ -316,11 +316,11 @@ test("over 100 sheets the total is the one thing that counts: the panel says the
         layout: { kind: "grid", perSheet: 8 }, items: items(50, 50),
       }}
       sheetsPerCopy={13}
+      sheets={65}
       overLimit
       maxSheets={100}
       paper={SHEET_SIZES.A4}
       cells={[]}
-      layoutName="8×"
       percent={undefined}
       mixedSizes={false}
       // the limit wins over the cut-off warning

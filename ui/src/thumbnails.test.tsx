@@ -138,7 +138,7 @@ test("tapping a photo's thumbnail leaves the photo out, and the sheet count foll
   expect(await print()).toMatchObject({ items: items(0, 1, 1) })
 })
 
-test("the preview steps forwards and backwards through the sheets of the selection", async () => {
+test("the preview steps forwards and backwards through the sheets of the pages that print", async () => {
   const { tap, sheet } = await openOptions(pdfOf(4))
   await tap("Seite 2")
   const back = screen.getByRole("button", { name: "Vorheriges Blatt" })
@@ -221,7 +221,7 @@ test("the strip offers Normal and 2× to 8×; with 2× the preview shows both ha
   expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 2 }, items: items(1, 1, 1, 1, 1) })
 })
 
-test("with two pages per sheet the sheet count follows the selection", async () => {
+test("with two pages per sheet the sheet count follows the pages that print", async () => {
   const { user, tap, choice, sheet, print } = await openOptions(pdfOf(5))
   await user.click(choice("Aufteilung", "2×"))
 
@@ -395,6 +395,18 @@ test("a PDF of more than 30 pages has pictures that only switch pages on and off
   expect(await print()).toMatchObject({ items: [3, 0, ...Array.from({ length: 29 }, () => 3)].map(count => ({ count, turn: 0 })) })
 })
 
+test("in a PDF of more than 30 pages a page brought back prints as often as the others: it has no − and + of its own", async () => {
+  const { tap, counts, print } = await openOptions(pdfOf(31))
+  await tap("Alle öfter")
+  await tap("Seite 2")
+  expect(counts("Seiten").slice(0, 3)).toEqual(["2×", "aus", "2×"])
+
+  await tap("Seite 2")
+
+  expect(counts("Seiten").slice(0, 3)).toEqual(["2×", "2×", "2×"])
+  expect(await print()).toMatchObject({ items: Array.from({ length: 31 }, () => ({ count: 2, turn: 0 })) })
+})
+
 test("a PDF of 30 pages still has a count for each page", async () => {
   await openOptions(pdfOf(30))
   expect(screen.getByRole("button", { name: "Seite 30 öfter" })).toBeInTheDocument()
@@ -469,7 +481,7 @@ test.each([
   expect(await print()).toMatchObject(submitted)
 })
 
-test("the sheet stepper hides while the selection gives one sheet, and the thumbnails stay", async () => {
+test("the sheet stepper hides while the pages that print fit one sheet, and the thumbnails stay", async () => {
   const { tap, thumbnails, sheet, print } = await openOptions(pdfOf(3))
 
   await tap("Seite 1")
