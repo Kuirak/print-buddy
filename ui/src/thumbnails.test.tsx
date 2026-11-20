@@ -264,7 +264,7 @@ test("with more pages on a sheet the line under the preview names the sheet, and
 
 test("photos share a sheet too", async () => {
   const { user, choice, sheet, print } = await openOptions(photo, 5)
-  expect(strip().names).toEqual(["Normal", "2×", "4×", "6×", "8×"])
+  expect(strip().names.slice(0, 5)).toEqual(["Normal", "2×", "4×", "6×", "8×"])
 
   await user.click(choice("Aufteilung", "4×"))
 

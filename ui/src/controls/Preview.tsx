@@ -167,6 +167,10 @@ export function Preview(props: {
             </div>
           )}
         </For>
+        {/* cut lines, as the printout's hairlines */}
+        <For each={props.sheet?.cutLines}>
+          {box => <div aria-hidden="true" data-cut-line class="pointer-events-none absolute border border-gray-500" style={boxStyle(box, { left: 0, top: 0, ...props.paper })} />}
+        </For>
         <Show when={props.margins}>
           {margins => (
             // the unprintable edge: everything outside this frame is veiled

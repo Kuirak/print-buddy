@@ -1,11 +1,12 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
 import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import { maxCount, type Item, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
+import { maxCount, minOwnSize, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
+import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { Confirmation } from "../controls/Confirmation.tsx"
 import { ItemBar } from "../controls/ItemBar.tsx"
-import { gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
+import { formatChoices, formatNames, gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
 import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
@@ -15,7 +16,9 @@ import { SheetSteps } from "../controls/SheetSteps.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
 import { SummaryLine } from "../controls/SummaryLine.tsx"
 import { Thumbnails } from "../controls/Thumbnails.tsx"
+import { ToggleChip } from "../controls/ToggleChip.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
+import { paperNames } from "../job-text.ts"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type Preset } from "../presets.ts"
 
@@ -25,6 +28,17 @@ const noMargins = { top: 0, right: 0, bottom: 0, left: 0 }
 
 /** More pages than this, and the pictures of a PDF only switch pages on and off. */
 const onOffOnlyAbove = 30
+
+type FormatLayout = Extract<Layout, { kind: "format" }>
+
+const lagen = [
+  { value: "save", label: "Platz sparen" },
+  { value: "portrait", label: "Alle hoch" },
+  { value: "landscape", label: "Alle quer" },
+] as const
+
+/** A length in points as whole millimetres, rounded down. */
+const wholeMm = (points: number) => Math.floor((points * 25.4) / 72)
 
 export function OptionsScreen(props: {
   fileName: string
@@ -140,6 +154,61 @@ export function OptionsScreen(props: {
   const tooMany = () => {
     const laidOut = sheets()
     return laidOut !== undefined && overSheetLimit(laidOut, options.copies)
+  }
+
+  /** The Photo format chosen, if one is. */
+  const atFormat = (): FormatLayout | undefined => (options.layout.kind === "format" ? options.layout : undefined)
+  /** The own size in mm of this Print Job: what "Eigenes" stands for, kept while another layout is chosen. */
+  const [ownSize, setOwnSize] = createSignal({ w: 60, h: 90 })
+  // whatever brings an own size (the inputs, a Preset, the Print Options from before the login) sets it for the tile too
+  createEffect(
+    () => {
+      const format = atFormat()?.format
+      return format !== undefined && typeof format !== "string" ? { w: format.w, h: format.h } : undefined
+    },
+    own => { if (own) setOwnSize(own) },
+  )
+  /** The layouts on offer: the grids, and for photos the Photo formats, which keep the Lage and switches chosen. */
+  const layoutChoices = () => {
+    if (kind === "pdf") return gridChoices
+    const { lage, gap, cutLines } = atFormat() ?? { lage: "save", gap: true, cutLines: false }
+    return [...gridChoices, ...formatChoices({ lage, gap, cutLines }, ownSize())]
+  }
+  function chooseLayout(chosen: Layout) {
+    setOptions(o => {
+      o.layout = chosen
+      // a Photo format prints at Füllen or Einpassen only
+      if (chosen.kind === "format" && o.printSize.kind === "percent") o.printSize = { kind: "fill" }
+    })
+    setStep(0)
+  }
+  function setFormat(changes: Partial<Pick<FormatLayout, "lage" | "gap" | "cutLines">>) {
+    setOptions(o => { if (o.layout.kind === "format") Object.assign(o.layout, changes) })
+  }
+  function setOwnSide(side: "w" | "h", mm: number) {
+    const next = { ...ownSize(), [side]: mm }
+    setOwnSize(next)
+    setOptions(o => { if (o.layout.kind === "format" && typeof o.layout.format !== "string") o.layout.format = next })
+  }
+  /** The layout gives no slots on the paper: the format doesn't fit it. */
+  const noSlots = () => {
+    const known = margins()?.[options.paper]
+    return known !== undefined && cells(options.layout, SHEET_SIZES[options.paper], known).cells.length === 0
+  }
+  /** What is wrong with the own size, in German, or `undefined` when it prints. */
+  const ownProblem = () => {
+    const format = atFormat()?.format
+    if (format === undefined || typeof format === "string") return undefined
+    if (!(format.w >= minOwnSize && format.h >= minOwnSize)) return `Breite und Höhe mindestens ${minOwnSize} mm.`
+    if (!noSlots()) return undefined
+    const sheet = SHEET_SIZES[options.paper]
+    const edge = margins()![options.paper]
+    return `Zu groß für ${paperNames[options.paper]}: höchstens ${wholeMm(sheet.width - edge.left - edge.right)} × ${wholeMm(sheet.height - edge.top - edge.bottom)} mm.`
+  }
+  /** A named Photo format that doesn't fit the paper chosen after it, in German. */
+  const formatProblem = () => {
+    const format = atFormat()?.format
+    return typeof format === "string" && noSlots() ? `${formatNames[format]} passt nicht auf ${paperNames[options.paper]}.` : undefined
   }
 
   /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
@@ -280,16 +349,45 @@ export function OptionsScreen(props: {
         </div>
       </div>
       <LayoutStrip
-        choices={gridChoices}
+        choices={layoutChoices()}
         value={options.layout}
         paper={SHEET_SIZES[options.paper]}
         margins={margins()?.[options.paper]}
         landscape={landscapeFirst(source(), options.items)}
-        onChange={chosen => {
-          setOptions(o => { o.layout = chosen })
-          setStep(0)
-        }}
+        onChange={chooseLayout}
       />
+      {/* one own size per Print Job, in mm */}
+      <Show when={atFormat() && typeof atFormat()!.format !== "string"}>
+        <div class="flex flex-col gap-1">
+          <div class="flex items-center gap-2">
+            <label class="flex items-center gap-1">
+              Breite
+              <input
+                type="number"
+                inputmode="numeric"
+                class="w-20 rounded-lg border border-gray-300 p-2"
+                value={ownSize().w}
+                onInput={event => setOwnSide("w", event.currentTarget.valueAsNumber)}
+              />
+            </label>
+            <span aria-hidden="true">×</span>
+            <label class="flex items-center gap-1">
+              Höhe
+              <input
+                type="number"
+                inputmode="numeric"
+                class="w-20 rounded-lg border border-gray-300 p-2"
+                value={ownSize().h}
+                onInput={event => setOwnSide("h", event.currentTarget.valueAsNumber)}
+              />
+            </label>
+            <span>mm</span>
+          </div>
+          <Show when={ownProblem()}>
+            {problem => <p role="alert" class="text-sm font-semibold text-[#b3261e]">{problem()}</p>}
+          </Show>
+        </div>
+      </Show>
       {/* a single page or photo has no pictures to choose from, only how often it prints */}
       <Show
         when={refs().length > 1}
@@ -320,13 +418,28 @@ export function OptionsScreen(props: {
           onAll={setAll}
         />
       </Show>
+      {/* how the photos lie at a Photo format, and what helps cutting them apart */}
+      <Show when={atFormat()}>
+        {format => (
+          <div class="flex flex-col gap-3">
+            <div class="flex flex-col gap-1">
+              <span class="text-xs font-semibold text-muted">Lage der Fotos</span>
+              <ChoiceGroup label="Lage der Fotos" choices={lagen} value={format().lage} onChange={lage => setFormat({ lage })} compact />
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <ToggleChip label="Abstand zum Schneiden" state={format().gap ? "on" : "off"} onChange={gap => setFormat({ gap })} />
+              <ToggleChip label="Schnittlinien" state={format().cutLines ? "on" : "off"} onChange={cutLines => setFormat({ cutLines })} />
+            </div>
+          </div>
+        )}
+      </Show>
       {/* Größe für alle and Position side by side, so that both fit on the screen with the preview */}
       <div class="flex items-start justify-between gap-3">
         <div class="flex min-w-0 flex-col gap-1">
           <span class="text-xs font-semibold text-muted">Größe für alle</span>
           <PrintSize
             value={options.printSize}
-            choices={kind === "pdf" ? ["fit", "fill", "100"] : ["fill", "fit", "100"]}
+            choices={kind === "pdf" ? ["fit", "fill", "100"] : atFormat() ? ["fill", "fit"] : ["fill", "fit", "100"]}
             steps={kind === "pdf"}
             mixed={mixedSizes()}
             percent={percent()}
@@ -349,15 +462,15 @@ export function OptionsScreen(props: {
         <button
           type="button"
           class="btn-primary"
-          disabled={props.uploading !== undefined || printed().length === 0 || !sheets() || tooMany()}
+          disabled={props.uploading !== undefined || printed().length === 0 || !sheets() || tooMany() || noSlots() || ownProblem() !== undefined}
           onClick={() => setOver("confirmation")}
         >
           {props.uploading !== undefined
             ? `Wird hochgeladen … ${Math.min(99, Math.round(props.uploading * 100))} %`
             : printed().length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
         </button>
-        <Show when={tooMany()}>
-          <p role="alert" class="pt-1 text-center text-sm font-semibold text-[#b3261e]">Höchstens {maxSheets} Blätter pro Druck.</p>
+        <Show when={tooMany() ? `Höchstens ${maxSheets} Blätter pro Druck.` : formatProblem()}>
+          {reason => <p role="alert" class="pt-1 text-center text-sm font-semibold text-[#b3261e]">{reason()}</p>}
         </Show>
       </div>
     </main>

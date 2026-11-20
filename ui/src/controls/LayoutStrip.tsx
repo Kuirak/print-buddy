@@ -1,17 +1,36 @@
-import { For } from "solid-js"
+import { For, Show } from "solid-js"
 import type { Margins } from "../../../shared/api.ts"
 import { cells, type Size } from "../../../shared/layout.ts"
 import type { Layout } from "../../../shared/print-options.ts"
 import { FadingRow } from "./FadingRow.tsx"
 
-/** One tile of the strip: a layout and the short word under its sketch. */
-export type LayoutChoice = { layout: Layout; label: string }
+type FormatLayout = Extract<Layout, { kind: "format" }>
+
+/**
+ * One tile of the strip: a layout and the short word under its sketch. `own` is the own size: drawn as "mm" and never
+ * greyed out, as its inputs say what doesn't fit.
+ */
+export type LayoutChoice = { layout: Layout; label: string; own?: true }
 
 /** `Normal` and `2×` to `8×`: the grids, for PDFs and photos. */
 export const gridChoices: readonly LayoutChoice[] = ([1, 2, 4, 6, 8] as const).map(perSheet => ({
   layout: { kind: "grid", perSheet },
   label: perSheet === 1 ? "Normal" : `${perSheet}×`,
 }))
+
+/** The short words of the named Photo formats. */
+export const formatNames: Record<Exclude<FormatLayout["format"], object>, string> = { "10x15": "10×15", "9x13": "9×13", "13x18": "13×18", pass: "Passbild" }
+
+/**
+ * `10×15`, `9×13`, `13×18`, `Passbild` and `Eigenes`, for photos only: each with the Lage and the switches given,
+ * so that changing the format keeps them. `own` is the own size in mm.
+ */
+export function formatChoices(switches: Pick<FormatLayout, "lage" | "gap" | "cutLines">, own: { w: number; h: number }): LayoutChoice[] {
+  return [
+    ...(Object.keys(formatNames) as (keyof typeof formatNames)[]).map(format => ({ layout: { kind: "format", format, ...switches } as const, label: formatNames[format] })),
+    { layout: { kind: "format", format: { ...own }, ...switches }, label: "Eigenes", own: true },
+  ]
+}
 
 /** Whether `layout` is what a tile stands for: the same grid, or the same Photo format, whatever its Lage and switches. */
 function standsFor(tile: Layout, layout: Layout) {
@@ -47,21 +66,27 @@ export function LayoutStrip(props: {
             <button
               type="button"
               role="radio"
+              aria-label={choice.label}
               aria-checked={chosen() ? "true" : "false"}
-              disabled={drawn().length === 0}
+              disabled={!choice.own && drawn().length === 0}
               class={`flex w-16 shrink-0 cursor-pointer flex-col items-center gap-1 rounded-lg border-2 p-1 text-xs font-semibold whitespace-nowrap disabled:cursor-default disabled:opacity-30 ${chosen() ? "border-brand" : "border-transparent"}`}
               onClick={() => props.onChange(structuredClone(choice.layout))}
             >
               <svg aria-hidden="true" class="h-14" viewBox={`0 0 ${props.paper.width} ${props.paper.height}`}>
                 <rect width={props.paper.width} height={props.paper.height} fill="white" stroke="#bbb" stroke-width={props.paper.width / 40} />
-                <For each={drawn()}>
-                  {cell => {
-                    // a little apart, so that Cells that touch show as separate
-                    const inset = props.paper.width / 60
-                    const { left, top, width, height } = cell.box
-                    return <rect x={left + inset} y={top + inset} width={width - 2 * inset} height={height - 2 * inset} fill="#cfe0f7" />
-                  }}
-                </For>
+                <Show
+                  when={!choice.own}
+                  fallback={<text x={props.paper.width / 2} y={props.paper.height / 2} font-size={String(props.paper.width / 3.5)} text-anchor="middle" dominant-baseline="central" fill="#999">mm</text>}
+                >
+                  <For each={drawn()}>
+                    {cell => {
+                      // a little apart, so that Cells that touch show as separate
+                      const inset = props.paper.width / 60
+                      const { left, top, width, height } = cell.box
+                      return <rect x={left + inset} y={top + inset} width={width - 2 * inset} height={height - 2 * inset} fill="#cfe0f7" />
+                    }}
+                  </For>
+                </Show>
               </svg>
               {choice.label}
             </button>

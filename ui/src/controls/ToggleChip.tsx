@@ -19,7 +19,7 @@ export function ToggleChip(props: {
       class={`chip ${on() ? "border-brand bg-brand text-white" : "border-gray-300 bg-white"}`}
       onClick={() => props.onChange(!on())}
     >
-      <span class={`chip-circle ${on() ? "border-white bg-white text-brand" : "border-gray-400"}`}>
+      <span aria-hidden="true" class={`chip-circle ${on() ? "border-white bg-white text-brand" : "border-gray-400"}`}>
         {on() ? <span class="text-xs">✓</span> : props.state === "mixed" ? <span class="chip-mixed-dot" /> : null}
       </span>
       {props.label}
