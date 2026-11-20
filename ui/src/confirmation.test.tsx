@@ -5,7 +5,7 @@ import type { FileFacts, PrinterInfo } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { jobStatus } from "./testing/job-status.ts"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
-import { closeDetails, confirmation, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, confirmation, items, laidOut, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 import { printerInfo } from "./testing/printer-info.ts"
 
 /** A PDF of that many A4 pages. */
@@ -29,8 +29,7 @@ async function openOptions(facts: FileFacts, count = 1) {
     : new File(["\xff\xd8\xff"], `Strand ${index + 1}.jpg`, { type: "image/jpeg" }))
   await user.upload(screen.getByLabelText("Datei auswählen"), files)
   // the upload is done and the margins have arrived: the file is laid out from the server's facts
-  await screen.findByRole("button", { name: "Drucken" })
-  await screen.findByRole("status", { name: "Druckgröße in Prozent" })
+  await laidOut()
 
   const tap = (name: string) => user.click(screen.getByRole("button", { name }))
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
@@ -65,7 +64,7 @@ test("the summary line follows every change", async () => {
     await user.click(choice("Qualität", "Toner sparen"))
   })
   await user.click(choice("Aufteilung", "2×"))
-  await user.click(choice("Druckgröße", "100 %"))
+  await user.click(choice("Größe für alle", "100 %"))
   await user.click(choice("Position", "oben links"))
   await tap("Seite 4")
 
@@ -275,7 +274,7 @@ test("the confirmation repeats the cut-off warning when content will be cut off"
   expect(within(confirmation()).queryByText(/abgeschnitten/)).not.toBeInTheDocument()
   await user.click(within(confirmation()).getByRole("button", { name: "Abbrechen" }))
 
-  await user.click(choice("Druckgröße", "Füllen"))
+  await user.click(choice("Größe für alle", "Füllen"))
   expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
   await tap("Drucken")
 
@@ -288,7 +287,7 @@ test("the confirmation warns when only a later sheet is cut off", async () => {
   // page 2 is wider than the paper at 100 %, page 1 is not
   const facts: FileFacts = { kind: "pdf", pageCount: 2, pages: [{ width: 300, height: 300 }, { width: 900, height: 300 }] }
   const { user, tap, choice } = await openOptions(facts)
-  await user.click(choice("Druckgröße", "100 %"))
+  await user.click(choice("Größe für alle", "100 %"))
 
   await tap("Drucken")
 

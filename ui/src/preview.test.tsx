@@ -4,7 +4,7 @@ import { expect, test } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
-import { openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { laidOut, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 import { printerInfo } from "./testing/printer-info.ts"
 
 /** Two pages of US Letter: a little wider and a little shorter than A4 (595 × 842 pt). */
@@ -30,9 +30,7 @@ async function openOptions(facts: FileFacts = letterPdf, { count = 1, routes = {
     ? new File(["%PDF-1.4"], "Brief.pdf", { type: "application/pdf" })
     : new File(["\xff\xd8\xff"], `Strand ${index + 1}.jpg`, { type: "image/jpeg" }))
   await user.upload(screen.getByLabelText("Datei auswählen"), files)
-  await screen.findByRole("button", { name: "Drucken" })
-  // the margins have arrived and the file is laid out
-  await screen.findByRole("status", { name: "Druckgröße in Prozent" })
+  await laidOut()
 
   /** Taps Drucken and returns the Print Options the app submitted. */
   async function print() {
@@ -41,20 +39,24 @@ async function openOptions(facts: FileFacts = letterPdf, { count = 1, routes = {
     return JSON.parse(api.calls.find(call => call.path === "/api/drafts/d1/submit")!.body as string) as Record<string, unknown>
   }
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
+  /** A shortcut of "Größe für alle". */
+  const size = (name: string) => choice("Größe für alle", name)
   const tap = (name: string) => user.click(screen.getByRole("button", { name }))
   /** The percentage the Print size row shows. */
   const percent = () => screen.findByRole("status", { name: "Druckgröße in Prozent" })
-  return { api, user, files, print, choice, tap, percent }
+  /** The bar of the page or photo picked in the preview, if one is picked. */
+  const bar = (name: string) => screen.queryByRole("toolbar", { name })
+  return { api, user, files, print, choice, size, tap, percent, bar }
 }
 
 test("a new file starts at Einpassen, and the Print size row shows the percentage that gives", async () => {
-  const { choice, percent, print } = await openOptions()
+  const { size, percent, print } = await openOptions()
 
   // the printable width of A4 is 595.28 − 2 × 9 = 577.28 pt, and 577.28 / 612 = 0.943
   expect(await percent()).toHaveTextContent("94 %")
-  expect(choice("Druckgröße", "Einpassen")).toBeChecked()
-  expect(choice("Druckgröße", "Füllen")).not.toBeChecked()
-  expect(choice("Druckgröße", "100 %")).not.toBeChecked()
+  expect(size("Einpassen")).toBeChecked()
+  expect(size("Füllen")).not.toBeChecked()
+  expect(size("100 %")).not.toBeChecked()
   expect(await print()).toMatchObject({ printSize: { kind: "fit" } })
 })
 
@@ -63,23 +65,23 @@ test.each([
   ["Füllen", "106 %", { kind: "fill" }],
   ["100 %", "100 %", { kind: "percent", value: 100 }],
 ])("the shortcut %s shows %s and is submitted", async (name, shownPercent, printSize) => {
-  const { user, choice, percent, print } = await openOptions()
+  const { user, size, percent, print } = await openOptions()
 
-  await user.click(choice("Druckgröße", name))
+  await user.click(size(name))
 
-  expect(choice("Druckgröße", name)).toBeChecked()
-  expect(choice("Druckgröße", "Einpassen")).not.toBeChecked()
+  expect(size(name)).toBeChecked()
+  expect(size("Einpassen")).not.toBeChecked()
   expect(await percent()).toHaveTextContent(shownPercent)
   expect(await print()).toMatchObject({ printSize })
 })
 
 test("− and + move the Print size in steps of 5 % from the percentage shown", async () => {
-  const { tap, choice, percent, print } = await openOptions()
+  const { tap, size, percent, print } = await openOptions()
   expect(await percent()).toHaveTextContent("94 %")
 
   await tap("Größer drucken")
   expect(await percent()).toHaveTextContent("99 %")
-  for (const name of ["Einpassen", "Füllen", "100 %"]) expect(choice("Druckgröße", name)).not.toBeChecked()
+  for (const name of ["Einpassen", "Füllen", "100 %"]) expect(size(name)).not.toBeChecked()
 
   await tap("Kleiner drucken")
   await tap("Kleiner drucken")
@@ -89,18 +91,18 @@ test("− and + move the Print size in steps of 5 % from the percentage shown", 
 })
 
 test("a step that lands on 100 % marks the 100 % shortcut", async () => {
-  const { user, tap, choice } = await openOptions()
-  await user.click(choice("Druckgröße", "100 %"))
+  const { user, tap, size } = await openOptions()
+  await user.click(size("100 %"))
 
   await tap("Größer drucken")
-  expect(choice("Druckgröße", "100 %")).not.toBeChecked()
+  expect(size("100 %")).not.toBeChecked()
   await tap("Kleiner drucken")
-  expect(choice("Druckgröße", "100 %")).toBeChecked()
+  expect(size("100 %")).toBeChecked()
 })
 
 test("the Print size stops at 10 %", async () => {
-  const { user, choice, percent, print } = await openOptions()
-  await user.click(choice("Druckgröße", "100 %"))
+  const { user, size, percent, print } = await openOptions()
+  await user.click(size("100 %"))
   const smaller = screen.getByRole("button", { name: "Kleiner drucken" })
 
   for (let i = 0; i < 20; i++) await user.click(smaller)
@@ -111,19 +113,19 @@ test("the Print size stops at 10 %", async () => {
 })
 
 test("a warning shows while content is cut off, and goes away when it no longer is", async () => {
-  const { user, tap, choice, percent } = await openOptions()
+  const { user, tap, size, percent } = await openOptions()
   const warning = () => screen.queryByText("Achtung: Teile des Inhalts werden abgeschnitten.")
   await percent()
   expect(warning()).not.toBeInTheDocument()
 
   // Füllen covers the whole sheet, so the unprintable edge takes some of the content
-  await user.click(choice("Druckgröße", "Füllen"))
+  await user.click(size("Füllen"))
   expect(warning()).toBeInTheDocument()
-  await user.click(choice("Druckgröße", "Einpassen"))
+  await user.click(size("Einpassen"))
   expect(warning()).not.toBeInTheDocument()
 
   // at 100 % the page is 612 pt wide, the printable width of A4 is 577 pt
-  await user.click(choice("Druckgröße", "100 %"))
+  await user.click(size("100 %"))
   expect(warning()).toBeInTheDocument()
   // 95 % is 581 pt wide: still too wide. 90 % is 551 pt wide and 713 pt high: that fits
   await tap("Kleiner drucken")
@@ -159,52 +161,86 @@ test.each(spots)("the spot %s is the marked one after a tap, and is submitted as
   expect(await print()).toMatchObject({ position })
 })
 
-test.each([
+test("a tap on a page in the preview opens its bar in the place of the stepper; ↻ and ↺ turn that page only", async () => {
+  const { user, tap, percent, bar, print } = await openOptions()
+  expect(screen.queryByRole("button", { name: "Drehen" })).not.toBeInTheDocument()
+  expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toBeInTheDocument()
+
+  await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
+
+  expect(bar("Seite 1")).toBeInTheDocument()
+  expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
   // lying across the sheet, the 792 pt long side has to fit the printable width: 577.28 / 792 = 0.729
-  [1, 90, "73 %"],
-  [2, 180, "94 %"],
-  [3, 270, "73 %"],
-  [4, 0, "94 %"],
-])("%i taps on Drehen turn every page of the PDF to %i°", async (taps, turn, shownPercent) => {
-  const { tap, percent, print } = await openOptions()
-
-  for (let i = 0; i < taps; i++) await tap("Drehen")
-
-  expect(await percent()).toHaveTextContent(shownPercent)
-  expect(await print()).toMatchObject({ items: [{ count: 1, turn }, { count: 1, turn }] })
+  await tap("Nach rechts drehen")
+  expect(await percent()).toHaveTextContent("73 %")
+  await tap("Nach rechts drehen")
+  expect(await percent()).toHaveTextContent("94 %")
+  await tap("Nach links drehen")
+  expect(await percent()).toHaveTextContent("73 %")
+  expect(screen.getByRole("img", { name: "Seite 1 von Hand gedreht" })).toBeInTheDocument()
+  expect(await print()).toMatchObject({ items: [{ count: 1, turn: 90 }, { count: 1, turn: 0 }] })
 })
 
-test.each([
-  // turned back upright by the tap, the 960 pt long side has to fit the printable width: 577.28 / 960 = 0.601
-  [1, 90, "60 %"],
-  [2, 180, "80 %"],
-  [3, 270, "60 %"],
-  [4, 0, "80 %"],
-])("%i taps on Drehen turn the photo in the preview to %i°", async (taps, turn, shownPercent) => {
-  const { tap, percent, print } = await openOptions(landscapePhoto)
+test("a tap on a photo picks that photo, and its bar turns it", async () => {
+  const { user, tap, bar, print } = await openOptions(landscapePhoto, { count: 2 })
 
-  for (let i = 0; i < taps; i++) await tap("Drehen")
+  await user.click(screen.getByRole("img", { name: "Vorschau Foto 1" }))
+  await tap("Nach links drehen")
 
-  expect(await percent()).toHaveTextContent(shownPercent)
-  expect(await print()).toMatchObject({ items: [{ count: 1, turn }] })
+  expect(within(bar("Foto 1")!).getByRole("button", { name: "Nach rechts drehen" })).toBeInTheDocument()
+  expect(screen.getByRole("img", { name: "Foto 1 von Hand gedreht" })).toBeInTheDocument()
+  expect(screen.queryByRole("img", { name: "Foto 2 von Hand gedreht" })).not.toBeInTheDocument()
+  expect(await print()).toMatchObject({ items: [{ count: 1, turn: 270 }, { count: 1, turn: 0 }] })
 })
 
-test("a landscape photo on a portrait sheet is turned at Einpassen and Füllen, and not at a percentage", async () => {
-  const { user, tap, choice, percent, print } = await openOptions(landscapePhoto)
+test("the bar switches one page between Füllen and Einpassen; Größe für alle then shows both in use, and choosing one sets every page again", async () => {
+  const { user, size, percent, bar, print } = await openOptions()
+  await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
 
-  // turned, the photo is 720 × 960 pt: 577.28 / 720 = 0.802. Left as it is, it would come out at 60 %
-  expect(await percent()).toHaveTextContent("80 %")
-  // 841.89 / 960 = 0.877. Left as it is, covering the sheet would take 117 %
-  await user.click(choice("Druckgröße", "Füllen"))
-  expect(await percent()).toHaveTextContent("88 %")
+  await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
 
-  // at 65 % the photo is 624 pt wide if it lies as shot, and 468 pt wide if it were turned.
-  // The printable width is 577 pt, so only the photo as shot is cut off
-  await user.click(choice("Druckgröße", "100 %"))
-  for (let i = 0; i < 7; i++) await tap("Kleiner drucken")
-  expect(await percent()).toHaveTextContent("65 %")
-  expect(screen.getByText("Achtung: Teile des Inhalts werden abgeschnitten.")).toBeInTheDocument()
-  expect(await print()).toMatchObject({ items: [{ count: 1, turn: 0 }] })
+  // Füllen covers the whole sheet: 841.89 / 792 = 1.063
+  expect(await percent()).toHaveTextContent("106 %")
+  expect(within(bar("Seite 1")!).getByRole("button", { name: "Füllen" })).toBeInTheDocument()
+  for (const name of ["Einpassen", "Füllen", "100 %"]) expect(size(name)).not.toBeChecked()
+  expect(size("Einpassen")).toHaveAccessibleDescription("bei einigen")
+  expect(size("Füllen")).toHaveAccessibleDescription("bei einigen")
+  expect(size("100 %")).not.toHaveAccessibleDescription()
+
+  await user.click(size("100 %"))
+
+  expect(size("100 %")).toBeChecked()
+  expect(size("Füllen")).not.toHaveAccessibleDescription()
+  expect(await print()).toMatchObject({ printSize: { kind: "percent", value: 100 }, items: [{ count: 1, turn: 0 }, { count: 1, turn: 0 }] })
+})
+
+test("the bar closes with ✕ and when any other control is touched, and the stepper comes back", async () => {
+  const { user, tap, choice, bar } = await openOptions()
+  const pick = async () => {
+    await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
+    expect(bar("Seite 1")).toBeInTheDocument()
+  }
+
+  await pick()
+  await tap("Schließen")
+  expect(bar("Seite 1")).not.toBeInTheDocument()
+  expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toBeInTheDocument()
+
+  await pick()
+  await user.click(choice("Position", "oben"))
+  expect(bar("Seite 1")).not.toBeInTheDocument()
+
+  await pick()
+  await tap("Ansicht vergrößern")
+  expect(bar("Seite 1")).not.toBeInTheDocument()
+})
+
+test("Größe für alle offers Füllen, Einpassen and 100 % for photos, without percentage steps; PDFs keep the steps", async () => {
+  await openOptions(landscapePhoto, { count: 2 })
+
+  expect(within(screen.getByRole("radiogroup", { name: "Größe für alle" })).getAllByRole("radio").map(chip => chip.textContent)).toEqual(["Füllen", "Einpassen", "100 %"])
+  expect(screen.queryByRole("button", { name: "Größer drucken" })).not.toBeInTheDocument()
+  expect(screen.getByRole("radiogroup", { name: "Position" })).toBeInTheDocument()
 })
 
 test("a landscape PDF page is never turned on its own", async () => {

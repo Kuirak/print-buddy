@@ -1,15 +1,16 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
 import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import { maxCount, type Item, type PrintOptions, type Rotation } from "../../../shared/print-options.ts"
+import { maxCount, type Item, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { Confirmation } from "../controls/Confirmation.tsx"
+import { ItemBar } from "../controls/ItemBar.tsx"
 import { gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
 import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
 import { Preview } from "../controls/Preview.tsx"
-import { PrintSize } from "../controls/PrintSize.tsx"
+import { asSizeChoice, PrintSize } from "../controls/PrintSize.tsx"
 import { SheetSteps } from "../controls/SheetSteps.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
 import { SummaryLine } from "../controls/SummaryLine.tsx"
@@ -147,14 +148,45 @@ export function OptionsScreen(props: {
     setOptions(o => { Object.assign(o, structuredClone(preset.values)) })
   }
 
-  /** A quarter turn clockwise: of every page of the PDF, or of the photo in the preview. */
-  function turn() {
-    const photo = shown()?.placements[0]?.ref
+  /** The page or photo picked by a tap in the preview (its `ref`): the bar under the preview changes it alone. */
+  const [picked, setPicked] = createSignal<number>()
+  const pickedItem = () => {
+    const index = refs().indexOf(picked() ?? -1)
+    return index < 0 ? undefined : options.items[index]
+  }
+  // one that is left out has nothing left to change
+  createEffect(() => pickedItem()?.count ?? 0, count => { if (count === 0) setPicked(undefined) })
+  /** How a page or photo is called on the screen: people count photos from 1. */
+  const nameOf = (ref: number) => (kind === "pdf" ? `Seite ${ref}` : `Foto ${ref + 1}`)
+  /** A quarter turn of the picked page or photo, on top of the turn it gets by itself. */
+  function turnPicked(by: 90 | 270) {
+    const index = refs().indexOf(picked()!)
+    setOptions(o => { o.items[index]!.turn = ((o.items[index]!.turn + by) % 360) as Rotation })
+  }
+  /** What the picked page or photo prints at: its own size, or the size for all. */
+  const pickedSize = () => {
+    const own = pickedItem()?.size
+    if (own) return own
+    return options.printSize.kind === "percent" ? undefined : options.printSize.kind
+  }
+  /** Füllen becomes Einpassen; anything else becomes Füllen. For the picked page or photo only. */
+  function switchPickedSize() {
+    const index = refs().indexOf(picked()!)
+    const size = pickedSize() === "fill" ? "fit" : "fill"
+    setOptions(o => { o.items[index]!.size = size })
+  }
+  /** "Größe für alle": the Print size for every page or photo; the sizes they had of their own go. */
+  function setSizeForAll(printSize: PrintSizeMode) {
     setOptions(o => {
-      for (const [index, item] of o.items.entries()) {
-        if (kind === "pdf" || index === photo) item.turn = ((item.turn + 90) % 360) as Rotation
-      }
+      o.printSize = printSize
+      for (const item of o.items) delete item.size
     })
+  }
+  /** The sizes in use while the printed pages or photos differ, or `undefined` while they are all the same. */
+  const mixedSizes = () => {
+    const forAll = asSizeChoice(options.printSize)
+    const used = new Set(options.items.filter(item => item.count > 0).map(item => item.size ?? forAll))
+    return used.size > 1 ? [...used].filter(size => size !== undefined) : undefined
   }
 
   /**
@@ -193,7 +225,12 @@ export function OptionsScreen(props: {
   return (
     <>
     {/* nothing behind an open dialog can be tapped or reached with the keyboard */}
-    <main class="flex min-h-dvh flex-col gap-3 px-4 pt-2" inert={over() !== undefined}>
+    <main
+      class="flex min-h-dvh flex-col gap-3 px-4 pt-2"
+      inert={over() !== undefined}
+      // touching any control but the preview and the bar under it ends the bar
+      onPointerDown={event => { if (!(event.target as Element).closest("[data-picks]")) setPicked(undefined) }}
+    >
       <div class="flex items-center gap-1">
         <button type="button" class="-ml-2 min-h-11 shrink-0 cursor-pointer rounded-lg px-2 font-semibold text-brand" onClick={() => props.onBack()}>
           <span aria-hidden="true">‹ </span>Zurück
@@ -202,32 +239,45 @@ export function OptionsScreen(props: {
       </div>
       <PresetChips presets={presets} options={options} onPick={apply} onOwn={() => setOver("details")} />
       <div class="flex flex-col gap-2">
-        <div class="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            class="min-h-10 cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 font-semibold disabled:cursor-default disabled:opacity-40"
-            disabled={!shown()}
-            onClick={turn}
-          >
-            <span aria-hidden="true">⟳ </span>Drehen
-          </button>
+        <div class="flex items-center justify-end gap-2">
           <ViewZoom value={zoom()} onChange={setZoom} />
         </div>
-        <Preview
-          paper={SHEET_SIZES[options.paper]}
-          margins={margins()?.[options.paper]}
-          sheet={shown()}
-          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
-          grey={options.color === "mono"}
-          zoom={zoom()}
-          index={current()}
-          count={sheets()?.length ?? 0}
-          onStep={setStep}
-        />
-        {/* nothing to step through on a single sheet; with nothing selected it says so */}
-        <Show when={sheets()?.length !== 1 && sheets()}>
-          {laidOut => <SheetSteps index={current()} count={laidOut().length} text={sheetText()} onChange={setStep} />}
-        </Show>
+        <div data-picks>
+          <Preview
+            paper={SHEET_SIZES[options.paper]}
+            margins={margins()?.[options.paper]}
+            sheet={shown()}
+            source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+            grey={options.color === "mono"}
+            zoom={zoom()}
+            index={current()}
+            count={sheets()?.length ?? 0}
+            onStep={setStep}
+            picked={picked()}
+            turned={ref => (options.items[refs().indexOf(ref)]?.turn ?? 0) !== 0}
+            onPick={setPicked}
+          />
+        </div>
+        {/* one row of fixed height: the bar of the picked page or photo, or the stepper; nothing to step through on a
+            single sheet, and with nothing selected it says so. Whichever shows, nothing below it moves. */}
+        <div data-picks class="flex h-14 items-center justify-center">
+          <Show
+            when={picked() !== undefined}
+            fallback={
+              <Show when={sheets()?.length !== 1 && sheets()}>
+                {laidOut => <SheetSteps index={current()} count={laidOut().length} text={sheetText()} onChange={setStep} />}
+              </Show>
+            }
+          >
+            <ItemBar
+              name={nameOf(picked()!)}
+              size={pickedSize() === "fill" ? "Füllen" : pickedSize() === "fit" ? "Einpassen" : `${percent()} %`}
+              onTurn={turnPicked}
+              onSize={switchPickedSize}
+              onClose={() => setPicked(undefined)}
+            />
+          </Show>
+        </div>
       </div>
       <LayoutStrip
         choices={gridChoices}
@@ -270,11 +320,18 @@ export function OptionsScreen(props: {
           onAll={setAll}
         />
       </Show>
-      {/* Print size and Position side by side, so that both fit on the screen with the preview */}
+      {/* Größe für alle and Position side by side, so that both fit on the screen with the preview */}
       <div class="flex items-start justify-between gap-3">
         <div class="flex min-w-0 flex-col gap-1">
-          <span class="text-xs font-semibold text-muted">Druckgröße</span>
-          <PrintSize value={options.printSize} percent={percent()} onChange={printSize => setOptions(o => { o.printSize = printSize })} />
+          <span class="text-xs font-semibold text-muted">Größe für alle</span>
+          <PrintSize
+            value={options.printSize}
+            choices={kind === "pdf" ? ["fit", "fill", "100"] : ["fill", "fit", "100"]}
+            steps={kind === "pdf"}
+            mixed={mixedSizes()}
+            percent={percent()}
+            onChange={setSizeForAll}
+          />
         </div>
         <div class="flex shrink-0 flex-col items-center gap-1">
           <span class="text-xs font-semibold text-muted">Position</span>

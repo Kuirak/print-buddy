@@ -4,7 +4,7 @@ import { expect, test } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { json, mockApi } from "./testing/mock-api.ts"
-import { closeDetails, items, openDetails, printAndConfirm } from "./testing/options-screen.ts"
+import { closeDetails, items, laidOut, openDetails, printAndConfirm } from "./testing/options-screen.ts"
 
 /** A PDF of that many A4 pages. */
 const pdfOf = (pageCount: number): FileFacts => ({ kind: "pdf", pageCount, pages: Array.from({ length: pageCount }, () => ({ width: 595, height: 842 })) })
@@ -25,8 +25,7 @@ async function openOptions(facts: FileFacts, count = 1) {
     : new File(["\xff\xd8\xff"], `Strand ${index + 1}.jpg`, { type: "image/jpeg" }))
   await user.upload(screen.getByLabelText("Datei auswählen"), files)
   // the upload is done and the margins have arrived: the file is laid out from the server's facts
-  await screen.findByRole("button", { name: "Drucken" })
-  await screen.findByRole("status", { name: "Druckgröße in Prozent" })
+  await laidOut()
 
   /** Taps Drucken and returns the Print Options the app submitted. */
   async function print() {
@@ -176,26 +175,30 @@ test("leaving out the page in the preview shows the last sheet that is left", as
   expect(sheet()).toBe("Seite 1 · 1/2")
 })
 
-test("Drehen turns only the photo in the preview", async () => {
-  const { tap, sheet, print } = await openOptions(photo, 3)
+test("the bar of a photo picked in the preview turns only that photo", async () => {
+  const { user, tap, sheet, print } = await openOptions(photo, 3)
 
   await tap("Nächstes Blatt")
   expect(sheet()).toBe("Foto 2/3")
-  await tap("Drehen")
+  await user.click(screen.getByRole("img", { name: "Vorschau Foto 2" }))
+  await tap("Nach rechts drehen")
+  await tap("Schließen")
   await tap("Nächstes Blatt")
-  await tap("Drehen")
-  await tap("Drehen")
+  await user.click(screen.getByRole("img", { name: "Vorschau Foto 3" }))
+  await tap("Nach rechts drehen")
+  await tap("Nach rechts drehen")
 
   expect(await print()).toMatchObject({ items: [{ count: 1, turn: 0 }, { count: 1, turn: 90 }, { count: 1, turn: 180 }] })
 })
 
-test("Drehen turns the photo shown, not the first one, when the first is left out", async () => {
-  const { tap, print } = await openOptions(photo, 2)
+test("leaving out the picked photo closes its bar", async () => {
+  const { user, tap } = await openOptions(photo, 2)
 
+  await user.click(screen.getByRole("img", { name: "Vorschau Foto 1" }))
+  expect(screen.getByRole("toolbar", { name: "Foto 1" })).toBeInTheDocument()
   await tap("Foto 1")
-  await tap("Drehen")
 
-  expect(await print()).toMatchObject({ items: [{ count: 0, turn: 0 }, { count: 1, turn: 90 }] })
+  expect(screen.queryByRole("toolbar", { name: "Foto 1" })).not.toBeInTheDocument()
 })
 
 /** The tiles of the strip, in order, and the one that is chosen. */
@@ -420,20 +423,22 @@ test("a Print Job over 100 sheets can't be printed, and the screen says why", as
 test("picking a Preset leaves which pages print and how they are turned alone", async () => {
   const { user, tap, choice, thumbnails, print } = await openOptions(pdfOf(3))
   await tap("Seite 2")
-  await tap("Drehen")
+  await user.click(screen.getByRole("img", { name: "Vorschau Seite 1" }))
+  await tap("Nach rechts drehen")
 
   await user.click(choice("Voreinstellung", "Dokument s/w"))
 
   expect(choice("Voreinstellung", "Dokument s/w")).toBeChecked()
   expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 3"])
-  expect(await print()).toMatchObject({ color: "mono", items: [{ count: 1, turn: 90 }, { count: 0, turn: 90 }, { count: 1, turn: 90 }] })
+  expect(await print()).toMatchObject({ color: "mono", items: [{ count: 1, turn: 90 }, { count: 0, turn: 0 }, { count: 1, turn: 0 }] })
 })
 
 test("picking a Preset leaves which photos print and how each is turned alone", async () => {
   const { user, tap, choice, thumbnails, print } = await openOptions(photo, 3)
   await tap("Foto 1")
   await tap("Nächstes Blatt")
-  await tap("Drehen")
+  await user.click(screen.getByRole("img", { name: "Vorschau Foto 3" }))
+  await tap("Nach rechts drehen")
 
   await user.click(choice("Voreinstellung", "Foto s/w Toner sparen"))
 

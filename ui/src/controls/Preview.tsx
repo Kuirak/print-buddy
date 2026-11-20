@@ -26,11 +26,15 @@ function boxStyle(box: Box, within: Box) {
 /** How far a finger has to move sideways, in CSS pixels, before it counts as a swipe to the next or previous sheet. */
 const swipeDistance = 50
 
+/** A finger that moves less than this, in CSS pixels, between down and up has tapped. */
+const tapDistance = 10
+
 /**
  * One sheet as it will print: the paper in its shape, every placement of the layout module's sheet in its box,
  * turned and clipped as the layout module says, and the unprintable edge as a pale band on top.
  * It places nothing itself; it only converts points into percent of the sheet.
  * The paper shows at once; the edge and the content follow when the margins and the layout are known.
+ * A tap on a page or photo picks it: every place it is shown gets an outline.
  */
 export function Preview(props: {
   /** The paper's size in points. */
@@ -49,25 +53,36 @@ export function Preview(props: {
   count: number
   /** A swipe asks for the sheet at this index; the screen shows it. */
   onStep: (index: number) => void
+  /** The page or photo picked by a tap (its `ref`), outlined wherever it shows. */
+  picked: number | undefined
+  /** Whether a page or photo was turned by hand: it carries a small ↻. */
+  turned: (ref: number) => boolean
+  /** A tap on a page or photo picks it; a tap beside them gives `undefined`. */
+  onPick: (ref: number | undefined) => void
 }) {
   // a sideways sheet (two pages per sheet) is shown turned a quarter counter-clockwise, so its pages are upright and side by side
   const sideways = () => props.sheet?.sideways ?? false
   /** Width by height of the paper as it shows on the screen. */
   const shape = () => (sideways() ? props.paper.height / props.paper.width : props.paper.width / props.paper.height)
-  // Swiping steps the sheets only at 100 %: zoomed in, a drag pans the preview as before.
+  // Swiping steps the sheets only at 100 %: zoomed in, a drag pans the preview as before. A finger that hardly moves taps.
   // `touch-action` leaves vertical scrolling (and pinch zoom) to the browser and sideways moves to the app;
   // when the browser takes the gesture over for scrolling, it sends pointercancel and the swipe is dropped.
   const swipes = () => props.zoom === 1
   let start: { pointer: number; x: number; y: number } | undefined
   let paperShown: HTMLDivElement | undefined
   function down(event: PointerEvent) {
-    start = swipes() && event.isPrimary ? { pointer: event.pointerId, x: event.clientX, y: event.clientY } : undefined
+    start = event.isPrimary ? { pointer: event.pointerId, x: event.clientX, y: event.clientY } : undefined
   }
   function up(event: PointerEvent) {
     if (!start || event.pointerId !== start.pointer) return
     const dx = event.clientX - start.x
     const dy = event.clientY - start.y
     start = undefined
+    if (Math.hypot(dx, dy) < tapDistance) {
+      const ref = (event.target as Element).closest<HTMLElement>("[data-ref]")?.dataset.ref
+      props.onPick(ref === undefined ? undefined : Number(ref))
+      return
+    }
     // only a clearly sideways move counts: far enough, and more sideways than up or down
     if (!swipes() || Math.abs(dx) < swipeDistance || Math.abs(dx) <= Math.abs(dy)) return
     const to = props.index + (dx < 0 ? 1 : -1)
@@ -78,6 +93,8 @@ export function Preview(props: {
       paperShown?.animate?.([{ transform: `translateX(${dx < 0 ? 24 : -24}px)`, opacity: 0.6 }, { transform: "none", opacity: 1 }], { duration: 150, easing: "ease-out" })
     }
   }
+  /** How a page or photo is called on the screen: people count photos from 1. */
+  const name = (ref: number) => (props.source.kind === "pdf" ? `Seite ${ref}` : `Foto ${ref + 1}`)
   return (
     <section
       aria-label="Vorschau"
@@ -107,7 +124,7 @@ export function Preview(props: {
         {/* by index: a placement that moves keeps its picture */}
         <For each={props.sheet?.placements} keyed={false}>
           {placement => (
-            <div class="absolute overflow-hidden" style={boxStyle(placement().clip, { left: 0, top: 0, ...props.paper })}>
+            <div data-ref={placement().ref} class="absolute overflow-hidden" style={boxStyle(placement().clip, { left: 0, top: 0, ...props.paper })}>
               <div class="absolute" style={boxStyle(placement(), placement().clip)}>
                 {/* the upright picture, centred in its box and then turned: a quarter turn swaps its sides */}
                 <div
@@ -135,6 +152,18 @@ export function Preview(props: {
                   </Show>
                 </div>
               </div>
+              <Show when={props.turned(placement().ref)}>
+                <span
+                  role="img"
+                  aria-label={`${name(placement().ref)} von Hand gedreht`}
+                  class="pointer-events-none absolute top-1 right-1 grid size-5 place-items-center rounded-full bg-brand text-xs text-white"
+                >
+                  ↻
+                </span>
+              </Show>
+              <Show when={props.picked === placement().ref}>
+                <div aria-hidden="true" class="pointer-events-none absolute inset-0 ring-4 ring-brand ring-inset" />
+              </Show>
             </div>
           )}
         </For>
