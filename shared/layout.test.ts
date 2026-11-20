@@ -238,7 +238,6 @@ test("the counts decide which photos appear, in the file's order, counted from 0
   const sheets = (changes: Partial<PrintOptions>) => summary(layout({ source, options: options({ position: "top-left", ...changes }), sheet, margins }))
 
   assert.deepEqual(sheets({ items: each(1, 0, 1) }), [[[0, 10, 20, 72, 144]], [[2, 10, 20, 216, 288]]])
-  assert.deepEqual(sheets({ items: each(1, 1, 1), layout: twoPerSheet }), [[[0, 10, 20, 72, 144]], [[1, 10, 20, 144, 216]], [[2, 10, 20, 216, 288]]])
   assert.deepEqual(sheets({ items: each(0, 0, 0) }), [])
 })
 
@@ -340,93 +339,109 @@ test("an item's turn turns its page or photo by its own amount, on top of EXIF a
   })
 })
 
-test("two pages per sheet on a landscape sheet: two halves side by side, each laid out as its own sheet", async t => {
-  // An 800 × 600 sheet. The left half prints from 10 to 400 pt across, the right half from 400 to 770; both from 20 to 560 down.
-  const landscape = { width: 800, height: 600 }
-  const two = (source: LayoutInput["source"], changes: Partial<PrintOptions>) =>
-    layout({ source, options: options({ layout: twoPerSheet, ...changes }), sheet: landscape, margins })
+const grid = (perSheet: 1 | 2 | 4 | 6 | 8) => ({ kind: "grid", perSheet }) as const
 
-  await t.test("Einpassen fits each page into its half; an odd number of pages leaves the last half empty", () => {
-    const sheets = two(pdf([200, 400], [200, 400], [200, 400]), { items: each(1, 1, 1), printSize: fit })
-    assert.deepEqual(summary(sheets), [
-      [[1, 70, 20, 270, 540], [2, 450, 20, 270, 540]],
-      [[3, 70, 20, 270, 540]],
-    ])
-    assert.deepEqual(sheets[0]!.placements.map(p => [p.rotation, p.clip]), [
-      [0, { left: 0, top: 0, width: 400, height: 600 }],
-      [0, { left: 400, top: 0, width: 400, height: 600 }],
-    ])
-    assert.deepEqual(rounded(sheets[0]!.placements.map(p => p.matrix)), [[1.35, 0, 0, 1.35, 70, 40], [1.35, 0, 0, 1.35, 450, 40]])
-  })
+test("the Cells of the grids divide the printable area equally, in the order the sheet is read", async t => {
+  // The printable area of the 600 × 800 sheet: 560 × 740 from (10, 20). Read sideways it is 740 × 560, and the sheet's
+  // right edge is its top: a Cell read at (x, y) lies on the sheet at (600 - y - its height, x).
+  const boxes = (perSheet: 1 | 2 | 4 | 6 | 8, landscape = false) => {
+    const { cells: all, sideways } = rounded(cells(grid(perSheet), sheet, margins, landscape))
+    return { boxes: all.map(({ box: { left, top, width, height } }) => [left, top, width, height]), sideways }
+  }
+  const cases: [string, 1 | 2 | 4 | 6 | 8, landscape: boolean, { boxes: number[][]; sideways: boolean }][] = [
+    ["1: the whole sheet", 1, false, { boxes: [[0, 0, 600, 800]], sideways: false }],
+    ["2: 2 × 1 read sideways, the sheet's top half first", 2, false, { boxes: [[10, 20, 560, 370], [10, 390, 560, 370]], sideways: true }],
+    ["4: 2 × 2 read upright", 4, false, {
+      boxes: [[10, 20, 280, 370], [290, 20, 280, 370], [10, 390, 280, 370], [290, 390, 280, 370]],
+      sideways: false,
+    }],
+    ["6: 3 × 2 read sideways, the right column first", 6, false, {
+      boxes: [[290, 20, 280, 246.67], [290, 266.67, 280, 246.67], [290, 513.33, 280, 246.67], [10, 20, 280, 246.67], [10, 266.67, 280, 246.67], [10, 513.33, 280, 246.67]],
+      sideways: true,
+    }],
+    ["8: 2 × 4 read upright", 8, false, {
+      boxes: [[10, 20, 280, 185], [290, 20, 280, 185], [10, 205, 280, 185], [290, 205, 280, 185], [10, 390, 280, 185], [290, 390, 280, 185], [10, 575, 280, 185], [290, 575, 280, 185]],
+      sideways: false,
+    }],
+    // read the other way: the same Cells, landscape ones upright and the others sideways
+    ["1 after a landscape page: still the whole sheet", 1, true, { boxes: [[0, 0, 600, 800]], sideways: false }],
+    ["2 after a landscape page: read upright, top then bottom", 2, true, { boxes: [[10, 20, 560, 370], [10, 390, 560, 370]], sideways: false }],
+    ["4 after a landscape page: read sideways", 4, true, {
+      boxes: [[290, 20, 280, 370], [290, 390, 280, 370], [10, 20, 280, 370], [10, 390, 280, 370]],
+      sideways: true,
+    }],
+    ["6 after a landscape page: 2 × 3 read upright", 6, true, {
+      boxes: [[10, 20, 280, 246.67], [290, 20, 280, 246.67], [10, 266.67, 280, 246.67], [290, 266.67, 280, 246.67], [10, 513.33, 280, 246.67], [290, 513.33, 280, 246.67]],
+      sideways: false,
+    }],
+    ["8 after a landscape page: 4 × 2 read sideways", 8, true, {
+      boxes: [[290, 20, 280, 185], [290, 205, 280, 185], [290, 390, 280, 185], [290, 575, 280, 185], [10, 20, 280, 185], [10, 205, 280, 185], [10, 390, 280, 185], [10, 575, 280, 185]],
+      sideways: true,
+    }],
+  ]
+  for (const [name, perSheet, landscape, expected] of cases) {
+    await t.test(name, () => assert.deepEqual(boxes(perSheet, landscape), expected))
+  }
 
-  await t.test("the pages fill the halves in the file's order", () => {
-    const sheets = two(pdf([100, 100], [110, 110], [120, 120], [130, 130]), { items: each(1, 1, 0, 1), position: "top-left" })
-    assert.deepEqual(summary(sheets), [
-      [[1, 10, 20, 100, 100], [2, 400, 20, 110, 110]],
-      [[4, 10, 20, 130, 130]],
-    ])
-  })
-
-  await t.test("Position applies inside each half", async t => {
-    const cases: [PrintOptions["position"], first: [left: number, top: number], second: [left: number, top: number]][] = [
-      ["top-left", [10, 20], [400, 20]],
-      ["top", [155, 20], [535, 20]],
-      ["top-right", [300, 20], [670, 20]],
-      ["left", [10, 240], [400, 240]],
-      ["center", [155, 240], [535, 240]],
-      ["right", [300, 240], [670, 240]],
-      ["bottom-left", [10, 460], [400, 460]],
-      ["bottom", [155, 460], [535, 460]],
-      ["bottom-right", [300, 460], [670, 460]],
-    ]
-    for (const [position, first, second] of cases) {
-      await t.test(position, () => {
-        const sheets = two(pdf([100, 100], [100, 100]), { items: each(1, 1), position })
-        assert.deepEqual(summary(sheets), [[[1, ...first, 100, 100], [2, ...second, 100, 100]]])
-      })
+  await t.test("the Cells of a grid are all printable; one per sheet prints within the sheet's margins", () => {
+    for (const perSheet of [2, 4, 6, 8] as const) {
+      for (const cell of cells(grid(perSheet), sheet, margins).cells) assert.deepEqual(cell.printable, cell.box)
     }
+    assert.deepEqual(cells(grid(1), sheet, margins).cells[0]!.printable, { left: 10, top: 20, width: 560, height: 740 })
   })
 
-  await t.test("Füllen covers each half, and each page keeps to its half", () => {
-    const [first] = two(pdf([200, 400], [200, 400]), { items: each(1, 1), printSize: fill })
-    assert.deepEqual(summary([first!]), [[[1, 5, -110, 400, 800], [2, 385, -110, 400, 800]]])
-    assert.deepEqual(first!.placements.map(p => p.clip), [{ left: 0, top: 0, width: 400, height: 600 }, { left: 400, top: 0, width: 400, height: 600 }])
-  })
-
-  await t.test("the flags look at both halves", () => {
-    const flags = (sheets: Sheet[]) => sheets.map(s => [s.cutOff, s.emptySpace])
-    // 390 × 540 and 370 × 540 are exactly what each half can print.
-    const exact = pdf([390, 540], [370, 540], [300, 300], [391, 540], [370, 540], [390, 540])
-    assert.deepEqual(flags(two(exact, { items: each(1, 1) })), [[false, false]])
-    assert.deepEqual(flags(two(exact, { items: each(1, 0, 1) })), [[false, true]])
-    assert.deepEqual(flags(two(exact, { items: each(0, 0, 0, 1, 1) })), [[true, false]])
-    assert.deepEqual(flags(two(exact, { items: each(1, 1, 0, 0, 0, 1) })), [[false, false], [false, true]])
-    assert.deepEqual(flags(two(exact, { items: each(1, 1), printSize: fill })), [[true, false]])
+  await t.test("on every paper, with the Printer's margins, the Cells tile the printable area", () => {
+    const edge = { top: 12, right: 9, bottom: 12, left: 9 }
+    for (const paper of ["A4", "A5", "EnvDL", "EnvC5"] as const) {
+      const size = SHEET_SIZES[paper]
+      for (const perSheet of [2, 4, 6, 8] as const) {
+        for (const landscape of [false, true]) {
+          const { cells: all, sideways } = cells(grid(perSheet), size, edge, landscape)
+          const label = `${paper}, ${perSheet}${landscape ? " after a landscape page" : ""}`
+          assert.equal(all.length, perSheet, label)
+          assert.equal(sideways, (perSheet === 2 || perSheet === 6) !== landscape, label)
+          const right = Math.max(...all.map(c => c.box.left + c.box.width))
+          const bottom = Math.max(...all.map(c => c.box.top + c.box.height))
+          assert.deepEqual(rounded([Math.min(...all.map(c => c.box.left)), Math.min(...all.map(c => c.box.top)), right, bottom]),
+            rounded([9, 12, size.width - 9, size.height - 12]), label)
+          const area = all.reduce((sum, c) => sum + c.box.width * c.box.height, 0)
+          assert.equal(Math.round(area), Math.round((size.width - 18) * (size.height - 24)), label)
+        }
+      }
+    }
   })
 })
 
-test("two pages per sheet on a portrait sheet: the halves lie side by side once the sheet is turned", async t => {
-  // The 600 × 800 sheet is read turned a quarter, so the pages lie on it turned 90° clockwise: page tops at the sheet's right edge.
-  // The first half is the sheet's top half (prints 10 to 570 across, 20 to 400 down), the second its bottom half (400 to 760 down).
-  const two = (source: LayoutInput["source"], changes: Partial<PrintOptions>) =>
-    layout({ source, options: options({ layout: twoPerSheet, ...changes }), sheet, margins })
-  const top = { left: 0, top: 0, width: 600, height: 400 }
-  const bottom = { left: 0, top: 400, width: 600, height: 400 }
+test("pages and photos in a grid: each laid out in its Cell as on a sheet of its own", async t => {
+  const inGrid = (perSheet: 1 | 2 | 4 | 6 | 8, source: LayoutInput["source"], changes: Partial<PrintOptions> = {}) =>
+    layout({ source, options: options({ layout: grid(perSheet), ...changes }), sheet, margins })
+  const placed = (sheets: Sheet[]) => rounded(sheets).map(s => s.placements.map(p => [p.ref, p.rotation, p.left, p.top, p.width, p.height]))
+  const portraitPages = (n: number) => pdf(...Array.from({ length: n }, (): [number, number] => [200, 400]))
 
-  await t.test("Einpassen: two portrait pages, each across one half", () => {
-    const sheets = two(pdf([200, 400], [200, 400], [200, 400]), { items: each(1, 1, 1), printSize: fit })
+  await t.test("4: Einpassen fits each page into its 280 × 370 Cell, and a fifth page starts a sheet of its own", () => {
+    const sheets = inGrid(4, portraitPages(5), { items: each(1, 1, 1, 1, 1), printSize: fit })
+    assert.deepEqual(placed(sheets), [
+      [[1, 0, 57.5, 20, 185, 370], [2, 0, 337.5, 20, 185, 370], [3, 0, 57.5, 390, 185, 370], [4, 0, 337.5, 390, 185, 370]],
+      [[5, 0, 57.5, 20, 185, 370]],
+    ])
+    assert.deepEqual(sheets.map(s => [s.sideways, s.cutOff, s.emptySpace]), [[false, false, true], [false, false, true]])
+    assert.deepEqual(sheets[1]!.placements[0]!.clip, { left: 10, top: 20, width: 280, height: 370 })
+  })
+
+  await t.test("2 on a portrait sheet: the pages lie turned in its top and bottom half, page tops at the sheet's right edge", () => {
+    const sheets = inGrid(2, portraitPages(3), { items: each(1, 1, 1), printSize: fit })
     assert.deepEqual(rounded(sheets), [
       {
         placements: [
-          { ref: 1, rotation: 90, scale: 1.4, left: 10, top: 70, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 730], clip: top },
-          { ref: 2, rotation: 90, scale: 1.4, left: 10, top: 440, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 360], clip: bottom },
+          { ref: 1, rotation: 90, scale: 1.4, left: 10, top: 65, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 735], clip: { left: 10, top: 20, width: 560, height: 370 } },
+          { ref: 2, rotation: 90, scale: 1.4, left: 10, top: 435, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 365], clip: { left: 10, top: 390, width: 560, height: 370 } },
         ],
         cutOff: false,
         emptySpace: true,
         sideways: true,
       },
       {
-        placements: [{ ref: 3, rotation: 90, scale: 1.4, left: 10, top: 70, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 730], clip: top }],
+        placements: [{ ref: 3, rotation: 90, scale: 1.4, left: 10, top: 65, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 735], clip: { left: 10, top: 20, width: 560, height: 370 } }],
         cutOff: false,
         emptySpace: true,
         sideways: true,
@@ -434,65 +449,118 @@ test("two pages per sheet on a portrait sheet: the halves lie side by side once 
     ])
   })
 
-  await t.test("Position is the reader's: top-left is the sheet's top-right corner", async t => {
-    // 100 × 150 pages at 100 % take up 150 × 100 on the sheet.
+  await t.test("6: the pages lie turned, three along the sheet's right half first", () => {
+    const sheets = inGrid(6, portraitPages(4), { items: each(1, 1, 1, 1), printSize: fit })
+    // read sideways each Cell is 246.67 × 280, so a 200 × 400 page fits at 70 %: 140 × 280
+    assert.deepEqual(placed(sheets), [[
+      [1, 90, 290, 73.33, 280, 140], [2, 90, 290, 320, 280, 140], [3, 90, 290, 566.67, 280, 140], [4, 90, 10, 73.33, 280, 140],
+    ]])
+  })
+
+  await t.test("8: eight small upright pages", () => {
+    const sheets = inGrid(8, portraitPages(8), { items: each(1, 1, 1, 1, 1, 1, 1, 1), printSize: fit })
+    // each Cell is 280 × 185: the page fits at 46.25 %, 92.5 × 185
+    assert.deepEqual(placed(sheets)[0]!.map(([ref, rotation, left, top]) => [ref, rotation, left, top]), [
+      [1, 0, 103.75, 20], [2, 0, 383.75, 20], [3, 0, 103.75, 205], [4, 0, 383.75, 205],
+      [5, 0, 103.75, 390], [6, 0, 383.75, 390], [7, 0, 103.75, 575], [8, 0, 383.75, 575],
+    ])
+  })
+
+  await t.test("Position is the reader's, inside each Cell: on a sideways sheet top-left is the Cell's top-right corner", async t => {
+    // 100 × 150 pages at 100 % take up 150 × 100 on the sheet. Read sideways, the Cells are 370 × 560 from (20, 30) and (390, 30).
     const cases: [PrintOptions["position"], first: [left: number, top: number], second: [left: number, top: number]][] = [
-      ["top-left", [420, 20], [420, 400]],
-      ["top", [420, 160], [420, 530]],
-      ["top-right", [420, 300], [420, 660]],
-      ["left", [215, 20], [215, 400]],
-      ["center", [215, 160], [215, 530]],
-      ["right", [215, 300], [215, 660]],
-      ["bottom-left", [10, 20], [10, 400]],
-      ["bottom", [10, 160], [10, 530]],
-      ["bottom-right", [10, 300], [10, 660]],
+      ["top-left", [420, 20], [420, 390]],
+      ["top", [420, 155], [420, 525]],
+      ["top-right", [420, 290], [420, 660]],
+      ["left", [215, 20], [215, 390]],
+      ["center", [215, 155], [215, 525]],
+      ["right", [215, 290], [215, 660]],
+      ["bottom-left", [10, 20], [10, 390]],
+      ["bottom", [10, 155], [10, 525]],
+      ["bottom-right", [10, 290], [10, 660]],
     ]
     for (const [position, first, second] of cases) {
       await t.test(position, () => {
-        const sheets = two(pdf([100, 150], [100, 150]), { items: each(1, 1), position })
+        const sheets = inGrid(2, pdf([100, 150], [100, 150]), { items: each(1, 1), position })
         assert.deepEqual(summary(sheets), [[[1, ...first, 150, 100], [2, ...second, 150, 100]]])
       })
     }
   })
 
-  await t.test("an item's turn adds to the quarter turn of the sheet", () => {
-    const turns = (turn: Item["turn"]) =>
-      rounded(two(pdf([400, 200]), { items: [{ count: 1, turn }], printSize: fit })).map(s => s.placements.map(p => [p.rotation, p.left, p.top, p.width, p.height]))
-    // A landscape page across the turned half is small.
-    assert.deepEqual(turns(0), [[[90, 195, 20, 190, 380]]])
-    // Turned three times it stands upright on the portrait sheet and fills the half's width.
-    assert.deepEqual(turns(270), [[[0, 10, 70, 560, 280]]])
-    assert.deepEqual(turns(90), [[[180, 10, 70, 560, 280]]])
+  await t.test("Füllen covers each Cell and no more: content is cut off, and each page keeps to its Cell", () => {
+    const [first] = inGrid(4, portraitPages(2), { items: each(1, 1), printSize: fill })
+    // 200 × 400 to cover 280 × 370: 140 %, 280 × 560
+    assert.deepEqual(summary([first!]), [[[1, 10, -75, 280, 560], [2, 290, -75, 280, 560]]])
+    assert.deepEqual(first!.placements.map(p => p.clip), [{ left: 10, top: 20, width: 280, height: 370 }, { left: 290, top: 20, width: 280, height: 370 }])
+    assert.equal(first!.cutOff, true)
   })
 
-  await t.test("on A4 with the Printer's margins, two A4 pages of 595 × 842 pt print at 69 %", () => {
-    const edge = { top: 12, right: 9, bottom: 12, left: 9 }
-    const sheets = layout({ source: pdf([595, 842], [595, 842]), options: options({ layout: twoPerSheet, items: each(1, 1), printSize: fit }), sheet: SHEET_SIZES.A4, margins: edge })
-    assert.deepEqual(rounded(sheets), [
-      {
-        placements: [
-          { ref: 1, rotation: 90, scale: 0.69, left: 9, top: 12.51, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 829.38], clip: { left: 0, top: 0, width: 595.28, height: 420.94 } },
-          { ref: 2, rotation: 90, scale: 0.69, left: 9, top: 421.45, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 420.44], clip: { left: 0, top: 420.94, width: 595.28, height: 420.94 } },
-        ],
-        cutOff: false,
-        emptySpace: true,
-        sideways: true,
-      },
-    ])
+  await t.test("the flags look at every Cell", () => {
+    const flags = (sheets: Sheet[]) => sheets.map(s => [s.cutOff, s.emptySpace])
+    // read sideways, 370 × 560 is exactly what a Cell of 2 per sheet prints
+    const exact = pdf([370, 560], [370, 560], [300, 300], [371, 560], [370, 560], [370, 560])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1) })), [[false, false]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 0, 1) })), [[false, true]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(0, 0, 0, 1, 1) })), [[true, false]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1, 0, 0, 1) })), [[false, false], [false, true]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1), printSize: fill })), [[false, false]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(0, 0, 1), printSize: fill })), [[true, true]])
   })
 
-  await t.test("one page per sheet and photos are not sideways", () => {
-    const [page] = layout({ source: pdf([200, 400]), options: options(), sheet, margins })
-    assert.equal(page!.sideways, false)
-    const [photo] = two(photos([500, 1000]), {})
-    assert.equal(photo!.sideways, false)
+  await t.test("a page's turn adds to the quarter turn of a sideways sheet", () => {
+    // after a portrait first page, the sheet is read sideways; the landscape second page lies in the bottom half
+    const turns = (turn: Item["turn"]) => placed(inGrid(2, pdf([200, 400], [400, 200]), { items: [{ count: 1, turn: 0 }, { count: 1, turn }], printSize: fit }))[0]![1]
+    // a landscape page across the turned Cell is small
+    assert.deepEqual(turns(0), [2, 90, 197.5, 390, 185, 370])
+    // turned three times it stands upright on the portrait sheet and fills the Cell's width
+    assert.deepEqual(turns(270), [2, 0, 10, 435, 560, 280])
+    assert.deepEqual(turns(90), [2, 180, 10, 435, 560, 280])
+  })
+
+  await t.test("a PDF whose first printed page is landscape reads the grid the other way; its pages never turn by themselves", () => {
+    // slides of 400 × 300 in 2 per sheet, read upright: each in a 560 × 370 half, at 123.33 %
+    const slides = inGrid(2, pdf([400, 300], [400, 300]), { items: each(1, 1), printSize: fit })
+    assert.deepEqual(placed(slides), [[[1, 0, 43.33, 20, 493.33, 370], [2, 0, 43.33, 390, 493.33, 370]]])
+    assert.equal(slides[0]!.sideways, false)
+    // a portrait page after a landscape first page stands upright in the landscape Cell
+    const mixed = inGrid(2, pdf([400, 300], [200, 400]), { items: each(1, 1), printSize: fit })
+    assert.deepEqual(placed(mixed), [[[1, 0, 43.33, 20, 493.33, 370], [2, 0, 197.5, 390, 185, 370]]])
+    // with the landscape page left out, the portrait page decides: read sideways again
+    const portraitFirst = inGrid(2, pdf([400, 300], [200, 400]), { items: each(0, 1), printSize: fit })
+    assert.deepEqual(placed(portraitFirst), [[[2, 90, 10, 65, 560, 280]]])
+    assert.equal(portraitFirst[0]!.sideways, true)
+  })
+
+  await t.test("a turned first page doesn't change how the grid is read", () => {
+    const sheets = inGrid(4, pdf([200, 400], [200, 400]), { items: [{ count: 1, turn: 90 }, { count: 1, turn: 0 }], printSize: fit })
+    assert.equal(sheets[0]!.sideways, false)
+    // turned, the page is 400 × 200 in a 280 × 370 Cell: 70 %, 280 × 140
+    assert.deepEqual(placed(sheets), [[[1, 90, 10, 135, 280, 140], [2, 0, 337.5, 20, 185, 370]]])
+  })
+
+  await t.test("photos turn by themselves to the orientation of their Cell at Einpassen and Füllen", () => {
+    // 240 × 120 pt and 120 × 240 pt photos
+    const source = photos([1000, 500], [500, 1000])
+    // in the portrait Cells of 4 the landscape photo turns; read sideways in 2, the Cells are portrait too, and the sheet adds its quarter
+    assert.deepEqual(placed(inGrid(4, source, { items: each(1, 1), printSize: fit })), [[[0, 90, 57.5, 20, 185, 370], [1, 0, 337.5, 20, 185, 370]]])
+    assert.deepEqual(placed(inGrid(2, source, { items: each(1, 1), printSize: fit })).map(s => s.map(p => p[1])), [[180, 90]])
+    // in the landscape Cells of 8 the portrait photo turns
+    assert.deepEqual(placed(inGrid(8, source, { items: each(1, 1), printSize: fit })).map(s => s.map(p => p[1])), [[0, 90]])
+    // at a percentage nothing turns by itself
+    assert.deepEqual(placed(inGrid(4, source, { items: each(1, 1) })).map(s => s.map(p => p[1])), [[0, 0]])
+  })
+
+  await t.test("4 photos, 2 of each, 8 per sheet: one sheet, each photo twice next to itself", () => {
+    const four = photos([1000, 1500], [1000, 1500], [1000, 1500], [1000, 1500])
+    const sheets = inGrid(8, four, { items: each(2, 2, 2, 2), printSize: fill })
+    assert.deepEqual(sheets.map(s => s.placements.map(p => p.ref)), [[0, 0, 1, 1, 2, 2, 3, 3]])
+    assert.equal(sheetCount(sheets, 1), 1)
   })
 })
 
 test("an item's count repeats its page or photo next to itself, and a count of 0 leaves it out", async t => {
   const refs = (sheets: Sheet[]) => sheets.map(s => s.placements.map(p => p.ref))
   const threePages = pdf([200, 300], [200, 300], [200, 300])
-  const landscape = { width: 800, height: 600 }
 
   await t.test("one per sheet: a sheet for every repeat, in the file's order", () => {
     assert.deepEqual(refs(layout({ source: threePages, options: options({ items: each(2, 0, 3) }), sheet, margins })), [[1], [1], [3], [3], [3]])
@@ -508,8 +576,8 @@ test("an item's count repeats its page or photo next to itself, and a count of 0
   })
 
   await t.test("each repeat is laid out in its own Cell", () => {
-    const sheets = layout({ source: threePages, options: options({ items: each(2, 0, 0), layout: twoPerSheet, position: "top-left" }), sheet: landscape, margins })
-    assert.deepEqual(summary(sheets), [[[1, 10, 20, 200, 300], [1, 400, 20, 200, 300]]])
+    const sheets = layout({ source: threePages, options: options({ items: each(2, 0, 0), layout: grid(4), position: "top-left" }), sheet, margins })
+    assert.deepEqual(summary(sheets), [[[1, 10, 20, 200, 300], [1, 290, 20, 200, 300]]])
   })
 })
 
@@ -540,55 +608,26 @@ test("an item's size replaces the Print size for that page or photo only", async
     ])
   })
 
-  await t.test("two per sheet: the size applies in the item's Cell", () => {
-    const sheets = layout({ source: pdf([200, 400], [200, 400]), options: options({ layout: twoPerSheet, printSize: fit, items: sized(undefined, "fill") }), sheet: { width: 800, height: 600 }, margins })
-    assert.deepEqual(summary(sheets), [[[1, 70, 20, 270, 540], [2, 385, -110, 400, 800]]])
+  await t.test("in a grid the size applies in the item's Cell", () => {
+    const sheets = layout({ source: pdf([200, 400], [200, 400]), options: options({ layout: grid(4), printSize: fit, items: sized(undefined, "fill") }), sheet, margins })
+    assert.deepEqual(summary(sheets), [[[1, 57.5, 20, 185, 370], [2, 290, -75, 280, 560]]])
   })
 })
 
-test("the Cells of a layout: the whole sheet, or two halves side by side as the sheet is read", async t => {
-  await t.test("one per sheet: the whole sheet and its printable area", () => {
-    assert.deepEqual(cells({ kind: "grid", perSheet: 1 }, sheet, margins), {
-      cells: [{ box: { left: 0, top: 0, width: 600, height: 800 }, printable: { left: 10, top: 20, width: 560, height: 740 } }],
-      sideways: false,
-    })
-  })
-
-  await t.test("two per sheet on a landscape sheet: the left half, then the right half", () => {
-    assert.deepEqual(cells(twoPerSheet, { width: 800, height: 600 }, margins), {
-      cells: [
-        { box: { left: 0, top: 0, width: 400, height: 600 }, printable: { left: 10, top: 20, width: 390, height: 540 } },
-        { box: { left: 400, top: 0, width: 400, height: 600 }, printable: { left: 400, top: 20, width: 370, height: 540 } },
+test("on A4 with the Printer's margins, two A4 pages of 595 × 842 pt print at 69 %, two per sheet", () => {
+  const edge = { top: 12, right: 9, bottom: 12, left: 9 }
+  const sheets = layout({ source: pdf([595, 842], [595, 842]), options: options({ layout: twoPerSheet, items: each(1, 1), printSize: fit }), sheet: SHEET_SIZES.A4, margins: edge })
+  assert.deepEqual(rounded(sheets), [
+    {
+      placements: [
+        { ref: 1, rotation: 90, scale: 0.69, left: 9, top: 12.51, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 829.38], clip: { left: 9, top: 12, width: 577.28, height: 408.94 } },
+        { ref: 2, rotation: 90, scale: 0.69, left: 9, top: 421.45, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 420.44], clip: { left: 9, top: 420.94, width: 577.28, height: 408.94 } },
       ],
-      sideways: false,
-    })
-  })
-
-  await t.test("two per sheet on a portrait sheet, which is read sideways: the top half, then the bottom half", () => {
-    assert.deepEqual(cells(twoPerSheet, sheet, margins), {
-      cells: [
-        { box: { left: 0, top: 0, width: 600, height: 400 }, printable: { left: 10, top: 20, width: 560, height: 380 } },
-        { box: { left: 0, top: 400, width: 600, height: 400 }, printable: { left: 10, top: 400, width: 560, height: 360 } },
-      ],
+      cutOff: false,
+      emptySpace: true,
       sideways: true,
-    })
-  })
-
-  await t.test("two per sheet on A4 with the Printer's margins", () => {
-    assert.deepEqual(rounded(cells(twoPerSheet, SHEET_SIZES.A4, { top: 12, right: 9, bottom: 12, left: 9 })), {
-      cells: [
-        { box: { left: 0, top: 0, width: 595.28, height: 420.94 }, printable: { left: 9, top: 12, width: 577.28, height: 408.94 } },
-        { box: { left: 0, top: 420.94, width: 595.28, height: 420.94 }, printable: { left: 9, top: 420.94, width: 577.28, height: 408.94 } },
-      ],
-      sideways: true,
-    })
-  })
-
-  await t.test("layout() places into them: every placement is clipped to its Cell", () => {
-    const sheets = layout({ source: pdf([200, 400], [200, 400], [200, 400]), options: options({ layout: twoPerSheet, items: each(1, 1, 1) }), sheet, margins })
-    const [first, second] = cells(twoPerSheet, sheet, margins).cells
-    assert.deepEqual(sheets.map(s => s.placements.map(p => p.clip)), [[first!.box, second!.box], [first!.box]])
-  })
+    },
+  ])
 })
 
 test("the sheet count of a Print Job is the sheets one copy takes, times the copies", async t => {

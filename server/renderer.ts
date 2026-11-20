@@ -47,7 +47,7 @@ export interface RenderWatch {
  * With `dell`, colour Print Jobs become HBPL through Dell's engine; everything else is a PDF.
  *
  * The Print Options are invalid when `items` has not exactly one entry per page or photo of the draft, or when the
- * layout isn't one that can be printed yet: one per sheet, or two pages of a PDF per sheet.
+ * layout isn't one that can be printed yet: a Photo format.
  */
 export async function render(
   files: readonly DraftFile[], options: PrintOptions, margins: Margins, dell?: DellPrinting, watch: RenderWatch = {},
@@ -55,12 +55,7 @@ export async function render(
   const facts = files[0]?.facts
   if (!facts) return { outcome: "invalid-options" }
   const count = facts.kind === "pdf" ? facts.pages.length : files.length
-  const { layout: chosenLayout } = options
-  const valid =
-    options.items.length === count &&
-    chosenLayout.kind === "grid" &&
-    (chosenLayout.perSheet === 1 || (facts.kind === "pdf" && chosenLayout.perSheet === 2))
-  if (!valid) return { outcome: "invalid-options" }
+  if (options.items.length !== count || options.layout.kind !== "grid") return { outcome: "invalid-options" }
 
   const source: LayoutInput["source"] = facts.kind === "pdf" ? facts : { kind: "photos", photos: files.map(file => file.facts as PhotoFacts) }
   const sheets = layout({ source, options, sheet: SHEET_SIZES[options.paper], margins })

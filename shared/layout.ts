@@ -2,7 +2,7 @@
 // call `layout`, so the printout matches the preview. Keep this file free of DOM and Node imports.
 
 import type { Margins } from "./api.ts"
-import type { Layout, PrintOptions, PrintSizeMode, Rotation } from "./print-options.ts"
+import type { Item, Layout, PrintOptions, PrintSizeMode, Rotation } from "./print-options.ts"
 
 /** In points (1/72 inch). */
 export type Size = { width: number; height: number }
@@ -150,7 +150,7 @@ type Content = {
  * Its boxes are on the sheet as the Printer feeds it.
  */
 export type Cell = {
-  /** All of it, the sheet's unprintable edge included. Füllen covers it, and its page or photo is drawn nowhere else. */
+  /** All of it. Füllen covers it, and its page or photo is drawn nowhere else. One per sheet: the whole sheet, the unprintable edge included. */
   box: Box
   /** The part of it the Printer prints on. Einpassen fits into it, and Position aligns to it. */
   printable: Box
@@ -159,53 +159,69 @@ export type Cell = {
 /** A sheet's Cells in the order they fill. `sideways`: the sheet is read turned a quarter, as `Sheet.sideways` says. */
 export type Cells = { cells: Cell[]; sideways: boolean }
 
-/** Columns and rows of the grids, as the sheet is read. */
-const GRIDS: Partial<Record<Extract<Layout, { kind: "grid" }>["perSheet"], [columns: number, rows: number]>> = {
-  1: [1, 1],
-  2: [2, 1],
+type PerSheet = Extract<Layout, { kind: "grid" }>["perSheet"]
+
+/**
+ * The grids for portrait pages or photos: columns and rows as the sheet is read, and whether it is read in landscape.
+ * Read so, portrait pages stand upright in their Cells.
+ */
+const GRIDS: Record<PerSheet, { columns: number; rows: number; landscape: boolean }> = {
+  1: { columns: 1, rows: 1, landscape: false },
+  2: { columns: 2, rows: 1, landscape: true },
+  4: { columns: 2, rows: 2, landscape: false },
+  6: { columns: 3, rows: 2, landscape: true },
+  8: { columns: 2, rows: 4, landscape: false },
 }
 
 /**
- * The Cells a layout divides a sheet into. `layout` places into them, and a sketch of a layout draws them.
- * No Cells when the layout can't be laid out on the sheet.
- *
- * - 1 per sheet is the whole sheet.
- * - 2 per sheet: the sheet is read in landscape and split into a left and a right half, the left one first.
- *   A portrait sheet is therefore `sideways`, and its top half is the first Cell.
- * - 4, 6 and 8 per sheet and the Photo formats are not laid out yet.
+ * Whether the grids are read the other way: for a PDF whose first printed page is landscape, as a reader shows it.
+ * Its own turn doesn't count, so that turning one page never moves the others. Photos turn by themselves instead.
  */
-export function cells(layout: Layout, sheet: Size, margins: Margins): Cells {
-  const grid = layout.kind === "grid" ? GRIDS[layout.perSheet] : undefined
-  if (!grid) return { cells: [], sideways: false }
-  const [columns, rows] = grid
+export function landscapeFirst(source: LayoutInput["source"], items: readonly Item[]): boolean {
+  if (source.kind !== "pdf") return false
+  const first = source.pages[items.findIndex(item => item.count > 0)]
+  return first !== undefined && first.width > first.height
+}
+
+/**
+ * The Cells a layout divides a sheet into, in the order they fill. `layout` places into them, and the sketch of a
+ * layout draws them. No Cells for a layout that can't be laid out on the sheet.
+ *
+ * - 1 per sheet is the whole sheet; its printable part is the sheet's printable area.
+ * - The other grids divide the printable area into equal Cells, filled left to right, then top to bottom, as the sheet
+ *   is read: 2 is 2 × 1 read in landscape, 4 is 2 × 2 read in portrait, 6 is 3 × 2 in landscape, 8 is 2 × 4 in portrait.
+ *   On a portrait sheet, one read in landscape is `sideways`: turned a quarter counter-clockwise to read, so the first
+ *   Cells lie along the sheet's right edge.
+ * - `landscape` (see `landscapeFirst`) reads every grid the other way: the same Cells, read turned a quarter, so that
+ *   landscape pages stand upright in them. 2 and 6 are then read upright, 4 and 8 sideways.
+ */
+export function cells(layout: Layout, sheet: Size, margins: Margins, landscape = false): Cells {
+  if (layout.kind !== "grid") return { cells: [], sideways: false }
+  if (layout.perSheet === 1) {
+    const printable = { left: margins.left, top: margins.top, width: sheet.width - margins.left - margins.right, height: sheet.height - margins.top - margins.bottom }
+    return { cells: [{ box: { left: 0, top: 0, ...sheet }, printable }], sideways: false }
+  }
+  const grid = GRIDS[layout.perSheet]
+  const [columns, rows] = landscape ? [grid.rows, grid.columns] : [grid.columns, grid.rows]
   // Everything is divided the way the sheet is read, and only then put onto the sheet the way the Printer feeds it.
-  const sideways = columns > rows && sheet.height > sheet.width
+  const readInLandscape = grid.landscape !== landscape
+  const sideways = readInLandscape !== sheet.width > sheet.height
   const view = sideways ? flipped(sheet) : sheet
   const edge = sideways ? { top: margins.right, right: margins.bottom, bottom: margins.left, left: margins.top } : margins
   const onSheet = (box: Box): Box =>
     sideways ? { left: sheet.width - box.top - box.height, top: box.left, width: box.height, height: box.width } : box
-  const width = view.width / columns
-  const height = view.height / rows
+  const width = (view.width - edge.left - edge.right) / columns
+  const height = (view.height - edge.top - edge.bottom) / rows
   const result: Cell[] = []
   for (let row = 0; row < rows; row++) {
     for (let column = 0; column < columns; column++) {
-      const box = { left: column * width, top: row * height, width, height }
-      // the part of the Cell inside the sheet's printable area
-      const left = Math.max(box.left, edge.left)
-      const top = Math.max(box.top, edge.top)
-      const printable = {
-        left,
-        top,
-        width: Math.min(box.left + width, view.width - edge.right) - left,
-        height: Math.min(box.top + height, view.height - edge.bottom) - top,
-      }
-      result.push({ box: onSheet(box), printable: onSheet(printable) })
+      // a Cell is all printable: Füllen covers it and no more, so neighbours never overlap
+      const box = onSheet({ left: edge.left + column * width, top: edge.top + row * height, width, height })
+      result.push({ box, printable: box })
     }
   }
   return { cells: result, sideways }
 }
-
-const WHOLE_SHEET: Layout = { kind: "grid", perSheet: 1 }
 
 /**
  * Where each page or photo sits, sheet by sheet. Every item with a count above 0 must have its page or photo in the source.
@@ -214,11 +230,12 @@ const WHOLE_SHEET: Layout = { kind: "grid", perSheet: 1 }
  *   An item with a count of 0 is left out.
  * - Rotation: EXIF orientation first, then auto-rotate (photos only, at Einpassen and Füllen: a landscape photo on a
  *   portrait sheet turns 90°, and the reverse), then the item's `turn`. All turns are clockwise.
- * - Einpassen is the largest size inside the printable area, Füllen the smallest that covers the whole sheet,
+ * - Einpassen is the largest size inside the printable part of the Cell, Füllen the smallest that covers the whole Cell,
  *   a percentage scales from the natural size. An item's `size` replaces the Print size for that item.
- * - Position aligns the content to the printable area.
- * - Several per sheet: each page is laid out in its Cell (see `cells`) as on a sheet of its own. PDFs only; photos
- *   get one sheet each. No sheets when the layout can't be laid out.
+ * - Position aligns the content to the printable part of its Cell.
+ * - Cells: see `cells`. Each page or photo is laid out in its Cell as on a sheet of its own; photos turn by themselves
+ *   to the Cell, PDF pages never do, and the grid is read the other way after a landscape first page instead.
+ *   No sheets when the layout can't be laid out.
  */
 export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[] {
   const contents = options.items.flatMap((item, index): Content[] => {
@@ -244,7 +261,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
     return Array<Content>(item.count).fill(content)
   })
 
-  const { cells: areas, sideways } = cells(source.kind === "pdf" ? options.layout : WHOLE_SHEET, sheet, margins)
+  const { cells: areas, sideways } = cells(options.layout, sheet, margins, landscapeFirst(source, options.items))
   if (areas.length === 0) return []
   // Everything is laid out the way the sheet is read, and only then put onto the sheet the way the Printer feeds it.
   const asRead = (box: Box): Box =>

@@ -63,7 +63,7 @@ test("the Print Job never carries scaling, page ranges or number-up", async t =>
   t.after(server.close)
 
   await server.post(`/api/drafts/${await draftWithPdf(server)}/submit`, {
-    ...base, printSize: { kind: "percent", value: 50 }, layout: { kind: "grid", perSheet: 2 },
+    ...base, printSize: { kind: "percent", value: 50 }, layout: { kind: "grid", perSheet: 8 },
   })
 
   const names = server.printer.requests.at(-1)!.groups.flatMap(group => group.attributes.map(a => a.name))

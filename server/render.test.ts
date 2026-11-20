@@ -190,6 +190,39 @@ test("two pages per sheet: the pages lie turned in the two halves of the sheet, 
   ])
 })
 
+test("four pages per sheet: each page in its quarter of the sheet, read upright and clipped to it", async t => {
+  const server = await start(t)
+  const pages: PdfPageSpec[] = [{ size: [100, 100] }, { size: [110, 110] }, { size: [120, 120] }, { size: [130, 130] }, { size: [140, 140] }]
+
+  const sheets = await printPdf(server, pages, { ...actualSize, layout: { kind: "grid", perSheet: 4 }, items: items(1, 1, 1, 1, 1) })
+
+  // without margins each Cell is a quarter of the A4 sheet: 297.64 × 420.94
+  const quarter = (left: number, top: number) => ({ left, top, width: 297.64, height: 420.94 })
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(({ size, box, clip }) => ({ size, box, clip }))), [
+    [
+      { size: [100, 100], box: { left: 0, top: 0, width: 100, height: 100 }, clip: quarter(0, 0) },
+      { size: [110, 110], box: { left: 297.64, top: 0, width: 110, height: 110 }, clip: quarter(297.64, 0) },
+      { size: [120, 120], box: { left: 0, top: 420.94, width: 120, height: 120 }, clip: quarter(0, 420.94) },
+      { size: [130, 130], box: { left: 297.64, top: 420.94, width: 130, height: 130 }, clip: quarter(297.64, 420.94) },
+    ],
+    [{ size: [140, 140], box: { left: 0, top: 0, width: 140, height: 140 }, clip: quarter(0, 0) }],
+  ])
+})
+
+test("photos share a sheet too: six per sheet lie turned, three along the right half of the sheet first", async t => {
+  const server = await start(t)
+
+  const sheets = await print(server, [sampleJpeg(), samplePng(64, 48), samplePng(20, 10)], { ...actualSize, layout: { kind: "grid", perSheet: 6 }, items: items(1, 1, 1) })
+
+  // read sideways, the Cells are 280.63 × 297.64; at 100 % and top left each photo sits in its Cell's corner at the sheet's right edge
+  const third = (top: number) => ({ left: 297.64, top, width: 297.64, height: 280.63 })
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(({ size, box, clip }) => ({ size, box, clip }))), [[
+    { size: [40, 30], box: { left: 588.08, top: 0, width: 7.2, height: 9.6 }, clip: third(0) },
+    { size: [64, 48], box: { left: 583.76, top: 280.63, width: 11.52, height: 15.36 }, clip: third(280.63) },
+    { size: [20, 10], box: { left: 592.88, top: 561.26, width: 2.4, height: 4.8 }, clip: third(561.26) },
+  ]])
+})
+
 test("a page without content gives an empty sheet", async t => {
   const server = await start(t)
 
@@ -306,7 +339,7 @@ test("Print Options that don't fit the draft's files are refused and nothing is 
     [photos, { items: items(0, 0) }],
     [photos, { items: items(1) }],
     [photos, { items: items(1, 1, 1) }],
-    [photos, { items: items(1, 1), layout: { kind: "grid", perSheet: 2 } }],
+    [pdf, { items: items(1, 1), layout: { kind: "format", format: "10x15", lage: "save", gap: true, cutLines: false } }],
   ]
   for (const [draftId, options] of refused) {
     const submitted = await server.submit(draftId, options)
@@ -317,7 +350,7 @@ test("Print Options that don't fit the draft's files are refused and nothing is 
 
   // the same drafts print once the options fit
   assert.equal((await server.submit(pdf, { items: items(0, 1), layout: { kind: "grid", perSheet: 2 } })).status, 201)
-  assert.equal((await server.submit(photos, { items: items(1, 1) })).status, 201)
+  assert.equal((await server.submit(photos, { items: items(1, 1), layout: { kind: "grid", perSheet: 8 } })).status, 201)
 })
 
 /** The form fields and annotations drawn into the one item of each sheet. */

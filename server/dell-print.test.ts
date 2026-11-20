@@ -90,6 +90,19 @@ test("the copies of a Dell job are in its data, collated: the sheets in order, t
   assert.deepEqual(inked, [true, false, true, false])
 })
 
+test("several photos or pages per sheet: the Dell job has a raster for each sheet, as many as the PDF would have", async t => {
+  const server = await start(t)
+  const { width, height } = RASTERS.A5
+  const sheet = width * height
+
+  await server.print({ ...colourPhotos, paper: "A5", layout: { kind: "grid", perSheet: 2 }, items: items(1, 1, 1) }, [halfBlack(), white(), halfBlack()])
+  assert.equal(server.printer.requests.at(-1)!.data.length, 2 * sheet)
+
+  const page: [number, number] = [200, 300]
+  await server.print({ ...colourPhotos, paper: "A5", layout: { kind: "grid", perSheet: 4 }, items: items(1, 1, 1, 1, 1) }, [pdfWithPages(Array.from({ length: 5 }, () => ({ size: page })))])
+  assert.equal(server.printer.requests.at(-1)!.data.length, 2 * sheet)
+})
+
 test("a colour PDF goes to CUPS as raw HBPL too: its pages rasterised and toned by the engine, the sheets in order, then again", async t => {
   const server = await start(t)
   // the second page has a 10 pt square in its bottom left corner, which at 100 % and top left is the sheet's
