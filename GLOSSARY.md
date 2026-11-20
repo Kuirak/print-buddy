@@ -28,4 +28,4 @@
 
 **Photo format**: A fixed size a photo is printed at, such as 10 × 15 cm, independent of the paper. The sheet then holds as many photos as fit. Not to be confused with Print size, which scales content relative to its own size or the sheet.
 
-**Repeats**: How many times each selected page or photo appears on the sheets, side by side, within one copy of the Print Job. Four photos with 2 Repeats fill 8 Cells.
+**Repeats**: How many times a selected page or photo appears on the sheets, side by side, within one copy of the Print Job. Each page or photo has its own; two of each of four photos fill 8 Cells.
