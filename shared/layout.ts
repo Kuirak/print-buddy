@@ -2,7 +2,7 @@
 // call `layout`, so the printout matches the preview. Keep this file free of DOM and Node imports.
 
 import type { Margins } from "./api.ts"
-import type { Item, Layout, PrintOptions, PrintSizeMode, Rotation } from "./print-options.ts"
+import { photoFormats, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "./print-options.ts"
 
 /** In points (1/72 inch). */
 export type Size = { width: number; height: number }
@@ -71,7 +71,12 @@ export type Sheet = {
    * clockwise, the first in the top half. Turn the sheet 90° counter-clockwise to see them upright and side by side.
    */
   sideways: boolean
+  /** At a Photo format with cut lines on: the slots that hold a photo, to be outlined with a hairline. Empty otherwise. */
+  cutLines: Box[]
 }
+
+/** The gap between the slots of a Photo format when "Abstand zum Schneiden" is on. */
+const GAP_MM = 2
 
 /** Sizes closer than this, in points, count as equal: Einpassen must not report a cut-off from rounding. */
 const TOLERANCE = 0.01
@@ -183,6 +188,43 @@ export function landscapeFirst(source: LayoutInput["source"], items: readonly It
   return first !== undefined && first.width > first.height
 }
 
+type FormatLayout = Extract<Layout, { kind: "format" }>
+
+/**
+ * The slots of a Photo format on the sheet, in the order they fill: as many of its size as fit the printable area,
+ * `gap` apart, packed from the top left a row at a time. Upright slots for "portrait", sideways ones for "landscape";
+ * "save" takes whichever holds the most of: all upright, a block of upright slots with a strip of sideways ones below
+ * it, all sideways, or a block of sideways slots with a strip of upright ones below it (the first of those on a tie).
+ */
+function formatSlots(layout: FormatLayout, sheet: Size, margins: Margins): Box[] {
+  const { w, h } = typeof layout.format === "string" ? photoFormats[layout.format] : layout.format
+  const short = Math.min(w, h) * POINTS_PER_MM
+  const long = Math.max(w, h) * POINTS_PER_MM
+  const gap = layout.gap ? GAP_MM * POINTS_PER_MM : 0
+  const width = sheet.width - margins.left - margins.right
+  // slots of `slot` size in rows from `top`, as many as fit down to the printable area's bottom edge
+  const block = (top: number, slot: Size): Box[] => {
+    const fit = (length: number, size: number) => Math.max(0, Math.floor((length + gap + TOLERANCE) / (size + gap)))
+    const columns = fit(width, slot.width)
+    const rows = fit(sheet.height - margins.bottom - top, slot.height)
+    return Array.from({ length: rows * columns }, (_, i) => ({
+      left: margins.left + (i % columns) * (slot.width + gap),
+      top: top + Math.floor(i / columns) * (slot.height + gap),
+      ...slot,
+    }))
+  }
+  const upright = { width: short, height: long }
+  const across = flipped(upright)
+  const ways = layout.lage === "portrait" ? [upright] : layout.lage === "landscape" ? [across] : [upright, across]
+  const candidates = ways.flatMap(slot => {
+    const main = block(margins.top, slot)
+    if (layout.lage !== "save" || main.length === 0) return [main]
+    const below = Math.max(...main.map(box => box.top + box.height)) + gap
+    return [main, [...main, ...block(below, flipped(slot))]]
+  })
+  return candidates.reduce((best, candidate) => (candidate.length > best.length ? candidate : best), [])
+}
+
 /**
  * The Cells a layout divides a sheet into, in the order they fill. `layout` places into them, and the sketch of a
  * layout draws them. No Cells for a layout that can't be laid out on the sheet.
@@ -194,9 +236,10 @@ export function landscapeFirst(source: LayoutInput["source"], items: readonly It
  *   Cells lie along the sheet's right edge.
  * - `landscape` (see `landscapeFirst`) reads every grid the other way: the same Cells, read turned a quarter, so that
  *   landscape pages stand upright in them. 2 and 6 are then read upright, 4 and 8 sideways.
+ * - A Photo format's Cells are its slots (see `formatSlots`), none when the format doesn't fit the paper.
  */
 export function cells(layout: Layout, sheet: Size, margins: Margins, landscape = false): Cells {
-  if (layout.kind !== "grid") return { cells: [], sideways: false }
+  if (layout.kind === "format") return { cells: formatSlots(layout, sheet, margins).map(box => ({ box, printable: box })), sideways: false }
   if (layout.perSheet === 1) {
     const printable = { left: margins.left, top: margins.top, width: sheet.width - margins.left - margins.right, height: sheet.height - margins.top - margins.bottom }
     return { cells: [{ box: { left: 0, top: 0, ...sheet }, printable }], sideways: false }
@@ -231,16 +274,19 @@ export function cells(layout: Layout, sheet: Size, margins: Margins, landscape =
  * - Rotation: EXIF orientation first, then auto-rotate (photos only, at Einpassen and Füllen: a landscape photo on a
  *   portrait sheet turns 90°, and the reverse), then the item's `turn`. All turns are clockwise.
  * - Einpassen is the largest size inside the printable part of the Cell, Füllen the smallest that covers the whole Cell,
- *   a percentage scales from the natural size. An item's `size` replaces the Print size for that item.
+ *   a percentage scales from the natural size. An item's `size` replaces the Print size for that item. At a Photo
+ *   format a percentage counts as Füllen, and nothing is ever reported as cut off: cropping to the slot is expected.
  * - Position aligns the content to the printable part of its Cell.
  * - Cells: see `cells`. Each page or photo is laid out in its Cell as on a sheet of its own; photos turn by themselves
  *   to the Cell, PDF pages never do, and the grid is read the other way after a landscape first page instead.
  *   No sheets when the layout can't be laid out.
  */
 export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[] {
+  const atFormat = options.layout.kind === "format"
+  const forAll: PrintSizeMode = atFormat && options.printSize.kind === "percent" ? { kind: "fill" } : options.printSize
   const contents = options.items.flatMap((item, index): Content[] => {
     if (item.count === 0) return []
-    const printSize: PrintSizeMode = item.size ? { kind: item.size } : options.printSize
+    const printSize: PrintSizeMode = item.size ? { kind: item.size } : forAll
     let content: Content
     if (source.kind === "pdf") {
       const natural = source.pages[index]!
@@ -273,7 +319,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
   const sheets: Sheet[] = []
   for (let first = 0; first < contents.length; first += areas.length) {
     const onThisSheet = contents.slice(first, first + areas.length)
-    const result: Sheet = { placements: [], cutOff: false, emptySpace: onThisSheet.length < areas.length, sideways }
+    const result: Sheet = { placements: [], cutOff: false, emptySpace: onThisSheet.length < areas.length, sideways, cutLines: [] }
     onThisSheet.forEach((content, index) => {
       const cell = areas[index]!
       const whole = asRead(cell.box)
@@ -310,8 +356,9 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
         ),
         clip: cell.box,
       })
-      result.cutOff ||= width > printable.width + TOLERANCE || height > printable.height + TOLERANCE
+      result.cutOff ||= !atFormat && (width > printable.width + TOLERANCE || height > printable.height + TOLERANCE)
       result.emptySpace ||= width < printable.width - TOLERANCE || height < printable.height - TOLERANCE
+      if (options.layout.kind === "format" && options.layout.cutLines) result.cutLines.push(cell.box)
     })
     sheets.push(result)
   }

@@ -103,6 +103,25 @@ test("several photos or pages per sheet: the Dell job has a raster for each shee
   assert.equal(server.printer.requests.at(-1)!.data.length, 2 * sheet)
 })
 
+test("photos at a Photo format through Dell's engine: a raster per sheet as in the PDF, with the cut lines drawn in", async t => {
+  const server = await start(t)
+  const { width, height } = RASTERS.A4
+  const sheet = width * height
+  const passbild = { kind: "format", format: "pass", lage: "save", gap: true, cutLines: false } as const
+  // white photos leave no ink: whatever is inked is a cut line
+  const inked = () => {
+    const data = server.printer.requests.at(-1)!.data
+    return Array.from({ length: data.length / sheet }, (_, n) => data.subarray(n * sheet, (n + 1) * sheet).some(byte => byte !== 0))
+  }
+
+  // without margins, A4 takes 32 Passbilder 2 mm apart: 40 make two sheets
+  await server.print({ ...colourPhotos, layout: passbild, items: items(40) }, [white()])
+  assert.deepEqual(inked(), [false, false])
+
+  await server.print({ ...colourPhotos, layout: { ...passbild, cutLines: true }, items: items(40) }, [white()])
+  assert.deepEqual(inked(), [true, true])
+})
+
 test("a colour PDF goes to CUPS as raw HBPL too: its pages rasterised and toned by the engine, the sheets in order, then again", async t => {
   const server = await start(t)
   // the second page has a 10 pt square in its bottom left corner, which at 100 % and top left is the sheet's

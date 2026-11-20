@@ -1,6 +1,6 @@
 import {
   PDFDocument, clip, concatTransformationMatrix, drawObject, endPath, popGraphicsState, pushGraphicsState, rectangle,
-  type PDFRef,
+  setLineWidth, setStrokingGrayscaleColor, stroke, type PDFPage, type PDFRef,
 } from "@cantoo/pdf-lib"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -8,13 +8,17 @@ import { join } from "node:path"
 import { Readable } from "node:stream"
 import sharp from "sharp"
 import type { Margins, PhotoFacts } from "../shared/api.ts"
-import { SHEET_SIZES, layout, overSheetLimit, photoNaturalSize, sheetCount, type LayoutInput, type Matrix, type Placement, type Sheet } from "../shared/layout.ts"
+import { SHEET_SIZES, cells, layout, overSheetLimit, photoNaturalSize, sheetCount, type Box, type LayoutInput, type Matrix, type Placement, type Sheet } from "../shared/layout.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { Engine } from "./dell-engine.ts"
 import type { DraftFile } from "./intake.ts"
 import { DOT, RASTERS, type HbplEncoder } from "./printer/hbpl.ts"
 import { pdfPageRows } from "./pdf-raster.ts"
 import { drawAnnotations, openSourcePdf, shownPart } from "./source-pdf.ts"
+
+/** Cut lines are hairlines: this wide, in points, and mid grey. */
+const CUT_LINE_WIDTH = 0.25
+const CUT_LINE_GREY = 0.5
 
 /** What goes to CUPS: a PDF for the queue's driver, or HBPL, the Printer's own language, which CUPS passes on as it is. */
 export interface PrintDocument { format: "pdf" | "hbpl"; bytes: Uint8Array }
@@ -55,7 +59,10 @@ export async function render(
   const facts = files[0]?.facts
   if (!facts) return { outcome: "invalid-options" }
   const count = facts.kind === "pdf" ? facts.pages.length : files.length
-  if (options.items.length !== count || options.layout.kind !== "grid") return { outcome: "invalid-options" }
+  if (options.items.length !== count) return { outcome: "invalid-options" }
+  // Photo formats are for photos, and one that doesn't fit the paper (an own size too large) has no slots
+  if (options.layout.kind === "format" && facts.kind === "pdf") return { outcome: "invalid-options" }
+  if (cells(options.layout, SHEET_SIZES[options.paper], margins).cells.length === 0) return { outcome: "invalid-options" }
 
   const source: LayoutInput["source"] = facts.kind === "pdf" ? facts : { kind: "photos", photos: files.map(file => file.facts as PhotoFacts) }
   const sheets = layout({ source, options, sheet: SHEET_SIZES[options.paper], margins })
@@ -64,7 +71,7 @@ export async function render(
   if (options.color === "color" && dell) {
     watch.onProgress?.(0, sheets.length * options.copies)
     const raster = source.kind === "photos"
-      ? dellRaster(sheets.length, options, dell.engine, watch, sheet => photoRows(files, sheets[sheet]!.placements, options.paper))
+      ? dellRaster(sheets.length, options, dell.engine, watch, sheet => photoRows(files, sheets[sheet]!, options.paper))
       : pdfRaster(await pdfOf(files, sheets, options, { signal: watch.signal }), sheets.length, options, dell.engine, watch)
     const bytes = await dell.encode(options.paper, Readable.from(raster))
     return { outcome: "rendered", document: { format: "hbpl", bytes }, sheets: sheetsOfJob }
@@ -99,7 +106,7 @@ async function pdfOf(files: readonly DraftFile[], sheets: Sheet[], options: Prin
     }
   }
 
-  for (const [done, { placements }] of sheets.entries()) {
+  for (const [done, { placements, cutLines }] of sheets.entries()) {
     watch.signal?.throwIfAborted()
     const page = out.addPage([sheet.width, sheet.height])
     for (const placement of placements) {
@@ -117,9 +124,25 @@ async function pdfOf(files: readonly DraftFile[], sheets: Sheet[], options: Prin
         popGraphicsState(),
       )
     }
+    drawCutLines(page, cutLines)
     watch.onProgress?.(done + 1)
   }
   return out.save()
+}
+
+/** Outlines each box (from the sheet's top left, in points) with a hairline, on top of whatever is drawn there. */
+function drawCutLines(page: PDFPage, boxes: readonly Box[]) {
+  const sheetHeight = page.getHeight()
+  for (const box of boxes) {
+    page.pushOperators(
+      pushGraphicsState(),
+      setLineWidth(CUT_LINE_WIDTH),
+      setStrokingGrayscaleColor(CUT_LINE_GREY),
+      rectangle(box.left, sheetHeight - box.top - box.height, box.width, box.height),
+      stroke(),
+      popGraphicsState(),
+    )
+  }
 }
 
 /** Rows of the Printer's raster per chunk of the stream to foo2hbpl2. */
@@ -174,10 +197,10 @@ async function* pdfRaster(pdf: Uint8Array, sheets: number, options: PrintOptions
 }
 
 /**
- * A sheet of a colour photo job as sRGB rows: paper white, with each photo where it shows. A dot is a photo's when
- * its centre lies in the part of the sheet where the photo shows.
+ * A sheet of a colour photo job as sRGB rows: paper white, with each photo where it shows and the cut lines on top. A
+ * dot is a photo's when its centre lies in the part of the sheet where the photo shows.
  */
-async function* photoRows(files: readonly DraftFile[], placements: Placement[], paper: PrintOptions["paper"]): AsyncGenerator<Uint8Array> {
+async function* photoRows(files: readonly DraftFile[], { placements, cutLines }: Sheet, paper: PrintOptions["paper"]): AsyncGenerator<Uint8Array> {
   const { width, height } = RASTERS[paper]
   const sheetHeight = SHEET_SIZES[paper].height
   const shown = []
@@ -188,6 +211,13 @@ async function* photoRows(files: readonly DraftFile[], placements: Placement[], 
     const y0 = Math.max(0, Math.round(photo.box.top / DOT)), y1 = Math.min(height, Math.round(photo.box.bottom / DOT))
     if (x1 > x0 && y1 > y0) shown.push({ photo, x0, x1, y0, y1 })
   }
+  // a cut line is at least a dot wide, centred on the slot's edge
+  const line = Math.max(1, Math.round(CUT_LINE_WIDTH / DOT))
+  const grey = Math.round(CUT_LINE_GREY * 255)
+  const outlines = cutLines.map(box => ({
+    x0: Math.max(0, Math.round(box.left / DOT - line / 2)), x1: Math.min(width, Math.round((box.left + box.width) / DOT + line / 2)),
+    y0: Math.max(0, Math.round(box.top / DOT - line / 2)), y1: Math.min(height, Math.round((box.top + box.height) / DOT + line / 2)),
+  }))
   const row = new Uint8Array(width * 3)
   for (let y = 0; y < height; y++) {
     row.fill(255)
@@ -195,6 +225,13 @@ async function* photoRows(files: readonly DraftFile[], placements: Placement[], 
       if (y < y0 || y >= y1) continue
       // off the stored pixels, at a rounded edge, stays paper
       for (let x = x0; x < x1; x++) photo.colour((x + 0.5) * DOT, (y + 0.5) * DOT, row, x * 3)
+    }
+    for (const { x0, x1, y0, y1 } of outlines) {
+      if (y < y0 || y >= y1) continue
+      // the top and bottom edge run across, the sides are a few dots each
+      const across = y < y0 + line || y >= y1 - line
+      const dots = across ? [[x0, x1]] : [[x0, x0 + line], [x1 - line, x1]]
+      for (const [from, to] of dots) row.fill(grey, from! * 3, to! * 3)
     }
     yield row
   }

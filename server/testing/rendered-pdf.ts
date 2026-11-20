@@ -43,6 +43,7 @@ const round = (n: number) => Math.round(n * 100) / 100 + 0
 const number = "(-?[\\d.]+(?:e-?\\d+)?)"
 const drawn = new RegExp(`q\\s+${number} ${number} ${number} ${number} re\\s+W\\s+n\\s+${number} ${number} ${number} ${number} ${number} ${number} cm\\s+/(\\S+) Do\\s+Q`, "g")
 const placed = new RegExp(`q\\s+${number} ${number} ${number} ${number} ${number} ${number} cm\\s+/(\\S+) Do\\s+Q`, "g")
+const outlined = new RegExp(`q\\s+${number} w\\s+${number} G\\s+${number} ${number} ${number} ${number} re\\s+S\\s+Q`, "g")
 
 /** The form fields and annotations drawn into an embedded page, as `RenderedItem.annotations`. */
 function annotationsOf(page: PDFRawStream): Pick<RenderedItem, "annotations"> {
@@ -125,4 +126,16 @@ export async function drawnObjects(bytes: Uint8Array): Promise<number> {
     for (const match of text.matchAll(drawn)) stored.add(String(xobjects!.get(PDFName.of(match[11]!))))
   }
   return stored.size
+}
+
+/** The rectangles stroked on each sheet, with the width and the grey (0 black, 1 white) of their line. Numbers rounded to 0.01 pt. */
+export async function strokedBoxes(bytes: Uint8Array): Promise<{ box: Box; width: number; grey: number }[][]> {
+  const doc = await PDFDocument.load(bytes)
+  return doc.getPages().map(page => {
+    const { height } = page.getSize()
+    return [...contentOf(doc, page).text.matchAll(outlined)].map(match => {
+      const [width, grey, x, y, w, h] = match.slice(1, 7).map(Number) as [number, number, number, number, number, number]
+      return { box: { left: round(x), top: round(height - y - h), width: round(w), height: round(h) }, width, grey }
+    })
+  })
 }

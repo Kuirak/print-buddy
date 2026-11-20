@@ -4,7 +4,7 @@ import type { Item, PrintOptions } from "../shared/print-options.ts"
 import type { FakeIpp } from "./testing/fake-ipp.ts"
 import { encryptedPdf, items, pdfWithPages, sampleJpeg, samplePng, samplePrintOptions as base, withExifOrientation, type PdfPageSpec } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
-import { drawnObjects, readRenderedPdf } from "./testing/rendered-pdf.ts"
+import { drawnObjects, readRenderedPdf, strokedBoxes } from "./testing/rendered-pdf.ts"
 
 // Sheet sizes in points: A4 is 595.28 × 841.89, A5 419.53 × 595.28, Umschlag DL 311.81 × 623.62, Umschlag C5 459.21 × 649.13.
 
@@ -340,6 +340,9 @@ test("Print Options that don't fit the draft's files are refused and nothing is 
     [photos, { items: items(1) }],
     [photos, { items: items(1, 1, 1) }],
     [pdf, { items: items(1, 1), layout: { kind: "format", format: "10x15", lage: "save", gap: true, cutLines: false } }],
+    // an own size larger than A4, and 13 × 18 on an envelope DL: no slot fits
+    [photos, { items: items(1, 1), layout: { kind: "format", format: { w: 250, h: 300 }, lage: "save", gap: true, cutLines: false } }],
+    [photos, { items: items(1, 1), paper: "EnvDL", layout: { kind: "format", format: "13x18", lage: "save", gap: true, cutLines: false } }],
   ]
   for (const [draftId, options] of refused) {
     const submitted = await server.submit(draftId, options)
@@ -351,6 +354,35 @@ test("Print Options that don't fit the draft's files are refused and nothing is 
   // the same drafts print once the options fit
   assert.equal((await server.submit(pdf, { items: items(0, 1), layout: { kind: "grid", perSheet: 2 } })).status, 201)
   assert.equal((await server.submit(photos, { items: items(1, 1), layout: { kind: "grid", perSheet: 8 } })).status, 201)
+})
+
+test("photos at a Photo format: as many as fit, each turned to its slot and cropped to it; cut lines as hairlines when asked", async t => {
+  const server = await start(t)
+  const tenByFifteen = { kind: "format", format: "10x15", lage: "save", gap: true, cutLines: true } as const
+
+  const sheets = await print(server, [sampleJpeg(), samplePng(64, 48), samplePng(20, 10), sampleJpeg()], { layout: tenByFifteen, printSize: { kind: "fill" }, items: items(1, 1, 1, 1) })
+
+  // without margins A4 takes two upright slots of 100 × 150 mm and one sideways below them, 2 mm apart: the fourth photo
+  // goes on a second sheet. Each photo covers its slot at Füllen, centred.
+  const upright = (left: number) => ({ left, top: 0, width: 283.46, height: 425.2 })
+  const across = { left: 0, top: 430.87, width: 425.2, height: 283.46 }
+  assert.deepEqual(sheets.map(sheet => sheet.items.map(({ size, box, clip }) => ({ size, box, clip }))), [
+    [
+      { size: [40, 30], box: { left: -17.72, top: 0, width: 318.9, height: 425.2 }, clip: upright(0) },
+      { size: [64, 48], box: { left: 271.42, top: 0, width: 318.9, height: 425.2 }, clip: upright(289.13) },
+      { size: [20, 10], box: { left: -70.87, top: 430.87, width: 566.93, height: 283.46 }, clip: across },
+    ],
+    [{ size: [40, 30], box: { left: -17.72, top: 0, width: 318.9, height: 425.2 }, clip: upright(0) }],
+  ])
+  // the landscape photos in upright slots lie turned a quarter: the stored photo's bottom-left corner is at the slot's top
+  assert.deepEqual(sheets[0]!.items[0]!.corners[0], [-17.72, 0])
+  assert.deepEqual(await strokedBoxes(server.printer.requests.at(-1)!.data), [
+    [upright(0), upright(289.13), across].map(box => ({ box, width: 0.25, grey: 0.5 })),
+    [{ box: upright(0), width: 0.25, grey: 0.5 }],
+  ])
+
+  await print(server, [sampleJpeg()], { layout: { ...tenByFifteen, cutLines: false }, printSize: { kind: "fill" } })
+  assert.deepEqual(await strokedBoxes(server.printer.requests.at(-1)!.data), [[]])
 })
 
 test("a Print Job of more than 100 sheets, copies included, is refused and nothing is printed; 100 sheets print", async t => {

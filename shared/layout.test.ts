@@ -439,12 +439,14 @@ test("pages and photos in a grid: each laid out in its Cell as on a sheet of its
         cutOff: false,
         emptySpace: true,
         sideways: true,
+        cutLines: [],
       },
       {
         placements: [{ ref: 3, rotation: 90, scale: 1.4, left: 10, top: 65, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 735], clip: { left: 10, top: 20, width: 560, height: 370 } }],
         cutOff: false,
         emptySpace: true,
         sideways: true,
+        cutLines: [],
       },
     ])
   })
@@ -626,6 +628,7 @@ test("on A4 with the Printer's margins, two A4 pages of 595 × 842 pt print at 6
       cutOff: false,
       emptySpace: true,
       sideways: true,
+      cutLines: [],
     },
   ])
 })
@@ -691,5 +694,124 @@ test("a Print Job may take at most 100 sheets, copies included", async t => {
     assert.equal(over(twentyPhotos, { items: each(...fifty) }), true)
     assert.equal(over(twentyPhotos, { items: each(...fifty), layout: { kind: "grid", perSheet: 8 } }), true)
     assert.equal(over(twentyPhotos, { items: each(...fifty.map(() => 40)), layout: { kind: "grid", perSheet: 8 } }), false)
+  })
+})
+
+type FormatLayout = Extract<PrintOptions["layout"], { kind: "format" }>
+const format = (name: FormatLayout["format"], lage: FormatLayout["lage"] = "save", gap = true, cutLines = false): FormatLayout =>
+  ({ kind: "format", format: name, lage, gap, cutLines })
+
+// The Printer's margins: 9 pt (3.175 mm) left and right, 12 pt (4.233 mm) top and bottom. On A4 that leaves 203.65 × 288.53 mm.
+const edge = { top: 12, right: 9, bottom: 12, left: 9 }
+
+test("Photo formats: as many slots of the format as fit the printable area, by Lage, with and without the gap", async t => {
+  const count = (paper: PrintOptions["paper"], name: FormatLayout["format"], lage: FormatLayout["lage"], gap: boolean) =>
+    cells(format(name, lage, gap), SHEET_SIZES[paper], edge).cells.length
+  // [portrait, landscape, save]: "Alle hoch", "Alle quer", "Platz sparen"; without the gap, then with it.
+  // Platz sparen takes the most of: all upright, all sideways, or a block of one with a strip of the other below it.
+  const cases: [PrintOptions["paper"], FormatLayout["format"], number[], number[]][] = [
+    ["A4", "10x15", [2, 2, 3], [2, 2, 3]],
+    ["A4", "9x13", [4, 3, 4], [4, 3, 4]],
+    ["A4", "13x18", [1, 2, 2], [1, 2, 2]],
+    ["A4", "pass", [30, 32, 32], [30, 28, 30]],
+    ["A5", "10x15", [1, 0, 1], [1, 0, 1]],
+    ["A5", "9x13", [1, 2, 2], [1, 2, 2]],
+    ["A5", "13x18", [1, 0, 1], [1, 0, 1]],
+    ["A5", "pass", [16, 15, 16], [12, 15, 15]],
+    ["EnvDL", "10x15", [1, 0, 1], [1, 0, 1]],
+    ["EnvDL", "9x13", [1, 0, 1], [1, 0, 1]],
+    ["EnvDL", "13x18", [0, 0, 0], [0, 0, 0]],
+    ["EnvDL", "pass", [8, 12, 12], [8, 10, 10]],
+    ["EnvC5", "10x15", [1, 2, 2], [1, 2, 2]],
+    ["EnvC5", "9x13", [1, 2, 2], [1, 2, 2]],
+    ["EnvC5", "13x18", [1, 0, 1], [1, 0, 1]],
+    // 16 upright with a strip of 3 sideways below them
+    ["EnvC5", "pass", [16, 18, 19], [16, 18, 18]],
+  ]
+  for (const [paper, name, without, withGap] of cases) {
+    await t.test(`${paper}, ${name}`, () => {
+      const lagen = ["portrait", "landscape", "save"] as const
+      assert.deepEqual(lagen.map(lage => count(paper, name, lage, false)), without)
+      assert.deepEqual(lagen.map(lage => count(paper, name, lage, true)), withGap)
+    })
+  }
+
+  await t.test("own sizes in mm: whatever fits, and nothing when it doesn't fit the paper", () => {
+    assert.equal(count("A4", { w: 60, h: 90 }, "save", true), 9)
+    assert.equal(count("A4", { w: 90, h: 60 }, "portrait", true), 9)
+    assert.equal(count("A4", { w: 250, h: 100 }, "save", true), 2)
+    assert.equal(count("A4", { w: 250, h: 100 }, "landscape", true), 0)
+    assert.equal(count("A4", { w: 200, h: 285 }, "save", true), 1)
+    assert.equal(count("A4", { w: 210, h: 297 }, "save", false), 0)
+    // squares of 20 mm: 6 across and 9 down on A5
+    assert.equal(count("A5", { w: 20, h: 20 }, "save", true), 54)
+  })
+
+  await t.test("the slots are packed from the top left of the printable area, a row at a time, the strip below", () => {
+    const boxes = (lage: FormatLayout["lage"]) =>
+      rounded(cells(format("10x15", lage), SHEET_SIZES.A4, edge).cells).map(({ box: { left, top, width, height } }) => [left, top, width, height])
+    // 100 × 150 mm is 283.46 × 425.2 pt; the gap of 2 mm is 5.67 pt
+    assert.deepEqual(boxes("save"), [[9, 12, 283.46, 425.2], [298.13, 12, 283.46, 425.2], [9, 442.87, 425.2, 283.46]])
+    assert.deepEqual(boxes("portrait"), [[9, 12, 283.46, 425.2], [298.13, 12, 283.46, 425.2]])
+    assert.deepEqual(boxes("landscape"), [[9, 12, 425.2, 283.46], [9, 301.13, 425.2, 283.46]])
+    // a slot is all printable, and a format is never read sideways
+    const { cells: slots, sideways } = cells(format("10x15"), SHEET_SIZES.A4, edge)
+    assert.equal(sideways, false)
+    for (const slot of slots) assert.deepEqual(slot.printable, slot.box)
+  })
+})
+
+test("photos at a Photo format: each turns to its slot, fills it or fits into it, and is never reported cut off", async t => {
+  const atFormat = (source: LayoutInput["source"], chosen: FormatLayout, changes: Partial<PrintOptions> = {}) =>
+    layout({ source, options: options({ layout: chosen, ...changes }), sheet: SHEET_SIZES.A4, margins: edge })
+  // 3:2 photos of 720 × 480 pt, and a 4:3 one of 960 × 720 pt
+  const threeTwo = photos([3000, 2000], [3000, 2000], [3000, 2000], [3000, 2000])
+
+  await t.test("10 × 15, Platz sparen: the two upright slots turn the landscape photos, the sideways one doesn't; the fourth starts a sheet", () => {
+    const sheets = atFormat(threeTwo, format("10x15"), { items: each(1, 1, 1, 1), printSize: fill })
+    assert.deepEqual(rounded(sheets).map(s => s.placements.map(p => [p.ref, p.rotation, p.left, p.top, p.width, p.height])), [
+      [[0, 90, 9, 12, 283.46, 425.2], [1, 90, 298.13, 12, 283.46, 425.2], [2, 0, 9, 442.87, 425.2, 283.46]],
+      [[3, 90, 9, 12, 283.46, 425.2]],
+    ])
+    assert.deepEqual(sheets.map(s => [s.cutOff, s.emptySpace, s.sideways]), [[false, false, false], [false, true, false]])
+  })
+
+  await t.test("an item's turn comes on top of the slot's", () => {
+    const sheets = atFormat(threeTwo, format("10x15"), { items: [{ count: 1, turn: 0 }, { count: 0, turn: 0 }, { count: 1, turn: 90 }, { count: 0, turn: 0 }], printSize: fill })
+    assert.deepEqual(sheets[0]!.placements.map(p => p.rotation), [90, 180])
+  })
+
+  await t.test("Füllen covers the slot and Position keeps a part; Einpassen leaves a border where Position says; neither is cut off", () => {
+    const fourThree = photos([4000, 3000])
+    const one = (printSize: PrintOptions["printSize"], position: PrintOptions["position"]) => {
+      const [sheet] = atFormat(fourThree, format("10x15", "landscape"), { printSize, position })
+      const { left, top, width, height } = rounded(sheet!.placements[0]!)
+      return [left, top, width, height, sheet!.cutOff]
+    }
+    // the slot is 425.2 × 283.46 from (9, 12): Füllen is 425.2 × 318.9, Einpassen 377.95 × 283.46
+    assert.deepEqual(one(fill, "center"), [9, -5.72, 425.2, 318.9, false])
+    assert.deepEqual(one(fill, "top"), [9, 12, 425.2, 318.9, false])
+    assert.deepEqual(one(fit, "center"), [32.62, 12, 377.95, 283.46, false])
+    assert.deepEqual(one(fit, "left"), [9, 12, 377.95, 283.46, false])
+    // a percentage counts as Füllen at a format
+    assert.deepEqual(one(percent(50), "center"), one(fill, "center"))
+    // and so does an item's own size
+    const [sized] = atFormat(fourThree, format("10x15", "landscape"), { items: [{ count: 1, turn: 0, size: "fit" }], printSize: fill })
+    assert.equal(rounded(sized!.placements[0]!).width, 377.95)
+  })
+
+  await t.test("cut lines: the slots that hold a photo, only with the switch on, and never in a grid", () => {
+    const lines = (chosen: PrintOptions["layout"]) => rounded(layout({ source: threeTwo, options: options({ layout: chosen, items: each(1, 1, 0, 0), printSize: fill }), sheet: SHEET_SIZES.A4, margins: edge })).map(s => s.cutLines)
+    assert.deepEqual(lines(format("10x15", "save", true, true)), [[
+      { left: 9, top: 12, width: 283.46, height: 425.2 },
+      { left: 298.13, top: 12, width: 283.46, height: 425.2 },
+    ]])
+    assert.deepEqual(lines(format("10x15", "save", true, false)), [[]])
+    assert.deepEqual(lines({ kind: "grid", perSheet: 4 }), [[]])
+  })
+
+  await t.test("a format that doesn't fit the paper gives no sheets", () => {
+    const sheets = layout({ source: threeTwo, options: options({ layout: format("13x18"), items: each(1, 1, 1, 1) }), sheet: SHEET_SIZES.EnvDL, margins: edge })
+    assert.deepEqual(sheets, [])
   })
 })
