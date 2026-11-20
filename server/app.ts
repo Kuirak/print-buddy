@@ -23,7 +23,7 @@ export interface AppDeps {
   now: Now
   /** Folder with the built UI. */
   uiDir: string
-  /** Packs colour photos into HBPL when Dell's engine is there; foo2hbpl2 unless a test puts something in its place. */
+  /** Packs colour Print Jobs into HBPL when Dell's engine is there; foo2hbpl2 unless a test puts something in its place. */
   encodeHbpl?: HbplEncoder
 }
 
@@ -59,18 +59,18 @@ export async function createApp(deps: AppDeps) {
   }
 }
 
-/** Dell's engine from the share folder. A missing or broken file costs the Dell path, not the start: colour photos then go through the queue's driver. */
+/** Dell's engine from the share folder. A missing or broken file costs the Dell path, not the start: colour then goes through the queue's driver. */
 async function openDell(file: string, encode: HbplEncoder): Promise<DellPrinting | undefined> {
   try {
     const engine = await loadDellEngine(file)
     if (!engine) {
-      console.log(`No Dell engine at ${file}: colour photos print through the CUPS queue's driver.`)
+      console.log(`No Dell engine at ${file}: colour Print Jobs print through the CUPS queue's driver.`)
       return undefined
     }
-    console.log(`Colour photos print through Dell's engine (${engine.about}).`)
+    console.log(`Colour Print Jobs print through Dell's engine (${engine.about}).`)
     return { engine, encode }
   } catch (err) {
-    console.error(`Dell's engine at ${file} can't be used, colour photos print through the CUPS queue's driver:`, err instanceof Error ? err.message : err)
+    console.error(`Dell's engine at ${file} can't be used, colour Print Jobs print through the CUPS queue's driver:`, err instanceof Error ? err.message : err)
     return undefined
   }
 }

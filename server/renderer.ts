@@ -2,7 +2,9 @@ import {
   PDFDocument, clip, concatTransformationMatrix, drawObject, endPath, popGraphicsState, pushGraphicsState, rectangle,
   type PDFRef,
 } from "@cantoo/pdf-lib"
-import { readFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Readable } from "node:stream"
 import sharp from "sharp"
 import type { Margins, PhotoFacts } from "../shared/api.ts"
@@ -11,6 +13,7 @@ import type { PrintOptions } from "../shared/print-options.ts"
 import type { Engine } from "./dell-engine.ts"
 import type { DraftFile } from "./intake.ts"
 import { DOT, RASTERS, type HbplEncoder } from "./printer/hbpl.ts"
+import { pdfPageRows } from "./pdf-raster.ts"
 import { drawAnnotations, openSourcePdf, shownPart } from "./source-pdf.ts"
 
 /** What goes to CUPS: a PDF for the queue's driver, or HBPL, the Printer's own language, which CUPS passes on as it is. */
@@ -41,7 +44,7 @@ export interface RenderWatch {
 /**
  * The renderer: builds what goes to the Printer from a draft's files and the Print Options.
  * Where everything sits comes from the layout module; `margins` are the Printer's for the chosen paper.
- * With `dell`, colour photos become HBPL through Dell's engine; everything else is a PDF.
+ * With `dell`, colour Print Jobs become HBPL through Dell's engine; everything else is a PDF.
  *
  * The Print Options are invalid when the selection is empty, when it names a page or photo the draft
  * doesn't have, or when photos are to go two per sheet.
@@ -61,30 +64,38 @@ export async function render(
     (facts.kind === "pdf" || options.pagesPerSheet === 1)
   if (!valid) return { outcome: "invalid-options" }
 
-  const photos = facts.kind === "pdf" ? [] : files.map(file => file.facts as PhotoFacts)
-  const source: LayoutInput["source"] = facts.kind === "pdf" ? facts : { kind: "photos", photos }
-  const sheet = SHEET_SIZES[options.paper]
-  const sheets = layout({ source, options, sheet, margins })
+  const source: LayoutInput["source"] = facts.kind === "pdf" ? facts : { kind: "photos", photos: files.map(file => file.facts as PhotoFacts) }
+  const sheets = layout({ source, options, sheet: SHEET_SIZES[options.paper], margins })
   const sheetsOfJob = sheetCount(sheets, options.copies)
-  if (source.kind === "photos" && options.color === "color" && dell) {
+  if (options.color === "color" && dell) {
     watch.onProgress?.(0, sheets.length * options.copies)
-    const bytes = await dell.encode(options.paper, Readable.from(dellRaster(files, sheets, options, dell.engine, watch)))
+    const raster = source.kind === "photos"
+      ? dellRaster(sheets.length, options, dell.engine, watch, sheet => photoRows(files, sheets[sheet]!.placements, options.paper))
+      : pdfRaster(await pdfOf(files, sheets, options, { signal: watch.signal }), sheets.length, options, dell.engine, watch)
+    const bytes = await dell.encode(options.paper, Readable.from(raster))
     return { outcome: "rendered", document: { format: "hbpl", bytes }, sheets: sheetsOfJob }
   }
 
   // CUPS makes the copies of a PDF
   watch.onProgress?.(0, sheets.length)
+  const bytes = await pdfOf(files, sheets, options, { ...watch, onProgress: done => watch.onProgress?.(done, sheets.length) })
+  return { outcome: "rendered", document: { format: "pdf", bytes }, sheets: sheetsOfJob }
+}
+
+/** The sheets as one PDF, a page per sheet. `watch.onProgress` gets the sheets done so far. */
+async function pdfOf(files: readonly DraftFile[], sheets: Sheet[], options: PrintOptions, watch: { onProgress?: (done: number) => void; signal?: AbortSignal } = {}): Promise<Uint8Array> {
+  const sheet = SHEET_SIZES[options.paper]
   const out = await PDFDocument.create()
-  const chosen = [...new Set(selection)]
+  const chosen = [...new Set(options.selection)]
   let drawables = new Map<number, Drawable>()
-  if (source.kind === "pdf") {
+  if (files[0]!.facts.kind === "pdf") {
     drawables = await embedPages(out, await readFile(files[0]!.path), chosen)
   } else {
     // one after the other: pdf-lib unpacks a PNG to raw pixels, and 20 of those at once need too much memory
     for (const index of chosen) {
       watch.signal?.throwIfAborted()
       const bytes = await readFile(files[index]!.path)
-      const photo = photos[index]!
+      const photo = files[index]!.facts as PhotoFacts
       const image = photo.format === "jpeg" ? await out.embedJpg(bytes) : await out.embedPng(bytes)
       // an image is drawn as the unit square
       const { width, height } = photoNaturalSize(photo)
@@ -110,53 +121,86 @@ export async function render(
         popGraphicsState(),
       )
     }
-    watch.onProgress?.(done + 1, sheets.length)
+    watch.onProgress?.(done + 1)
   }
-  return { outcome: "rendered", document: { format: "pdf", bytes: await out.save() }, sheets: sheetsOfJob }
+  return out.save()
 }
 
 /** Rows of the Printer's raster per chunk of the stream to foo2hbpl2. */
 const ROWS_PER_CHUNK = 64
 
+/** A sheet's sRGB rows at 600 dpi (sheets counted from 0), `RASTERS[paper]` in size, top to bottom; each row only until the next. */
+type SheetRows = (sheet: number) => AsyncIterable<Uint8Array>
+
 /**
- * The sheets of a colour photo job as the Printer's raster through Dell's engine: the full raster of the paper per
- * sheet, the sheets in order and then again for each further copy. A dot is a photo's when its centre lies in the
- * part of the sheet where the photo shows.
+ * A job's sheets as the Printer's raster through Dell's engine: the full raster of the paper per sheet, the sheets in
+ * order and then again for each further copy.
  */
-async function* dellRaster(files: readonly DraftFile[], sheets: Sheet[], options: PrintOptions, engine: Engine, watch: RenderWatch): AsyncGenerator<Uint8Array> {
+async function* dellRaster(sheets: number, options: PrintOptions, engine: Engine, watch: RenderWatch, rowsOf: SheetRows): AsyncGenerator<Uint8Array> {
   const { width, height } = RASTERS[options.paper]
-  const sheetHeight = SHEET_SIZES[options.paper].height
   let done = 0
   for (let copy = 0; copy < options.copies; copy++) {
-    for (const { placements } of sheets) {
-      const shown = []
-      for (const placement of placements) {
-        const photo = await photoSampler(files[placement.ref]!, placement, sheetHeight)
-        if (!photo) continue
-        const x0 = Math.max(0, Math.round(photo.box.left / DOT)), x1 = Math.min(width, Math.round(photo.box.right / DOT))
-        const y0 = Math.max(0, Math.round(photo.box.top / DOT)), y1 = Math.min(height, Math.round(photo.box.bottom / DOT))
-        if (x1 > x0 && y1 > y0) shown.push({ photo, x0, x1, y0, y1, rgb: new Uint8Array((x1 - x0) * 3) })
-      }
-      for (let top = 0; top < height; top += ROWS_PER_CHUNK) {
-        watch.signal?.throwIfAborted()
-        const chunk = new Uint8Array(Math.min(ROWS_PER_CHUNK, height - top) * width)
-        for (let y = top; y < top + chunk.length / width; y++) {
-          const row = chunk.subarray((y - top) * width, (y - top + 1) * width)
-          for (const { photo, x0, x1, y0, y1, rgb } of shown) {
-            if (y < y0 || y >= y1) continue
-            for (let x = x0; x < x1; x++) {
-              // off the stored pixels, at a rounded edge, is paper
-              if (!photo.colour((x + 0.5) * DOT, (y + 0.5) * DOT, rgb, (x - x0) * 3)) rgb.fill(255, (x - x0) * 3, (x - x0) * 3 + 3)
-            }
-            engine.dots(y, x0, rgb, row)
-          }
+    for (let sheet = 0; sheet < sheets; sheet++) {
+      let chunk: Uint8Array | undefined, rows = 0, y = 0
+      for await (const rgb of rowsOf(sheet)) {
+        if (!chunk) {
+          watch.signal?.throwIfAborted()
+          chunk = new Uint8Array(Math.min(ROWS_PER_CHUNK, height - y) * width)
+          rows = 0
         }
-        yield chunk
-        // a sheet takes seconds: between chunks the server answers other requests
-        await new Promise(resolve => setImmediate(resolve))
+        engine.dots(y++, 0, rgb, chunk.subarray(rows * width, ++rows * width))
+        if (rows * width === chunk.length) {
+          yield chunk
+          chunk = undefined
+          // a sheet takes seconds: between chunks the server answers other requests
+          await new Promise(resolve => setImmediate(resolve))
+        }
       }
-      watch.onProgress?.(++done, sheets.length * options.copies)
+      watch.onProgress?.(++done, sheets * options.copies)
     }
+  }
+}
+
+/**
+ * The raster of a colour PDF job: `pdf`, the job as the queue's driver would get it, rasterised sheet by sheet by
+ * MuPDF from a temporary file, which is gone once the raster is.
+ */
+async function* pdfRaster(pdf: Uint8Array, sheets: number, options: PrintOptions, engine: Engine, watch: RenderWatch): AsyncGenerator<Uint8Array> {
+  const { width, height } = RASTERS[options.paper]
+  const dir = await mkdtemp(join(tmpdir(), "print-buddy-"))
+  try {
+    const file = join(dir, "print.pdf")
+    await writeFile(file, pdf)
+    yield* dellRaster(sheets, options, engine, watch, sheet => pdfPageRows(file, sheet + 1, width, height))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * A sheet of a colour photo job as sRGB rows: paper white, with each photo where it shows. A dot is a photo's when
+ * its centre lies in the part of the sheet where the photo shows.
+ */
+async function* photoRows(files: readonly DraftFile[], placements: Placement[], paper: PrintOptions["paper"]): AsyncGenerator<Uint8Array> {
+  const { width, height } = RASTERS[paper]
+  const sheetHeight = SHEET_SIZES[paper].height
+  const shown = []
+  for (const placement of placements) {
+    const photo = await photoSampler(files[placement.ref]!, placement, sheetHeight)
+    if (!photo) continue
+    const x0 = Math.max(0, Math.round(photo.box.left / DOT)), x1 = Math.min(width, Math.round(photo.box.right / DOT))
+    const y0 = Math.max(0, Math.round(photo.box.top / DOT)), y1 = Math.min(height, Math.round(photo.box.bottom / DOT))
+    if (x1 > x0 && y1 > y0) shown.push({ photo, x0, x1, y0, y1 })
+  }
+  const row = new Uint8Array(width * 3)
+  for (let y = 0; y < height; y++) {
+    row.fill(255)
+    for (const { photo, x0, x1, y0, y1 } of shown) {
+      if (y < y0 || y >= y1) continue
+      // off the stored pixels, at a rounded edge, stays paper
+      for (let x = x0; x < x1; x++) photo.colour((x + 0.5) * DOT, (y + 0.5) * DOT, row, x * 3)
+    }
+    yield row
   }
 }
 

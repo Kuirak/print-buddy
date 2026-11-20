@@ -8,7 +8,7 @@ import { ENGINE_FORMAT, GRID, type DellEngine } from "./dell-engine.ts"
 import { Op, Tag, findAttr, values } from "./printer/ipp-codec.ts"
 import { RASTERS } from "./printer/hbpl.ts"
 import type { FakeIpp } from "./testing/fake-ipp.ts"
-import { jpegWithPixels, pngWithPixels, samplePdf, withExifOrientation } from "./testing/fixtures.ts"
+import { jpegWithPixels, pdfWithPages, pngWithPixels, withExifOrientation } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 
 /**
@@ -90,11 +90,36 @@ test("the copies of a Dell job are in its data, collated: the sheets in order, t
   assert.deepEqual(inked, [true, false, true, false])
 })
 
-test("black and white photos and PDFs still go to the queue's driver as a PDF when Dell's engine is there", async t => {
+test("a colour PDF goes to CUPS as raw HBPL too: its pages rasterised and toned by the engine, the sheets in order, then again", async t => {
+  const server = await start(t)
+  // the second page has a 10 pt square in its bottom left corner, which at 100 % and top left is the sheet's
+  const page: [number, number] = [595, 842]
+
+  await server.print({ ...colourPhotos, copies: 2, selection: [1, 2] }, [pdfWithPages([{ size: page, blank: true }, { size: page }])])
+
+  const request = server.printer.requests.at(-1)!
+  assert.deepEqual(values(request, Tag.operation, "document-format"), ["application/vnd.cups-raw"])
+  const { width, height } = RASTERS.A4
+  const sheet = width * height
+  assert.equal(request.data.length, 4 * sheet)
+  const inked = [0, 1, 2, 3].map(n => request.data.subarray(n * sheet, (n + 1) * sheet).some(byte => byte !== 0))
+  assert.deepEqual(inked, [false, true, false, true])
+
+  const second = request.data.subarray(sheet, 2 * sheet)
+  const at = (x: number, y: number) => second[y * width + x]!
+  // the square is 10 pt, 83 dots, up from the page's bottom edge, 842 pt down: it runs to the sheet's last full row,
+  // as the sheet is 7015.75 dots high
+  const top = Math.round((842 - 10) / (72 / 600))
+  for (let y = top + 3; y < height - 1; y++) for (let x = 0; x < 80; x++) assert.equal(at(x, y), cyanAt(x), `dot ${x}, ${y}`)
+  const outside = second.reduce((count, byte, i) => count + (byte !== 0 && (i % width >= 86 || i / width < top - 3) ? 1 : 0), 0)
+  assert.equal(outside, 0)
+})
+
+test("black and white Print Jobs still go to the queue's driver as a PDF when Dell's engine is there", async t => {
   const server = await start(t)
 
   await server.print({ ...colourPhotos, color: "mono" }, [halfBlack()])
-  await server.print({ color: "color" }, [samplePdf()])
+  await server.print({ color: "mono" }, [pdfWithPages([{ size: [595, 842] }])])
 
   const formats = server.printer.requests.filter(r => findAttr(r, Tag.operation, "document-format")).map(r => values(r, Tag.operation, "document-format")[0])
   assert.deepEqual(formats, ["application/pdf", "application/pdf"])

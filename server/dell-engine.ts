@@ -83,6 +83,8 @@ export function engineOf(data: DellEngine): Engine {
 
   // per toner, while a row runs: the quantum index of the current pixel's cell row start, and its column in the cell
   const rowStart = new Int32Array(4), column = new Int32Array(4)
+  // paper white needs no work when it takes no toner, as it does in Dell's table: most of a printed page is paper
+  const blankPaper = data.table[data.table.length - 1]!.every(amount => amount === 0)
   return {
     about: `${data.driver}, ${data.imageType}, measured ${data.measured}`,
     dots(y, x0, rgb, out) {
@@ -91,7 +93,17 @@ export function engineOf(data: DellEngine): Engine {
         rowStart[t] = (y - band * s.rows) * s.width * 3
         column[t] = (((x0 - band * s.shift) % s.width) + s.width) % s.width
       }
-      for (let i = 0, at = 0; at < rgb.length; i++, at += 3) {
+      const isPaper = (at: number) => rgb[at] === 255 && rgb[at + 1] === 255 && rgb[at + 2] === 255
+      for (let i = 0, at = 0; at < rgb.length;) {
+        if (blankPaper && isPaper(at)) {
+          let run = 1
+          while (at + run * 3 < rgb.length && isPaper(at + run * 3)) run++
+          out.fill(0, x0 + i, x0 + i + run)
+          for (let t = 0; t < 4; t++) column[t] = (column[t]! + run) % screens[t]!.width
+          i += run
+          at += run * 3
+          continue
+        }
         amountsOf(rgb[at]!, rgb[at + 1]!, rgb[at + 2]!)
         let byte = 0
         for (let t = 0; t < 4; t++) {
@@ -101,6 +113,8 @@ export function engineOf(data: DellEngine): Engine {
           if (++column[t]! === s.width) column[t] = 0
         }
         out[x0 + i] = byte
+        i++
+        at += 3
       }
     },
   }

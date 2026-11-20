@@ -11,8 +11,8 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm run build && pnpm prune --prod
 
-# foo2hbpl2 from foo2zjs (GPL-2.0) packs colour photos into the Printer's own language when Dell's engine is in the
-# share folder (docs/adr/0007-colour-photos-print-through-dells-engine.md). It stays a separate program, and its
+# foo2hbpl2 from foo2zjs (GPL-2.0) packs colour Print Jobs into the Printer's own language when Dell's engine is in the
+# share folder (docs/adr/0007-colour-print-jobs-print-through-dells-engine.md). It stays a separate program, and its
 # source travels in the image next to the binary, as the GPL asks of whoever hands the binary on.
 FROM node:26-alpine AS foo2hbpl2
 ARG FOO2ZJS_COMMIT=e04290de6b7a30d588f3411fd9834618e09f7b9b
@@ -30,6 +30,8 @@ FROM node:26-alpine
 # Only for the labels. The server reads its version from print-buddy/config.yaml.
 ARG BUILD_VERSION=dev
 ENV NODE_ENV=production
+# MuPDF's mutool rasterises colour PDF Print Jobs for Dell's engine; a separate program, from Alpine's package
+RUN apk add --no-cache mupdf-tools
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules

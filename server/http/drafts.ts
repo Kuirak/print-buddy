@@ -18,7 +18,7 @@ const refusalStatus = {
 /** Room for the multipart boundary and part headers around the one file of an upload. */
 const multipartOverhead = 64 * 1024
 
-/** `dell`: Dell's engine from the share folder, when it is there; colour photos then go out as HBPL. */
+/** `dell`: Dell's engine from the share folder, when it is there; colour Print Jobs then go out as HBPL. */
 export function draftRoutes(deps: { intake: Intake; jobs: JobStore; printer: PrinterClient; dell?: DellPrinting }) {
   const app = new Hono()
   const notFound: ApiError = { error: "not-found" }

@@ -1,6 +1,6 @@
 # Development
 
-Needs Node 26 and pnpm 12. Run `pnpm install` once. How the parts work is in `architecture.md`; decisions that are hard to reverse are in `adr/`; the vocabulary is in `GLOSSARY.md`.
+Needs Node 26, pnpm 12, and MuPDF's `mutool` on the `PATH` (`brew install mupdf`), which the tests of Dell jobs run. Run `pnpm install` once. How the parts work is in `architecture.md`; decisions that are hard to reverse are in `adr/`; the vocabulary is in `GLOSSARY.md`.
 
 ## Commands
 
@@ -48,6 +48,7 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   job-store.ts       Job store: job folders, job.json, the 7-day cleanup.
   renderer.ts        Renderer: builds the PDF or HBPL that goes to CUPS.
   dell-engine.ts     Dell's engine from the share folder: its file format, and the toner codes of a row of pixels.
+  pdf-raster.ts      A page of a PDF as rows of pixels at 600 dpi, rendered by MuPDF's mutool, for Dell's engine.
   status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts, the IPP codec, and hbpl.ts, which runs foo2hbpl2 on the raster of a Dell job.
   http/              One file per API resource: drafts, jobs, printer, report, session (with /login), health, share-target, ui (static files).
@@ -101,18 +102,18 @@ docs/              This file, architecture.md, and the decisions in adr/.
 
 - **Version.** `import { version } from "./version.ts"` in the server gives the Print Buddy version. It is read from `print-buddy/config.yaml`, the one source. `/health` answers `{ ok: true, version }`. Don't add a version to `package.json`.
 - **Health path.** The health endpoint is `/health`, outside `/api`, for the Home Assistant watchdog. It never contacts CUPS.
-- **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`, and foo2hbpl2 with its source under `/usr/local/share/foo2hbpl2/source`, built from a pinned foo2zjs commit. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
+- **Packaging.** The image holds `server/`, `shared/`, `dist/`, the production `node_modules` and `print-buddy/config.yaml`, foo2hbpl2 with its source under `/usr/local/share/foo2hbpl2/source`, built from a pinned foo2zjs commit, and Alpine's `mupdf-tools`. A new top-level folder the server needs at run time must be added to the `Dockerfile`. Home Assistant treats every file named `config.yaml`, `config.yml` or `config.json` in a non-hidden folder as an add-on, so never add another file with one of these names. Try the image with `docker build --platform linux/arm64 -t print-buddy:dev .` and `docker run --rm -p 9217:9217 -v "$PWD/data:/data" print-buddy:dev`, with an `options.json` in `data/`.
 - **Shutdown.** `server/main.ts` closes the server on SIGTERM and SIGINT, because node is PID 1 in the add-on, which sets `init: false`. Anything that must finish before the process ends belongs in the server's `close()`.
 
 ## The real Printer
 
 - **Against your own CUPS.** `pnpm dev` always uses the fake printer. To print for real, run `pnpm build` once. Then run `pnpm start` with `PRINT_BUDDY_OPTIONS_FILE` naming a file `{ "printer_name": "<queue>" }`, `PRINT_BUDDY_JOBS_DIR` set to a temporary folder, and `PRINT_BUDDY_CUPS=<host>:631`. CUPS has to accept jobs from the LAN. When it can't be reached, the log warns at start that the margins are unknown.
-- **Dell's engine.** Colour photos print through it when `/share/print-buddy/dell-engine.json` is there. See [ADR 0007](adr/0007-colour-photos-print-through-dells-engine.md). The file is Dell's data: never commit it.
+- **Dell's engine.** Colour Print Jobs print through it when `/share/print-buddy/dell-engine.json` is there. See [ADR 0007](adr/0007-colour-print-jobs-print-through-dells-engine.md). The file is Dell's data: never commit it.
   1. On a Mac, install Dell's C1765nfw driver and add the printer, so that a CUPS queue uses Dell's PPD.
   2. Run `node scripts/dell-engine.ts dell-engine.json`. It prints nothing. It needs `git` and `cc` the first time, to build `hbpldecode` from foo2zjs into the temp folder.
-  3. Copy `dell-engine.json` into the add-on's share folder as `print-buddy/dell-engine.json` and restart the add-on. Its log says "Colour photos print through Dell's engine".
+  3. Copy `dell-engine.json` into the add-on's share folder as `print-buddy/dell-engine.json` and restart the add-on. Its log says "Colour Print Jobs print through Dell's engine".
 
-  Run it again after an update of Dell's driver. To print through the engine from a local `pnpm start`, set `PRINT_BUDDY_DELL_ENGINE` to the file, and put a foo2hbpl2 on the `PATH`: in a foo2zjs checkout, `cc -O2 -w -o foo2hbpl2 foo2hbpl2.c jbig.c jbig_ar.c`.
+  Run it again after an update of Dell's driver. To print through the engine from a local `pnpm start`, set `PRINT_BUDDY_DELL_ENGINE` to the file, and put a foo2hbpl2 on the `PATH`: in a foo2zjs checkout, `cc -O2 -w -o foo2hbpl2 foo2hbpl2.c jbig.c jbig_ar.c`. Colour PDFs need `mutool` as well.
 
 ## Solid 2
 
@@ -167,7 +168,7 @@ test("…", async t => {
   - `pdfWithPages()` takes sizes, `/Rotate`, CropBox, form fields and annotations. Its pages have a content stream, because pdf-lib can't embed a page without one. `{ blank: true }` makes a page without `/Contents`; it prints as an empty sheet unless an annotation is drawn on it. `annotations` puts form fields and annotations on a page, each with its dictionary entries as text and its appearance. `pdfWithPages(pages, { needAppearances: true })` sets the form's `/NeedAppearances`.
   - The other fixtures are `sampleJpeg()`, which is 40×30, `withExifOrientation()`, `samplePng(w, h)`, `pngWithPixels(rows)`, `jpegWithPixels(rows)` and `encryptedPdf()`.
 - **Reading the printed PDF.** `readRenderedPdf(request.data)` in `server/testing/rendered-pdf.ts` gives the sheets with their size and items. Each item has `kind`, `size`, `box`, `clip` and `corners`. `size` tells fixtures apart. It is the size of the embedded part of the page before `/Rotate`, or the photo's pixels. `box` and `clip` are on the sheet, measured from the top-left corner. `corners` show rotation and mirroring. A photo also has `filter` and `bytes`. A page with form fields or annotations drawn into it also has `annotations`. They hold the rectangle each one takes up on the source page and the content stream of its appearance. Numbers are rounded to 0.01 pt. `server/render.test.ts` sets the fake printer's margins to zero where that keeps the expected numbers simple.
-- **Dell jobs.** With `dellEngine` in the harness options, colour photo jobs go out as HBPL, and the fake printer receives the raster foo2hbpl2 would get: one byte per 600 dpi pixel, `RASTERS[paper]` per sheet. `server/dell-print.test.ts` builds a small engine of its own, never Dell's data.
+- **Dell jobs.** With `dellEngine` in the harness options, colour photo and PDF jobs go out as HBPL, and the fake printer receives the raster foo2hbpl2 would get: one byte per 600 dpi pixel, `RASTERS[paper]` per sheet. PDF jobs run the real mutool. `server/dell-print.test.ts` builds a small engine of its own, never Dell's data.
 - **Status reasons.** To teach the status mapper a new reason, add a line to one of its two tables and a case to the table test in `server/status.test.ts`.
 - **Who printed.** `server/report.test.ts` sends the Cloudflare Access headers with every request of a Print Job and checks that nothing of them reaches CUPS, the job folder, the answers or the log.
 

@@ -7,7 +7,7 @@ export interface Config {
   uploadLimitMb: number
   /** Where Print Job folders live. */
   jobsDir: string
-  /** Dell's engine, written by scripts/dell-engine.ts; colour photos print through it when the file is there. */
+  /** Dell's engine, written by scripts/dell-engine.ts; colour Print Jobs print through it when the file is there. */
   dellEngineFile: string
   port: number
 }

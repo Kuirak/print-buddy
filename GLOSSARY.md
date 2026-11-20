@@ -2,7 +2,7 @@
 
 **Printer**: The household's Dell C1765nfw, as published by the CUPS server running on Home Assistant. The only print destination.
 
-**Dell's engine**: How Dell's own driver turns colour into the Printer's toner: its colour table and its screens, measured from that driver by `scripts/dell-engine.ts`. It is Dell's data and lives only in the add-on's share folder. When it is there, colour photos print through it.
+**Dell's engine**: How Dell's own driver turns colour into the Printer's toner: its colour table and its screens, measured from that driver by `scripts/dell-engine.ts`. It is Dell's data and lives only in the add-on's share folder. When it is there, colour Print Jobs, photos and PDFs, print through it.
 
 **Print Job**: One PDF, or up to 20 photos, sent to the Printer together with one chosen set of Print Options.
 
