@@ -71,7 +71,7 @@ test("the summary line follows every change", async () => {
 
   expect(summary()).toBe("3× · S/W · Umschlag DL · Toner sparen · 100 % · oben links · 2 Seiten pro Blatt · Seiten 1-3, 5-6")
 
-  await tap("Keine")
+  for (const page of [1, 2, 3, 5, 6]) await tap(`Seite ${page}`)
   expect(summary()).toContain(" · keine Seiten")
 })
 
@@ -90,7 +90,7 @@ test("the summary line says how many photos are left when some are left out", as
   await tap("Foto 2")
   expect(summary()).toContain(" · 2 von 3 Fotos")
 
-  await tap("Keine")
+  for (const index of [1, 3]) await tap(`Foto ${index}`)
   expect(summary()).toContain(" · keine Fotos")
 })
 

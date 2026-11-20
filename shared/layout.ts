@@ -326,6 +326,14 @@ export function sheetCount(sheets: readonly Sheet[], copies: number): number {
   return sheets.length * copies
 }
 
+/** The most sheets of paper one Print Job may take, copies included: a mistake can't empty the paper tray. */
+export const maxSheets = 100
+
+/** Whether a Print Job takes more than `maxSheets`. The options screen and the renderer both ask here, so they agree. */
+export function overSheetLimit(sheets: readonly Sheet[], copies: number): boolean {
+  return sheetCount(sheets, copies) > maxSheets
+}
+
 function flipped({ width, height }: Size): Size {
   return { width: height, height: width }
 }

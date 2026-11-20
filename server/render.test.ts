@@ -4,7 +4,7 @@ import type { Item, PrintOptions } from "../shared/print-options.ts"
 import type { FakeIpp } from "./testing/fake-ipp.ts"
 import { encryptedPdf, items, pdfWithPages, sampleJpeg, samplePng, samplePrintOptions as base, withExifOrientation, type PdfPageSpec } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
-import { readRenderedPdf } from "./testing/rendered-pdf.ts"
+import { drawnObjects, readRenderedPdf } from "./testing/rendered-pdf.ts"
 
 // Sheet sizes in points: A4 is 595.28 × 841.89, A5 419.53 × 595.28, Umschlag DL 311.81 × 623.62, Umschlag C5 459.21 × 649.13.
 
@@ -351,6 +351,42 @@ test("Print Options that don't fit the draft's files are refused and nothing is 
   // the same drafts print once the options fit
   assert.equal((await server.submit(pdf, { items: items(0, 1), layout: { kind: "grid", perSheet: 2 } })).status, 201)
   assert.equal((await server.submit(photos, { items: items(1, 1), layout: { kind: "grid", perSheet: 8 } })).status, 201)
+})
+
+test("a Print Job of more than 100 sheets, copies included, is refused and nothing is printed; 100 sheets print", async t => {
+  const server = await start(t)
+  const draft = async () => {
+    const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
+    await server.upload(draftId, pdfWithPages([{ size: [200, 100] }, { size: [300, 100] }]), "file")
+    return draftId
+  }
+  const pdf = await draft()
+
+  // 200 sheets; 102; 13 sheets of 8 per sheet, 8 times
+  for (const options of [{ items: items(50, 50), copies: 2 }, { items: items(50, 1), copies: 2 }, { items: items(50, 50), layout: { kind: "grid", perSheet: 8 }, copies: 8 }] as const) {
+    const submitted = await server.submit(pdf, options)
+    assert.equal(submitted.status, 400, JSON.stringify(options))
+    assert.deepEqual(await submitted.json(), { error: "invalid-options" })
+  }
+  assert.equal(server.printer.requests.length, 0)
+
+  const submitted = await server.submit(pdf, { items: items(50, 50) })
+  assert.equal(submitted.status, 201)
+  assert.equal((await readRenderedPdf(server.printer.requests.at(-1)!.data)).length, 100)
+  // 13 sheets of 8 per sheet, 7 times
+  assert.equal((await server.submit(await draft(), { items: items(50, 50), layout: { kind: "grid", perSheet: 8 }, copies: 7 })).status, 201)
+})
+
+test("a page or photo printed several times is stored once in the PDF and drawn once per repeat", async t => {
+  const server = await start(t)
+
+  const photos = await print(server, [sampleJpeg(), samplePng(64, 48)], { ...actualSize, layout: { kind: "grid", perSheet: 8 }, items: items(4, 2) })
+  assert.deepEqual(photos.map(sheet => sheet.items.map(item => item.size)), [[[40, 30], [40, 30], [40, 30], [40, 30], [64, 48], [64, 48]]])
+  assert.deepEqual(await drawnObjects(server.printer.requests.at(-1)!.data), 2)
+
+  const pages = await printPdf(server, [{ size: [200, 100] }, { size: [300, 100] }], { ...actualSize, layout: { kind: "grid", perSheet: 4 }, items: items(3, 2) })
+  assert.deepEqual(pages.map(sheet => sheet.items.map(item => item.size)), [[[200, 100], [200, 100], [200, 100], [300, 100]], [[300, 100]]])
+  assert.deepEqual(await drawnObjects(server.printer.requests.at(-1)!.data), 2)
 })
 
 /** The form fields and annotations drawn into the one item of each sheet. */

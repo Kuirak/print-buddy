@@ -32,6 +32,21 @@ vi.mock("../pdf-preview.ts", () => ({
 // happy-dom makes up an address for a file's picture. This one says which file it shows: "blob:Strand 1.jpg".
 URL.createObjectURL = file => `blob:${(file as File).name}`
 
+// happy-dom lays nothing out, and its IntersectionObserver never calls back. Here every element is on the screen
+// as soon as it is watched, so whatever waits to scroll into view shows at once.
+globalThis.IntersectionObserver = class {
+  readonly #callback: IntersectionObserverCallback
+  constructor(callback: IntersectionObserverCallback) {
+    this.#callback = callback
+  }
+  observe(target: Element) {
+    queueMicrotask(() => this.#callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver))
+  }
+  unobserve() {}
+  disconnect() {}
+  takeRecords() { return [] }
+} as unknown as typeof IntersectionObserver
+
 beforeEach(() => {
   // every test starts with an empty phone storage
   vi.stubGlobal("indexedDB", fakeIndexedDb())

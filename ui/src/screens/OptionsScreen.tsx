@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
-import { cells, landscapeFirst, layout, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import type { Item, PrintOptions, Rotation } from "../../../shared/print-options.ts"
+import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
+import { maxCount, type Item, type PrintOptions, type Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { Confirmation } from "../controls/Confirmation.tsx"
 import { gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
@@ -11,6 +11,7 @@ import { PresetChips } from "../controls/PresetChips.tsx"
 import { Preview } from "../controls/Preview.tsx"
 import { PrintSize } from "../controls/PrintSize.tsx"
 import { SheetSteps } from "../controls/SheetSteps.tsx"
+import { Stepper } from "../controls/Stepper.tsx"
 import { SummaryLine } from "../controls/SummaryLine.tsx"
 import { Thumbnails } from "../controls/Thumbnails.tsx"
 import { ViewZoom } from "../controls/ViewZoom.tsx"
@@ -20,6 +21,9 @@ import { createPresets, type Preset } from "../presets.ts"
 const readPrinterAgainAfterMs = 2_000
 
 const noMargins = { top: 0, right: 0, bottom: 0, left: 0 }
+
+/** More pages than this, and the pictures of a PDF only switch pages on and off. */
+const onOffOnlyAbove = 30
 
 export function OptionsScreen(props: {
   fileName: string
@@ -64,6 +68,8 @@ export function OptionsScreen(props: {
   })
   /** The pages or photos that print, as `refs` counts them. */
   const printed = () => refs().filter((_, index) => (options.items[index]?.count ?? 0) > 0)
+  /** A PDF this long shows pictures that only switch its pages on and off: a counter for each would fill the screen. */
+  const onOffOnly = () => kind === "pdf" && refs().length > onOffOnlyAbove
   createEffect(() => JSON.stringify(options), () => props.onChange(snapshot(options)))
 
   const [margins, setMargins] = createSignal<PaperMargins>()
@@ -129,6 +135,11 @@ export function OptionsScreen(props: {
   const [over, setOver] = createSignal<"details" | "confirmation">()
   /** A Print Job is cut off when any of its sheets is. */
   const cutOff = () => sheets()?.some(sheet => sheet.cutOff) ?? false
+  /** The Print Job would take more paper than one may. */
+  const tooMany = () => {
+    const laidOut = sheets()
+    return laidOut !== undefined && overSheetLimit(laidOut, options.copies)
+  }
 
   /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
   function apply(preset: Preset) {
@@ -146,12 +157,16 @@ export function OptionsScreen(props: {
     })
   }
 
-  /** Leaves a page or photo out, or brings it back to its place in the file's order. The preview goes to one brought back. */
-  function toggle(ref: number) {
+  /**
+   * How often a page or photo prints: 0 leaves it out, up to `maxCount`. The preview goes to one brought back, at its
+   * place in the file's order.
+   */
+  function setCount(ref: number, count: number) {
     const index = refs().indexOf(ref)
-    const back = options.items[index]!.count === 0
-    const items = options.items.map((item, at) => (at === index ? { ...item, count: back ? 1 : 0 } : item))
-    setOptions(o => { o.items[index]!.count = back ? 1 : 0 })
+    const next = Math.max(0, Math.min(maxCount, count))
+    const back = options.items[index]!.count === 0 && next > 0
+    const items = options.items.map((item, at) => (at === index ? { ...item, count: next } : item))
+    setOptions(o => { o.items[index]!.count = next })
     if (!back) return
     // its first appearance follows every appearance of the pages or photos before it
     const before = items.slice(0, index).reduce((sum, item) => sum + item.count, 0)
@@ -159,10 +174,11 @@ export function OptionsScreen(props: {
     setStep(Math.floor(before / Math.max(1, perSheet)))
   }
 
-  /** Prints every page or photo once (`count` 1), or none of them (`count` 0). */
-  function select(count: 0 | 1) {
-    setOptions(o => { for (const item of o.items) item.count = count })
-    setStep(0)
+  /** "Alle gleich": every page or photo that prints, prints `count` times. None is switched on or off. */
+  function setAll(count: number) {
+    setOptions(o => {
+      for (const item of o.items) if (item.count > 0) item.count = count
+    })
   }
 
   // The server's facts agree with the browser's, unless the browser read the file differently: then every
@@ -224,6 +240,36 @@ export function OptionsScreen(props: {
           setStep(0)
         }}
       />
+      {/* a single page or photo has no pictures to choose from, only how often it prints */}
+      <Show
+        when={refs().length > 1}
+        fallback={
+          <div class="flex items-center justify-between gap-3">
+            <span class="font-semibold">Wie oft</span>
+            <Stepper
+              label="Wie oft"
+              decreaseLabel="Seltener"
+              increaseLabel="Öfter"
+              value={options.items[0]?.count ?? 1}
+              min={1}
+              max={maxCount}
+              unit="×"
+              onChange={count => setOptions(o => { o.items[0]!.count = count })}
+              compact
+            />
+          </div>
+        }
+      >
+        <Thumbnails
+          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
+          refs={refs()}
+          counts={options.items.map(item => item.count)}
+          onOffOnly={onOffOnly()}
+          grey={options.color === "mono"}
+          onCount={setCount}
+          onAll={setAll}
+        />
+      </Show>
       {/* Print size and Position side by side, so that both fit on the screen with the preview */}
       <div class="flex items-start justify-between gap-3">
         <div class="flex min-w-0 flex-col gap-1">
@@ -238,18 +284,6 @@ export function OptionsScreen(props: {
       <Show when={cutOff()}>
         <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
       </Show>
-      {/* a single page or photo leaves nothing to choose */}
-      <Show when={refs().length > 1}>
-        <Thumbnails
-          source={kind === "pdf" ? { kind: "pdf", pdf: pdf() } : { kind: "photos", urls: photoUrls }}
-          refs={refs()}
-          selection={printed()}
-          grey={options.color === "mono"}
-          onToggle={toggle}
-          onAll={() => select(1)}
-          onNone={() => select(0)}
-        />
-      </Show>
       <SummaryLine kind={kind} total={refs().length} options={options} percent={percent()} onChange={() => setOver("details")} />
       {/* the last thing on the screen, so that at the end of the page nothing lies under it */}
       <div class="sticky bottom-0 z-10 -mx-4 mt-auto border-t border-gray-200 bg-white px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
@@ -258,13 +292,16 @@ export function OptionsScreen(props: {
         <button
           type="button"
           class="btn-primary"
-          disabled={props.uploading !== undefined || printed().length === 0 || !sheets()}
+          disabled={props.uploading !== undefined || printed().length === 0 || !sheets() || tooMany()}
           onClick={() => setOver("confirmation")}
         >
           {props.uploading !== undefined
             ? `Wird hochgeladen … ${Math.min(99, Math.round(props.uploading * 100))} %`
             : printed().length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
         </button>
+        <Show when={tooMany()}>
+          <p role="alert" class="pt-1 text-center text-sm font-semibold text-[#b3261e]">Höchstens {maxSheets} Blätter pro Druck.</p>
+        </Show>
       </div>
     </main>
     <Show when={over() === "details"}>

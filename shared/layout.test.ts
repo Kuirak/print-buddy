@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { cells, layout, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
+import { cells, layout, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
 import type { Item, PrintOptions } from "./print-options.ts"
 
 // A made-up sheet with round numbers: 600 × 800 pt, and a different margin on every side.
@@ -668,5 +668,28 @@ test("the sheet count of a Print Job is the sheets one copy takes, times the cop
 
   await t.test("nothing printed takes no paper", () => {
     assert.equal(count(fivePages, { items: each(0, 0, 0, 0, 0), copies: 3 }), 0)
+  })
+})
+
+test("a Print Job may take at most 100 sheets, copies included", async t => {
+  const over = (source: LayoutInput["source"], changes: Partial<PrintOptions>) => {
+    const chosen = options(changes)
+    return overSheetLimit(layout({ source, options: chosen, sheet, margins }), chosen.copies)
+  }
+  const twentyPhotos = photos(...Array.from({ length: 20 }, (): [number, number] => [900, 600]))
+  const fifty = Array.from({ length: 20 }, () => 50)
+
+  await t.test("100 sheets is the most: 4 photos 25 times each, one per sheet; or 25 sheets 4 times", () => {
+    const four = photos([900, 600], [900, 600], [900, 600], [900, 600])
+    assert.equal(over(four, { items: each(25, 25, 25, 25) }), false)
+    assert.equal(over(four, { items: each(25, 25, 25, 26) }), true)
+    assert.equal(over(four, { items: each(25, 0, 0, 0), copies: 4 }), false)
+    assert.equal(over(four, { items: each(25, 0, 0, 0), copies: 5 }), true)
+  })
+
+  await t.test("sharing sheets brings a job under the limit: 20 photos 50 times each are 1000 sheets, or 125 at 8 per sheet", () => {
+    assert.equal(over(twentyPhotos, { items: each(...fifty) }), true)
+    assert.equal(over(twentyPhotos, { items: each(...fifty), layout: { kind: "grid", perSheet: 8 } }), true)
+    assert.equal(over(twentyPhotos, { items: each(...fifty.map(() => 40)), layout: { kind: "grid", perSheet: 8 } }), false)
   })
 })

@@ -36,14 +36,19 @@ async function openOptions(facts: FileFacts, count = 1) {
   }
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
   const tap = (name: string) => user.click(screen.getByRole("button", { name }))
-  /** The thumbnails as the screen shows them: their names, and which of them are selected. */
+  /** The thumbnails as the screen shows them: their names, and which of them print. */
   function thumbnails(group: "Seiten" | "Fotos") {
-    const all = within(screen.getByRole("group", { name: group })).getAllByRole("button")
+    const all = pictures(group)
     return {
       names: all.map(thumbnail => thumbnail.getAttribute("aria-label")),
       selected: all.filter(thumbnail => thumbnail.getAttribute("aria-pressed") === "true").map(thumbnail => thumbnail.getAttribute("aria-label")),
     }
   }
+  /** How often each page or photo prints, as its badge says it: "2×" or "aus". */
+  const counts = (group: "Seiten" | "Fotos") =>
+    pictures(group).map(thumbnail => screen.getByRole("status", { name: `Wie oft ${thumbnail.getAttribute("aria-label")}` }).textContent)
+  /** What "Alle gleich" shows: "2×", or "≠" while the counts differ. */
+  const allSame = () => screen.getByRole("status", { name: "Alle gleich" }).textContent
   /** Which sheet the preview shows, of how many. */
   const sheet = () => screen.getByRole("status", { name: "Blatt in der Vorschau" }).textContent
   /**
@@ -60,7 +65,12 @@ async function openOptions(facts: FileFacts, count = 1) {
       { keys: "[/TouchA]", target: preview, coords: at(1) },
     ])
   }
-  return { api, user, files, print, choice, tap, thumbnails, sheet, swipe }
+  return { api, user, files, print, choice, tap, thumbnails, counts, allSame, sheet, swipe }
+}
+
+/** The pictures of the pages or photos: the buttons that switch one on or off. */
+function pictures(group: "Seiten" | "Fotos") {
+  return within(screen.getByRole("group", { name: group })).getAllByRole("button").filter(button => button.hasAttribute("aria-pressed"))
 }
 
 test("a PDF shows one thumbnail per page, all selected", async () => {
@@ -75,8 +85,8 @@ test("photos show one thumbnail per photo, in the order picked, all selected", a
 
   expect(thumbnails("Fotos")).toEqual({ names: ["Foto 1", "Foto 2", "Foto 3"], selected: ["Foto 1", "Foto 2", "Foto 3"] })
   // each thumbnail is the picture of its own file
-  const pictures = within(screen.getByRole("group", { name: "Fotos" })).getAllByRole("button").map(thumbnail => thumbnail.querySelector("img")?.getAttribute("src"))
-  expect(pictures).toEqual(["blob:Strand 1.jpg", "blob:Strand 2.jpg", "blob:Strand 3.jpg"])
+  const shown = pictures("Fotos").map(thumbnail => thumbnail.querySelector("img")?.getAttribute("src"))
+  expect(shown).toEqual(["blob:Strand 1.jpg", "blob:Strand 2.jpg", "blob:Strand 3.jpg"])
   expect(await print()).toMatchObject({ items: items(1, 1, 1) })
 })
 
@@ -84,7 +94,7 @@ test("a PDF's thumbnails are its pages, drawn small through pdf.js", async () =>
   await openOptions(pdfOf(3))
 
   /** What pdf.js was asked to draw in each thumbnail: the page, and with how many pixels. */
-  const drawn = () => within(screen.getByRole("group", { name: "Seiten" })).getAllByRole("button").map(thumbnail => {
+  const drawn = () => pictures("Seiten").map(thumbnail => {
     const canvas = thumbnail.querySelector("canvas")
     return canvas && { page: canvas.dataset.page, small: canvas.width < 500 }
   })
@@ -288,18 +298,123 @@ test.each([
   expect(screen.getByRole("button", { name: "Drucken" })).toBeEnabled()
 })
 
-test("Keine leaves everything out and Alle selects everything again", async () => {
-  const { tap, thumbnails, sheet, print } = await openOptions(pdfOf(3))
-  expect(screen.getByText("Seiten zum Drucken antippen:")).toBeInTheDocument()
-  await tap("Nächstes Blatt")
+test("each photo prints as often as its count: − and + under its picture, down to aus", async () => {
+  const { tap, counts, thumbnails, sheet, print } = await openOptions(photo, 3)
+  expect(counts("Fotos")).toEqual(["1×", "1×", "1×"])
 
-  await tap("Keine")
-  expect(thumbnails("Seiten").selected).toEqual([])
+  await tap("Foto 2 öfter")
+  await tap("Foto 2 öfter")
+  await tap("Foto 1 seltener")
 
-  await tap("Alle")
-  expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 2", "Seite 3"])
-  expect(sheet()).toBe("Seite 1 · 1/3")
+  expect(counts("Fotos")).toEqual(["aus", "3×", "1×"])
+  expect(thumbnails("Fotos").selected).toEqual(["Foto 2", "Foto 3"])
+  expect(screen.getByRole("button", { name: "Foto 1 seltener" })).toBeDisabled()
+  // the copies of a photo are next to each other: four sheets, the second photo on the first three
+  expect(sheet()).toBe("Foto 1/4")
+  // + brings a photo that is out back
+  await tap("Foto 1 öfter")
+  expect(counts("Fotos")).toEqual(["1×", "3×", "1×"])
+  expect(await print()).toMatchObject({ items: items(1, 3, 1) })
+})
+
+test("a tap on a picture leaves its page out, and another brings it back once", async () => {
+  const { tap, counts, print } = await openOptions(pdfOf(3))
+  await tap("Seite 3 öfter")
+  await tap("Seite 3 öfter")
+  expect(counts("Seiten")).toEqual(["1×", "1×", "3×"])
+
+  await tap("Seite 3")
+  expect(counts("Seiten")).toEqual(["1×", "1×", "aus"])
+  await tap("Seite 3")
+  expect(counts("Seiten")).toEqual(["1×", "1×", "1×"])
   expect(await print()).toMatchObject({ items: items(1, 1, 1) })
+})
+
+test("Alle gleich brings every printed photo to one count: from mixed counts up to the highest, then together, never below 1", async () => {
+  const { tap, counts, allSame, print } = await openOptions(photo, 4)
+  expect(allSame()).toBe("1×")
+  expect(screen.getByRole("button", { name: "Alle seltener" })).toBeDisabled()
+
+  await tap("Alle öfter")
+  expect(counts("Fotos")).toEqual(["2×", "2×", "2×", "2×"])
+
+  await tap("Foto 1")
+  await tap("Foto 3 öfter")
+  expect(allSame()).toBe("≠")
+  // the first tap, even on −, never lowers a count: every printed photo comes up to the highest
+  await tap("Alle seltener")
+  expect(counts("Fotos")).toEqual(["aus", "3×", "3×", "3×"])
+  expect(allSame()).toBe("3×")
+  await tap("Alle seltener")
+  await tap("Alle seltener")
+  await tap("Alle seltener")
+  // never below 1, and a photo that is out stays out
+  expect(counts("Fotos")).toEqual(["aus", "1×", "1×", "1×"])
+  expect(screen.getByRole("button", { name: "Alle seltener" })).toBeDisabled()
+  expect(await print()).toMatchObject({ items: items(0, 1, 1, 1) })
+})
+
+test("a count stops at 50, for one photo and for all", async () => {
+  const { user, tap, counts, allSame } = await openOptions(photo, 2)
+
+  for (let i = 0; i < 52; i++) await user.click(screen.getByRole("button", { name: "Foto 1 öfter" }))
+  expect(counts("Fotos")).toEqual(["50×", "1×"])
+  expect(screen.getByRole("button", { name: "Foto 1 öfter" })).toBeDisabled()
+
+  await tap("Alle öfter")
+  expect(allSame()).toBe("50×")
+  expect(screen.getByRole("button", { name: "Alle öfter" })).toBeDisabled()
+})
+
+test("4 photos, 2 of each, 8 per sheet: one sheet", async () => {
+  const { user, tap, choice, print } = await openOptions(photo, 4)
+
+  await tap("Alle öfter")
+  await user.click(choice("Aufteilung", "8×"))
+
+  // one sheet: nothing to step through
+  expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
+  expect(await print()).toMatchObject({ layout: { kind: "grid", perSheet: 8 }, items: items(2, 2, 2, 2) })
+})
+
+test("a PDF of more than 30 pages has pictures that only switch pages on and off; Alle gleich counts for every page that prints", async () => {
+  const { tap, counts, allSame, thumbnails, print } = await openOptions(pdfOf(31))
+  expect(thumbnails("Seiten").names).toHaveLength(31)
+  expect(screen.queryByRole("button", { name: "Seite 1 öfter" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Seite 1 seltener" })).not.toBeInTheDocument()
+
+  await tap("Seite 2")
+  await tap("Alle öfter")
+  await tap("Alle öfter")
+
+  expect(allSame()).toBe("3×")
+  expect(counts("Seiten").slice(0, 3)).toEqual(["3×", "aus", "3×"])
+  expect(await print()).toMatchObject({ items: [3, 0, ...Array.from({ length: 29 }, () => 3)].map(count => ({ count, turn: 0 })) })
+})
+
+test("a PDF of 30 pages still has a count for each page", async () => {
+  await openOptions(pdfOf(30))
+  expect(screen.getByRole("button", { name: "Seite 30 öfter" })).toBeInTheDocument()
+})
+
+test("a Print Job over 100 sheets can't be printed, and the screen says why", async () => {
+  const { user, tap, api } = await openOptions(photo, 4)
+  // 4 photos 25 times each, one per sheet: 100 sheets
+  for (let i = 0; i < 24; i++) await user.click(screen.getByRole("button", { name: "Alle öfter" }))
+  expect(screen.getByRole("button", { name: "Drucken" })).toBeEnabled()
+  expect(screen.queryByText("Höchstens 100 Blätter pro Druck.")).not.toBeInTheDocument()
+
+  await tap("Alle öfter")
+
+  expect(screen.getByRole("button", { name: "Drucken" })).toBeDisabled()
+  expect(screen.getByRole("alert")).toHaveTextContent("Höchstens 100 Blätter pro Druck.")
+  await user.click(screen.getByRole("button", { name: "Drucken" }))
+  expect(screen.queryByRole("dialog", { name: "Jetzt drucken?" })).not.toBeInTheDocument()
+
+  // sharing sheets brings it back under the limit
+  await user.click(within(screen.getByRole("radiogroup", { name: "Aufteilung" })).getByRole("radio", { name: "2×" }))
+  expect(screen.getByRole("button", { name: "Drucken" })).toBeEnabled()
+  expect(api.calls.filter(call => call.path === "/api/drafts/d1/submit")).toEqual([])
 })
 
 test("picking a Preset leaves which pages print and how they are turned alone", async () => {
@@ -327,19 +442,25 @@ test("picking a Preset leaves which photos print and how each is turned alone", 
 })
 
 test.each([
-  ["a one-page PDF", pdfOf(1), 1, "Seite 1", { items: items(1) }],
-  ["a single photo", photo, 1, "Foto 1", { items: items(1) }],
-] as const)("%s shows no thumbnails, no Alle and Keine and no sheet stepper", async (_, facts, count, preview, submitted) => {
-  const { print } = await openOptions(facts, count)
+  ["a one-page PDF", pdfOf(1), 1, "Seite 1", { items: items(4) }],
+  ["a single photo", photo, 1, "Foto 1", { items: items(4) }],
+] as const)("%s shows no thumbnails and no sheet stepper, only how often it prints", async (_, facts, count, preview, submitted) => {
+  const { tap, print } = await openOptions(facts, count)
 
   expect(await screen.findByRole("img", { name: `Vorschau ${preview}` })).toBeInTheDocument()
   expect(screen.queryByRole("group", { name: facts.kind === "pdf" ? "Seiten" : "Fotos" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: preview })).not.toBeInTheDocument()
-  expect(screen.queryByText(/zum Drucken antippen/)).not.toBeInTheDocument()
-  expect(screen.queryByRole("button", { name: "Alle" })).not.toBeInTheDocument()
-  expect(screen.queryByRole("button", { name: "Keine" })).not.toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Alle öfter" })).not.toBeInTheDocument()
   expect(screen.queryByRole("status", { name: "Blatt in der Vorschau" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Nächstes Blatt" })).not.toBeInTheDocument()
+  expect(screen.getByRole("status", { name: "Wie oft" })).toHaveTextContent("1×")
+  expect(screen.getByRole("button", { name: "Seltener" })).toBeDisabled()
+
+  await tap("Öfter")
+  await tap("Öfter")
+  await tap("Öfter")
+  // a flyer four times: four sheets now, so the stepper shows
+  expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("1/4")
   expect(await print()).toMatchObject(submitted)
 })
 
@@ -353,7 +474,7 @@ test("the sheet stepper hides while the selection gives one sheet, and the thumb
   expect(screen.queryByRole("button", { name: "Vorheriges Blatt" })).not.toBeInTheDocument()
   expect(screen.getByRole("img", { name: "Vorschau Seite 2" })).toBeInTheDocument()
   expect(thumbnails("Seiten").selected).toEqual(["Seite 2"])
-  expect(screen.getByRole("button", { name: "Alle" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Alle öfter" })).toBeInTheDocument()
 
   await tap("Seite 3")
   expect(sheet()).toBe("Seite 3 · 2/2")

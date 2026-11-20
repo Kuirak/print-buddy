@@ -8,7 +8,7 @@ import { join } from "node:path"
 import { Readable } from "node:stream"
 import sharp from "sharp"
 import type { Margins, PhotoFacts } from "../shared/api.ts"
-import { SHEET_SIZES, layout, photoNaturalSize, sheetCount, type LayoutInput, type Matrix, type Placement, type Sheet } from "../shared/layout.ts"
+import { SHEET_SIZES, layout, overSheetLimit, photoNaturalSize, sheetCount, type LayoutInput, type Matrix, type Placement, type Sheet } from "../shared/layout.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { Engine } from "./dell-engine.ts"
 import type { DraftFile } from "./intake.ts"
@@ -46,8 +46,8 @@ export interface RenderWatch {
  * Where everything sits comes from the layout module; `margins` are the Printer's for the chosen paper.
  * With `dell`, colour Print Jobs become HBPL through Dell's engine; everything else is a PDF.
  *
- * The Print Options are invalid when `items` has not exactly one entry per page or photo of the draft, or when the
- * layout isn't one that can be printed yet: a Photo format.
+ * The Print Options are invalid when `items` has not exactly one entry per page or photo of the draft, when the
+ * layout isn't one that can be printed yet (a Photo format), or when the Print Job would take more than `maxSheets`.
  */
 export async function render(
   files: readonly DraftFile[], options: PrintOptions, margins: Margins, dell?: DellPrinting, watch: RenderWatch = {},
@@ -59,6 +59,7 @@ export async function render(
 
   const source: LayoutInput["source"] = facts.kind === "pdf" ? facts : { kind: "photos", photos: files.map(file => file.facts as PhotoFacts) }
   const sheets = layout({ source, options, sheet: SHEET_SIZES[options.paper], margins })
+  if (overSheetLimit(sheets, options.copies)) return { outcome: "invalid-options" }
   const sheetsOfJob = sheetCount(sheets, options.copies)
   if (options.color === "color" && dell) {
     watch.onProgress?.(0, sheets.length * options.copies)

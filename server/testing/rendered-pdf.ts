@@ -1,5 +1,5 @@
 // Seam 1 helper: reads back a PDF the fake printer received, so a test can say what lies where on each sheet.
-import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, decodePDFRawStream } from "@cantoo/pdf-lib"
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, decodePDFRawStream, type PDFPage } from "@cantoo/pdf-lib"
 
 type Matrix = [number, number, number, number, number, number]
 
@@ -66,15 +66,20 @@ function annotationsOf(page: PDFRawStream): Pick<RenderedItem, "annotations"> {
   return annotations.length > 0 ? { annotations } : {}
 }
 
+/** A sheet's content stream as text, and the objects it can draw by name. */
+function contentOf(doc: PDFDocument, page: PDFPage) {
+  const contents = page.node.Contents()
+  const streams = contents instanceof PDFArray ? contents.asArray().map(ref => doc.context.lookup(ref)) : contents ? [contents] : []
+  const text = streams.map(stream => Buffer.from(decodePDFRawStream(stream as PDFRawStream).decode()).toString("latin1")).join("\n")
+  return { text, xobjects: page.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict) }
+}
+
 /** The sheets of a rendered PDF with everything drawn on them, in drawing order. Numbers are rounded to 0.01 pt. */
 export async function readRenderedPdf(bytes: Uint8Array): Promise<RenderedSheet[]> {
   const doc = await PDFDocument.load(bytes)
   return doc.getPages().map(page => {
     const sheet = page.getSize()
-    const contents = page.node.Contents()
-    const streams = contents instanceof PDFArray ? contents.asArray().map(ref => doc.context.lookup(ref)) : contents ? [contents] : []
-    const text = streams.map(stream => Buffer.from(decodePDFRawStream(stream as PDFRawStream).decode()).toString("latin1")).join("\n")
-    const xobjects = page.node.Resources()?.lookupMaybe(PDFName.of("XObject"), PDFDict)
+    const { text, xobjects } = contentOf(doc, page)
 
     const items = [...text.matchAll(drawn)].map((match): RenderedItem => {
       const [clipX, clipY, clipWidth, clipHeight, ...matrix] = match.slice(1, 11).map(Number) as [number, number, number, number, ...Matrix]
@@ -109,4 +114,15 @@ export async function readRenderedPdf(bytes: Uint8Array): Promise<RenderedSheet[
     })
     return { width: round(sheet.width), height: round(sheet.height), items }
   })
+}
+
+/** How many stored objects the sheets of a rendered PDF draw: a page or photo stored once counts once, however often it is drawn. */
+export async function drawnObjects(bytes: Uint8Array): Promise<number> {
+  const doc = await PDFDocument.load(bytes)
+  const stored = new Set<string>()
+  for (const page of doc.getPages()) {
+    const { text, xobjects } = contentOf(doc, page)
+    for (const match of text.matchAll(drawn)) stored.add(String(xobjects!.get(PDFName.of(match[11]!))))
+  }
+  return stored.size
 }
