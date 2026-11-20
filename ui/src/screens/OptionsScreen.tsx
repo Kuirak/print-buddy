@@ -301,11 +301,13 @@ export function OptionsScreen(props: {
     <>
     {/* nothing behind an open dialog can be tapped or reached with the keyboard */}
     <main
-      class="flex min-h-dvh flex-col gap-3 px-4 pt-2"
+      // a phone gets one column; from 1024 px the preview stands on the left and stays, while the controls scroll on the right
+      class="flex min-h-dvh flex-col gap-3 px-4 pt-2 lg:grid lg:grid-cols-2 lg:grid-rows-[auto_1fr] lg:items-start lg:gap-x-8"
       inert={over() !== undefined}
       // touching any control but the preview and the bar under it ends the bar
       onPointerDown={event => { if (!(event.target as Element).closest("[data-picks]")) setPicked(undefined) }}
     >
+      <div class="flex min-w-0 flex-col gap-3 lg:col-start-2 lg:row-start-1">
       <div class="flex items-center gap-1">
         <button type="button" class="-ml-2 min-h-11 shrink-0 cursor-pointer rounded-lg px-2 font-semibold text-brand" onClick={() => props.onBack()}>
           <span aria-hidden="true">‹ </span>Zurück
@@ -313,7 +315,8 @@ export function OptionsScreen(props: {
         <h1 class="truncate font-bold">{props.fileName}</h1>
       </div>
       <PresetChips presets={presets} options={options} onPick={apply} onOwn={() => setOver("details")} />
-      <div class="flex flex-col gap-2">
+      </div>
+      <div class="flex min-w-0 flex-col gap-2 lg:sticky lg:top-2 lg:col-start-1 lg:row-span-2 lg:row-start-1">
         <div class="flex items-center justify-between gap-2">
           {/* copies, colour, paper, quality and the Preset actions */}
           <button
@@ -362,6 +365,7 @@ export function OptionsScreen(props: {
           </Show>
         </div>
       </div>
+      <div class="flex min-w-0 flex-1 flex-col gap-3 lg:col-start-2 lg:row-start-2 lg:self-stretch">
       <LayoutStrip
         choices={layoutChoices()}
         value={options.layout}
@@ -485,6 +489,7 @@ export function OptionsScreen(props: {
         <Show when={tooMany() ? `Höchstens ${maxSheets} Blätter pro Druck.` : formatProblem()}>
           {reason => <p role="alert" class="pt-1 text-center text-sm font-semibold text-[#b3261e]">{reason()}</p>}
         </Show>
+      </div>
       </div>
     </main>
     <Show when={over() === "details"}>

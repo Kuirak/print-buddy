@@ -7,8 +7,12 @@ import { PdfPage } from "./PdfPage.tsx"
 /** Where the pictures come from: the open PDF (`undefined` until pdf.js has read it), or one address per photo. */
 export type PreviewSource = { kind: "pdf"; pdf: PdfPreview | undefined } | { kind: "photos"; urls: readonly string[] }
 
-/** How high the sheet is drawn before zooming, as a share of the screen height. */
-const sheetHeight = "44dvh"
+/**
+ * How high the sheet is drawn before zooming: under half the screen on a phone or an upright tablet, where the
+ * controls follow below it, and nearly the whole height from 1024 px, where they stand beside it.
+ */
+const sheetHeight = "var(--sheet-height)"
+const sheetHeights = "[--sheet-height:44dvh] md:[--sheet-height:50dvh] lg:[--sheet-height:calc(100dvh-10rem)]"
 
 /** A length of the layout module as CSS: in percent of the length it is measured against, so the drawing follows any size of the sheet. */
 const percent = (part: number, whole: number) => `${(part / whole) * 100}%`
@@ -98,7 +102,7 @@ export function Preview(props: {
   return (
     <section
       aria-label="Vorschau"
-      class="overflow-auto rounded-xl bg-gray-200 p-3"
+      class={`overflow-auto rounded-xl bg-gray-200 p-3 ${sheetHeights}`}
       style={{ "max-height": `calc(${sheetHeight} + 24px)`, "touch-action": swipes() ? "pan-y pinch-zoom" : "auto" }}
       onPointerDown={down}
       onPointerUp={up}

@@ -235,7 +235,8 @@ export function App() {
   }
 
   return (
-    <div class="mx-auto min-h-dvh max-w-[480px] bg-white">
+    // the options screen grows with the screen: one wider column on a tablet, two columns from 1024 px
+    <div class={`mx-auto min-h-dvh bg-white ${screen().name === "options" && !loginExpired() ? "max-w-[480px] md:max-w-xl lg:max-w-6xl" : "max-w-[480px]"}`}>
       <Switch>
         {/* first, so that it covers whatever screen the person was on */}
         <Match when={loginExpired()}>
