@@ -2,7 +2,7 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
-## Unreleased
+## 2026.11.6
 
 - Several pages or photos fit on one sheet: pick Normal, 2×, 4×, 6× or 8× in the row under the preview. "Seiten pro Blatt" in the settings is gone.
 - Photos can print at a fixed size: 10×15, 9×13, 13×18, Passbild, or an own size in mm. As many as fit go on a sheet, lying whichever way fits the most ("Platz sparen"), or all upright or all across. A small gap and thin cut lines help cutting them apart.
