@@ -165,6 +165,8 @@ test("the sheet count is the number of sheets in the PDF the Printer received, f
     { files: pdf, options: { items: items(1, 1, 1), layout: { kind: "grid", perSheet: 2 }, copies: 5 }, rendered: 2, sheets: 10 },
     { files: photos, options: { items: items(1, 1), copies: 3 }, rendered: 2, sheets: 6 },
     { files: photos, options: { items: items(0, 1), copies: 3 }, rendered: 1, sheets: 3 },
+    { files: pdf, options: { items: items(2, 0, 3), copies: 2 }, rendered: 5, sheets: 10 },
+    { files: photos, options: { items: items(3, 2), layout: { kind: "grid", perSheet: 4 }, copies: 3 }, rendered: 2, sheets: 6 },
   ]
   for (const { files, options, rendered, sheets } of cases) {
     const { jobId } = await server.print(options, files)
