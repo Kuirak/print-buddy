@@ -50,8 +50,9 @@ export interface RenderWatch {
  * Where everything sits comes from the layout module; `margins` are the Printer's for the chosen paper.
  * With `dell`, colour Print Jobs become HBPL through Dell's engine; everything else is a PDF.
  *
- * The Print Options are invalid when `items` has not exactly one entry per page or photo of the draft, when the
- * layout isn't one that can be printed yet (a Photo format), or when the Print Job would take more than `maxSheets`.
+ * The Print Options are invalid when `items` has not exactly one entry per page or photo of the draft, when a Photo
+ * format is chosen for a PDF, when the layout has no Cells on the paper (an own size too large for it), or when the
+ * Print Job would take more than `maxSheets`.
  */
 export async function render(
   files: readonly DraftFile[], options: PrintOptions, margins: Margins, dell?: DellPrinting, watch: RenderWatch = {},
@@ -111,7 +112,7 @@ async function pdfOf(files: readonly DraftFile[], sheets: Sheet[], options: Prin
     const page = out.addPage([sheet.width, sheet.height])
     for (const placement of placements) {
       const drawable = drawables.get(placement.ref)
-      // a page without content has nothing to draw: its sheet, or its half, stays empty
+      // a page without content has nothing to draw: its sheet, or its Cell, stays empty
       if (!drawable) continue
       const { clip: area } = placement
       page.pushOperators(

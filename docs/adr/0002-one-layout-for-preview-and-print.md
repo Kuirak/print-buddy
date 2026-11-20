@@ -6,4 +6,5 @@ The server never sends an uploaded file to CUPS. The renderer builds a new PDF f
 
 - CUPS gets the PDF plus collated `copies`, `ColorMode`, `PageSize`, `Quality` and `MediaType`. It never gets `scaling`, `page-ranges` or `number-up`. Any other new option is drawn into the PDF. That means a change to the layout module or the renderer, not one more IPP attribute.
 - The confirmation's sheet count and the server's `sheets` can't differ, because they are the same function over the same layout.
+- The sketches of the layouts on the screen and in the confirmation draw `cells()` of the same module, and the 100-sheet limit is the same `overSheetLimit()` on both sides. So the screen never offers a layout or a job the server would refuse.
 - `print.pdf` in the job folder is exactly what CUPS got.

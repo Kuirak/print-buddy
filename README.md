@@ -102,6 +102,15 @@ No test reaches the real Printer, so each release gets one print against the rea
 3. The app shows the job number, and the page comes out of the Printer.
 4. The add-on log shows the new version. With the LAN port on, `http://<home-assistant-address>:9217/health` shows it too.
 
+### Layout check for a release that changes the layout, by hand
+
+Tests measure the layout in points, but only paper and a ruler show what the Printer's real margins and feed do to it. Once per release that changes `shared/layout.ts` or the renderer, print photos on A4 against the real queue:
+
+1. Four photos twice each at `8×`. All eight come out whole, two by four.
+2. Photos at `10×15` with "Platz sparen". Cut them out and measure: 100 × 150 mm, within 1 mm.
+3. Photos at `Passbild` with "Schnittlinien". Cut along the lines and measure: 35 × 45 mm, within 1 mm, and no line cuts into a photo.
+4. Count the Passbilder on the sheet: as many as the preview shows. With margins of 9 pt left and right and 12 pt top and bottom, A4 holds 28 to 32, depending on Lage and Abstand; the Printer's own margins may change that. If a row is cut off at the Printer's edge, the margins the Printer reports are wrong.
+
 ## Development
 
 Development needs Node 26 and pnpm 12. Run `pnpm install` once. Then run `pnpm dev` for the app against a fake printer on http://localhost:9217, and run `pnpm test`.

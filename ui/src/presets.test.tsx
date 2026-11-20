@@ -26,7 +26,7 @@ async function openOptions(kind: FileKind = "pdf") {
   await user.upload(screen.getByLabelText("Datei auswählen"), file)
   await screen.findByRole("button", { name: "Drucken" })
 
-  /** The detailed controls behind "Ändern", where copies, colour, paper, quality and the Preset actions are. */
+  /** The detailed controls behind "Einstellungen", where copies, colour, paper, quality and the Preset actions are. */
   const drawer = () => screen.queryByRole("dialog", { name: "Einstellungen" })
   /** Opens the detailed controls, unless they are open. */
   async function details() {

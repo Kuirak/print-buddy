@@ -60,15 +60,15 @@ export type Placement = Box & {
 }
 
 export type Sheet = {
-  /** One per page or photo on this sheet. With two pages per sheet and an odd number of pages, the last sheet has one. */
+  /** One per page or photo on this sheet, in the order of its Cells. A last sheet that isn't full has fewer. */
   placements: Placement[]
   /** Part of the content lies outside the printable area and won't print. */
   cutOff: boolean
   /** Part of the printable area stays empty. */
   emptySpace: boolean
   /**
-   * The sheet is read turned a quarter: two pages per sheet on a portrait sheet. The pages lie on it turned 90°
-   * clockwise, the first in the top half. Turn the sheet 90° counter-clockwise to see them upright and side by side.
+   * The sheet is read turned a quarter: a grid read in landscape on a portrait sheet (see `cells`). The pages or photos
+   * lie on it turned 90° clockwise, the first Cells along the right edge. Turn the sheet 90° counter-clockwise to read it.
    */
   sideways: boolean
   /** At a Photo format with cut lines on: the slots that hold a photo, to be outlined with a hairline. Empty otherwise. */

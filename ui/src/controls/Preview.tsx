@@ -64,7 +64,7 @@ export function Preview(props: {
   /** A tap on a page or photo picks it; a tap beside them gives `undefined`. */
   onPick: (ref: number | undefined) => void
 }) {
-  // a sideways sheet (two pages per sheet) is shown turned a quarter counter-clockwise, so its pages are upright and side by side
+  // a sideways sheet (a grid read in landscape) is shown turned a quarter counter-clockwise, so its content reads upright
   const sideways = () => props.sheet?.sideways ?? false
   /** Width by height of the paper as it shows on the screen. */
   const shape = () => (sideways() ? props.paper.height / props.paper.width : props.paper.width / props.paper.height)

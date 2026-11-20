@@ -2,6 +2,17 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
+## Unreleased
+
+- Several pages or photos fit on one sheet: pick Normal, 2×, 4×, 6× or 8× in the row under the preview. "Seiten pro Blatt" in the settings is gone.
+- Photos can print at a fixed size: 10×15, 9×13, 13×18, Passbild, or an own size in mm. As many as fit go on a sheet, lying whichever way fits the most ("Platz sparen"), or all upright or all across. A small gap and thin cut lines help cutting them apart.
+- "Wie oft" says for each page or photo how often it prints, from "aus" up to 50 times, and "Alle gleich" sets them all at once. Four photos twice each fill one sheet at 8×.
+- Tap a page or photo in the preview to turn just that one, or to switch it between Füllen and Einpassen. The "Drehen" button is gone, and "Größe für alle" sets the size of all of them.
+- "Jetzt drucken?" now starts with how many sheets of paper the job takes, with a small sketch of the layout, every page or photo with how often it prints, and every setting at a glance. The line of settings under the preview is gone: "Einstellungen" beside "Ansicht" opens copies, colour, paper and quality.
+- One print takes at most 100 sheets, copies included.
+- Own presets saved with an earlier version are removed, because they stored the old "Seiten pro Blatt". The built-in ones stay; save your own again.
+- On a tablet the options screen is wider, and on a laptop the preview stands beside the controls.
+
 ## 2026.11.5
 
 - Colour PDFs now print like Dell's own driver too, when Dell's engine is in `/share/print-buddy/`: smooth colour, without a grid of dots, with deep black. Print Buddy prepares every page itself first, so "Wird vorbereitet" takes longer for a long PDF.

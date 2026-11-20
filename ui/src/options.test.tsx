@@ -17,7 +17,7 @@ async function openOptions() {
   const user = userEvent.setup()
   render(() => <App />)
   await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
-  // copies, colour, paper and quality are behind "Ändern"
+  // copies, colour, paper and quality are behind "Einstellungen"
   await openDetails(user)
 
   /** Closes the detailed controls, taps Drucken, confirms, and returns the Print Options the app submitted. */

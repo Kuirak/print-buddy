@@ -29,8 +29,8 @@ One package, no workspaces. Imports between folders are relative and end in `.ts
 
 ```
 shared/            Pure TypeScript for both sides. No DOM, no node: imports.
-  print-options.ts   The Print Options type. The only definition.
-  layout.ts          The layout module: where content sits on a sheet, and how many sheets a Print Job takes.
+  print-options.ts   The Print Options type, with the layout and one item per page or photo. The only definition.
+  layout.ts          The layout module: the Cells or slots of a layout, where content sits in them, and how many sheets a Print Job takes.
   api.ts             JSON shapes of the HTTP API.
   file-header.ts     What the head of a file says: its type, and a photo's pixel size and EXIF orientation. Intake and the app both read facts with it.
   share-target.ts    The share target's path and names.
@@ -57,7 +57,7 @@ server/            Runs as `node server/main.ts`, straight from the sources.
 ui/                Vite root.
   index.html         The page.
   public/            Served as they are: manifest.webmanifest and the icons. `pdfjs/` is copied in by the build and not in git.
-  src/main.tsx       Entry point: mounts App. app.css beside it has the Tailwind setup and the two button classes.
+  src/main.tsx       Entry point: mounts App. app.css beside it has the Tailwind setup, the two button classes and the chip classes.
   src/App.tsx        App shell: which screen shows.
   src/api.ts         One function per API operation. The only place that talks to the server: fetch, and XMLHttpRequest for uploads.
   src/upload.ts      The upload of the phone's copy into a draft, with its progress; it runs behind the options screen.
@@ -69,12 +69,12 @@ ui/                Vite root.
   src/app-update.ts  When a new version of the installed app may take over.
   src/report.ts      The report builder: the plain text behind "Bericht kopieren".
   src/last-job.ts    The last Print Job from this phone, for the line on Start.
-  src/job-text.ts    The German words for the Print Options, as the summary line and the confirmation say them.
+  src/job-text.ts    The German words for the Print Options, as the confirmation and "Nochmal drucken?" say them.
   src/state-words.ts The German words for the five states of a Print Job.
   src/pdf-preview.ts The only module that imports pdfjs-dist: opens a PDF, reads its page sizes and draws a page onto a canvas.
   src/sw.ts          The service worker. Built into /sw.js; its logic is in share-target.ts and app-update.ts.
   src/screens/       One screen per file.
-  src/controls/      One hand-built control per file: stepper, Position grid, preset chips, preview and so on.
+  src/controls/      One hand-built control per file: stepper, Position grid, preset chips, layout strip, preview, the bar under it and so on.
   src/testing/       Seam 3 helpers, and setup.ts, which vitest runs before every test file.
   src/*.test.tsx     Seam 3 tests, all in this one folder.
 scripts/dev.ts     What `pnpm dev` runs.
@@ -151,7 +151,7 @@ test("…", async t => {
   - `opts.now` is the start time of the fake clock. `opts.ui` holds the files of a stand-in UI build.
   - `opts.beforeStart(printer)` runs before the server starts. Use it to script what the fake printer answers to the startup read of the margins.
   - It returns `request(path, init)`, `post(path, json?)`, `submit(draftId, overrides?)`, `upload(draftId, bytes, name, type)`, `print(overrides?, files?)`, `cleanup()`, `restart()`, `url`, `jobsDir`, `clock`, `printer` and `startupRequests`.
-  - `submit` posts `samplePrintOptions` from `server/testing/fixtures.ts`, changed by `overrides`. `samplePrintOptions` is one copy, black and white, A4, page 1. A submit without valid Print Options is a 400. Page 1 is also valid for a draft of two or more photos, where it means photo index 1. It is not valid for a single photo, so pass `{ selection: [0] }` there.
+  - `submit` posts `samplePrintOptions` from `server/testing/fixtures.ts`, changed by `overrides`. `samplePrintOptions` is one copy, black and white, A4, Normal, one item printed once: what a new one-page PDF starts with. A submit without valid Print Options is a 400. For a draft of more pages or photos pass one item each, for example `{ items: items(1, 1, 1) }` with `items(...counts)` from the fixtures.
   - `print` sends a whole Print Job. It creates a new draft, uploads each file and submits, then returns `{ jobId, cupsJobId }`. Without `files` it sends `samplePdf()`.
   - `startupRequests` holds the IPP requests the server made while starting. They are taken out of `printer.requests`, so that list starts empty and holds only what the test caused.
   - `cleanup()` does what the server does when it starts and every hour. It deletes old job folders and drafts. Call it after `clock.advance(…)`.
@@ -168,6 +168,8 @@ test("…", async t => {
   - `pdfWithPages()` takes sizes, `/Rotate`, CropBox, form fields and annotations. Its pages have a content stream, because pdf-lib can't embed a page without one. `{ blank: true }` makes a page without `/Contents`; it prints as an empty sheet unless an annotation is drawn on it. `annotations` puts form fields and annotations on a page, each with its dictionary entries as text and its appearance. `pdfWithPages(pages, { needAppearances: true })` sets the form's `/NeedAppearances`.
   - The other fixtures are `sampleJpeg()`, which is 40×30, `withExifOrientation()`, `samplePng(w, h)`, `pngWithPixels(rows)`, `jpegWithPixels(rows)` and `encryptedPdf()`.
 - **Reading the printed PDF.** `readRenderedPdf(request.data)` in `server/testing/rendered-pdf.ts` gives the sheets with their size and items. Each item has `kind`, `size`, `box`, `clip` and `corners`. `size` tells fixtures apart. It is the size of the embedded part of the page before `/Rotate`, or the photo's pixels. `box` and `clip` are on the sheet, measured from the top-left corner. `corners` show rotation and mirroring. A photo also has `filter` and `bytes`. A page with form fields or annotations drawn into it also has `annotations`. They hold the rectangle each one takes up on the source page and the content stream of its appearance. Numbers are rounded to 0.01 pt. `server/render.test.ts` sets the fake printer's margins to zero where that keeps the expected numbers simple.
+  - `drawnObjects(bytes)` counts the stored pages and photos the sheets draw, so a test sees that a page printed eight times is stored once.
+  - `strokedBoxes(bytes)` gives the rectangles stroked on each sheet with their line width and grey: the cut lines.
 - **Dell jobs.** With `dellEngine` in the harness options, colour photo and PDF jobs go out as HBPL, and the fake printer receives the raster foo2hbpl2 would get: one byte per 600 dpi pixel, `RASTERS[paper]` per sheet. PDF jobs run the real mutool. `server/dell-print.test.ts` builds a small engine of its own, never Dell's data.
 - **Status reasons.** To teach the status mapper a new reason, add a line to one of its two tables and a case to the table test in `server/status.test.ts`.
 - **Who printed.** `server/report.test.ts` sends the Cloudflare Access headers with every request of a Print Job and checks that nothing of them reaches CUPS, the job folder, the answers or the log.
@@ -210,7 +212,7 @@ test("…", async () => {
 - `ui/src/testing/setup.ts` unmounts the rendered app and removes the stubs after each test. It also gives every test an empty phone storage, an empty `localStorage`, a stand-in for pdf.js and addresses for photos that name their file. The points below describe these. A test "reopens the app" with `cleanup()` and a second render.
 - Solid 2 applies signal writes in a microtask. `await user.click(…)` is enough to see the result; after `fireEvent` add `await Promise.resolve()`.
 - With fake timers use `userEvent.setup({ advanceTimers: vi.advanceTimersByTime })` and `await vi.advanceTimersByTimeAsync(ms)`.
-- `ui/src/testing/options-screen.ts` has the taps nearly every test needs. `printAndConfirm(user)` taps Drucken, then Drucken in "Jetzt drucken?". `openDetails(user)` taps "Ändern" and `closeDetails(user)` taps "Fertig". `confirmation()` finds the open dialog. A test that expects a Print Job to be sent uses `printAndConfirm`, never a bare tap on Drucken.
+- `ui/src/testing/options-screen.ts` has the taps nearly every test needs. `printAndConfirm(user)` taps Drucken, then Drucken in "Jetzt drucken?". `openDetails(user)` taps "Einstellungen" and `closeDetails(user)` taps "Fertig". `shownSettings(user)` opens the detailed controls, reads copies, colour, paper and quality, and closes them again. `confirmation()` finds the open dialog, `laidOut()` waits until Drucken can be tapped, and `items(...counts)` builds the `items` of Print Options. A test that expects a Print Job to be sent uses `printAndConfirm`, never a bare tap on Drucken.
 - A test that goes on to the status screen needs a `GET /api/jobs/<id>` route. Without one the screen stays on Wartet, because a failed poll is tried again and never fails the test. `jobStatus(changes?)` in `ui/src/testing/job-status.ts` builds the answer: job `j1`, CUPS job 42, waiting since `sentAt`.
 - **pdf.js is a stubbed boundary, like `fetch`.** happy-dom has no worker and no canvas that draws, so a test can't see what pdf.js puts on a canvas. Never import `pdfjs-dist` in a component. `ui/src/pdf-preview.ts` wraps it, and the setup file replaces that module for every test. The stand-in opens any bytes as a PDF. Its pages have the sizes of the `/MediaBox [0 0 w h]` entries in the bytes, or it has one A4 page when there are none. `pdfFile(name, pages)` in `ui/src/testing/files.ts` writes such bytes. For each page it is asked to draw, the stand-in gives an empty canvas that says what was asked. `data-pdf` holds the file's bytes as text, `data-page` the page, and the canvas's `width` the pixels asked for. Assert on these canvases where they sit on the screen. Assert on what was asked to be drawn and where it shows, never on how often `openPdf` or `renderPage` ran.
 - **Files the browser reads.** The options screen opens from the facts the browser reads. "Upload behind the options screen" in `architecture.md` describes this. A file made with `pdfFile()` or `jpegFile()` opens the options screen before the upload is done. Any other test file opens it only when the server has answered, from the facts the test's route sends. For example, `new File(["\xff\xd8\xff"], …)` is not a JPEG head once encoded.
@@ -219,10 +221,10 @@ test("…", async () => {
 
 ### Seam 3 by area
 
-- **Layout ready.** "Blatt in der Vorschau" is left out when the layout has one sheet, so it is no sign that the screen is laid out. Wait for the enabled "Drucken" and the status "Druckgröße in Prozent" instead. With nothing selected the button named "Drucken" doesn't exist. It reads "Keine Seiten gewählt" or "Keine Fotos gewählt".
-- **Dialogs.** Testing Library still finds what is behind an open dialog, so a test must not tap it. Where a name is on both, such as Drucken, search inside the dialog with `within(confirmation())`. `sheetCount()` has its own cases in `shared/layout.test.ts`. The sheet count cases in `ui/src/confirmation.test.tsx` are those of `server/status.test.ts`.
+- **Layout ready.** "Blatt in der Vorschau" is left out when the layout has one sheet, so it is no sign that the screen is laid out. Wait with `laidOut()` for the enabled "Drucken" instead. For a PDF, the status "Druckgröße in Prozent" shows the percentage too; photos have no − and +. With nothing printed the button named "Drucken" doesn't exist. It reads "Keine Seiten gewählt" or "Keine Fotos gewählt".
+- **Dialogs.** Testing Library still finds what is behind an open dialog, so a test must not tap it. Where a name is on both, such as Drucken or "Einstellungen", search inside the dialog with `within(confirmation())`. `sheetCount()` and `overSheetLimit()` have their own cases in `shared/layout.test.ts`. `ui/src/confirmation.test.tsx` covers the panel; its limit state is rendered with `Confirmation` alone, because the screen never opens it over the limit.
 - **Presets.** In `ui/src/presets.test.tsx` the preset chips are the `radiogroup` named "Voreinstellung". Saving and deleting a Preset ask on the screen itself, with a name field and "Voreinstellung löschen?", not with `window.prompt` or `window.confirm`.
-- **Thumbnails.** `ui/src/thumbnails.test.tsx`. pdf.js draws the thumbnails too. A test tells the canvases apart by where they sit, inside a thumbnail's button or inside the preview. It also tells them apart by width. Thumbnails are 176 wide, the preview 1500 and more. `swipe(dx, dy)` in that file draws a touch pointer across the preview with `user.pointer`.
+- **Wie oft and the preview.** `ui/src/thumbnails.test.tsx` covers the counts, "Alle gleich", the layout strip's grids and stepping; `ui/src/preview.test.tsx` the picking and the bar; `ui/src/formats.test.tsx` the Photo formats and Eigenes; `ui/src/chips.test.tsx` the chip controls. pdf.js draws the thumbnails too. A test tells the canvases apart by where they sit, inside a thumbnail's button or inside the preview. It also tells them apart by width. Thumbnails are 176 wide, the preview 1500 and more. `ui/src/testing/setup.ts` stands in for `IntersectionObserver` and reports every picture as in view at once, so the thumbnails of a long PDF draw. `swipe(dx, dy)` in `thumbnails.test.tsx` draws a touch pointer across the preview with `user.pointer`.
 - **Shares and the service worker.** `share(files)` in `ui/src/testing/share.ts` sends the request the manifest declares through `receiveShare()` and follows the redirect; render `<App />` after it. `fakeServiceWorker()` in `ui/src/testing/fake-service-worker.ts` stands in for `navigator.serviceWorker`: `newVersionInstalled()`, `takeOver()`, and `messages` for what the app told the waiting version. Without it a test runs as over plain HTTP. `ui/src/testing/fake-indexeddb.ts` is the phone's storage; it keeps values as they are, so an uploaded file is the same object as the picked one. Assert on the phone's copy with `phoneFiles.held()`. Chromium rejects `formData()` on an empty multipart body, which happy-dom does not.
 - **Report.** `ui/src/report.test.tsx`. `userEvent.setup()` puts a working clipboard on `navigator`, so a test reads the report with `navigator.clipboard.readText()`. A test that taps "Bericht kopieren" needs a `GET /api/report` route, or the report says the server was not reachable. A test that goes back to Start after a Print Job causes one more `GET /api/jobs/<id>`.
 - **Expired login.** `ui/src/testing/login.ts` has `loginExpired` and `logInAgain(user)`. `loginExpired` is a route handler that answers as Cloudflare does, with a 401 and no JSON. `logInAgain(user)` taps "Neu anmelden" and checks that the app loaded an address the service worker lets through. It then unmounts the app and sets the address the server redirects to. Render `<App />` after it. Make the routes answer again before the call.
