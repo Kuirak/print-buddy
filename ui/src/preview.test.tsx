@@ -1,6 +1,6 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { afterEach, expect, test, vi } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
 import { App } from "./App.tsx"
 import { json, mockApi, type ApiHandler } from "./testing/mock-api.ts"
@@ -233,6 +233,53 @@ test("the bar closes with ✕ and when any other control is touched, and the ste
   await pick()
   await tap("Ansicht vergrößern")
   expect(bar("Seite 1")).not.toBeInTheDocument()
+})
+
+/** The paper drawn 400 px wide: 1 px is 595.28 / 400 pt. */
+const paperRect = { width: 400, height: 566, x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 566, toJSON() {} }
+
+afterEach(() => { vi.restoreAllMocks() })
+
+test("a picked page that overlaps the border can be panned by dragging its 4-arrow overlay; Position takes over again after it", async () => {
+  const { user, bar, print } = await openOptions()
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
+  await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
+  // Einpassen lies inside the printable area: nothing to pan
+  expect(screen.queryByRole("group", { name: "Seite 1 verschieben" })).not.toBeInTheDocument()
+
+  // Füllen overlaps the printable width by 73.27 pt
+  await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
+  const overlay = await screen.findByRole("group", { name: "Seite 1 verschieben" })
+  await user.pointer([
+    { keys: "[MouseLeft>]", target: overlay, coords: { clientX: 100, clientY: 100 } },
+    { target: overlay, coords: { clientX: 80, clientY: 100 } },
+    { keys: "[/MouseLeft]", target: overlay, coords: { clientX: 80, clientY: 100 } },
+  ])
+
+  // 20 px left is 29.76 pt: the page lies 29.76 / 73.27 further along; it is still the picked one
+  expect(bar("Seite 1")).toBeInTheDocument()
+  const submitted = await print()
+  const [first] = (submitted as { items: { pan?: { x: number; y: number } }[] }).items
+  expect(first!.pan!.x).toBeCloseTo(0.906, 2)
+  expect(first!.pan!.y).toBe(0.5)
+})
+
+test.each([
+  ["Position is chosen", async (_tap: (name: string) => Promise<void>, choice: (group: string, name: string) => HTMLElement, user: ReturnType<typeof userEvent.setup>) => { await user.click(choice("Position", "oben")) }, 0],
+  ["the page is turned", async (tap: (name: string) => Promise<void>) => { await tap("Nach rechts drehen") }, 90],
+])("a pan is dropped when %s", async (_when, act, turn) => {
+  const { user, tap, choice, bar, print } = await openOptions()
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
+  await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
+  await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
+  ;(await screen.findByRole("group", { name: "Seite 1 verschieben" })).focus()
+  await user.keyboard("{ArrowLeft}")
+
+  await act(tap, choice, user)
+
+  const [first] = ((await print()) as { items: object[] }).items
+  expect(first).toEqual(expect.not.objectContaining({ pan: expect.anything() }))
+  expect(first).toMatchObject({ turn })
 })
 
 test("Größe für alle offers Füllen, Einpassen and 100 % for photos, without percentage steps; PDFs keep the steps", async () => {

@@ -57,6 +57,12 @@ export type Placement = Box & {
   matrix: Matrix
   /** The part of the sheet this placement may draw on. Whatever falls outside is not drawn. */
   clip: Box
+  /**
+   * Panning, as the sheet is read: `x` and `y` are how far along the overlap the content lies, 0 (left or top edge of the
+   * printable area flush) to 1 (right or bottom edge flush). `overflowX` and `overflowY` are the points by which it overlaps
+   * the printable area on that axis; 0 where it fits, so there is nothing to pan.
+   */
+  pan: { x: number; y: number; overflowX: number; overflowY: number }
 }
 
 export type Sheet = {
@@ -146,6 +152,8 @@ type Content = {
   autoRotate: boolean
   /** The item's turn. */
   turn: Rotation
+  /** The item's pan: replaces Position on each axis where the content overlaps the printable area. */
+  pan: Item["pan"]
   /** The item's size, or else the Print size. */
   printSize: PrintSizeMode
 }
@@ -276,7 +284,8 @@ export function printableArea(sheet: Size, margins: Margins): Box {
  * - Einpassen is the largest size inside the printable part of the Cell, Füllen the smallest that covers the whole Cell,
  *   a percentage scales from the natural size. An item's `size` replaces the Print size for that item. At a Photo
  *   format a percentage counts as Füllen, and nothing is ever reported as cut off: cropping to the slot is expected.
- * - Position aligns the content to the printable part of its Cell.
+ * - Position aligns the content to the printable part of its Cell. An item's `pan` replaces it on each axis where the
+ *   content overlaps the printable part, and only there.
  * - Cells: see `cells`. Each page or photo is laid out in its Cell as on a sheet of its own; photos turn by themselves
  *   to the Cell, PDF pages never do, and the grid is read the other way after a landscape first page instead.
  *   No sheets when the layout can't be laid out.
@@ -290,7 +299,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
     let content: Content
     if (source.kind === "pdf") {
       const natural = source.pages[index]!
-      content = { ref: index + 1, natural, orientation: 1, upright: natural, autoRotate: false, turn: item.turn, printSize }
+      content = { ref: index + 1, natural, orientation: 1, upright: natural, autoRotate: false, turn: item.turn, pan: item.pan, printSize }
     } else {
       const photo = source.photos[index]!
       const natural = photoNaturalSize(photo)
@@ -301,6 +310,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
         upright: photo.orientation <= 4 ? natural : flipped(natural),
         autoRotate: printSize.kind !== "percent",
         turn: item.turn,
+        pan: item.pan,
         printSize,
       }
     }
@@ -335,9 +345,12 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
         : printSize.value / 100
       const width = turned.width * scale
       const height = turned.height * scale
+      const overflowX = width > printable.width + TOLERANCE ? width - printable.width : 0
+      const overflowY = height > printable.height + TOLERANCE ? height - printable.height : 0
+      const along = { x: overflowX > 0 && content.pan ? content.pan.x : across, y: overflowY > 0 && content.pan ? content.pan.y : down }
       const box = onSheet({
-        left: printable.left + (printable.width - width) * across,
-        top: printable.top + (printable.height - height) * down,
+        left: printable.left + (printable.width - width) * along.x,
+        top: printable.top + (printable.height - height) * along.y,
         width,
         height,
       })
@@ -346,6 +359,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
         ref: content.ref,
         rotation,
         scale,
+        pan: { ...along, overflowX, overflowY },
         ...box,
         matrix: matrixFor(
           compose(TURNS[rotation], ORIENTATIONS[content.orientation]),

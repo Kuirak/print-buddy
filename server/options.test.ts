@@ -119,6 +119,10 @@ test("invalid Print Options are refused and no Print Job is sent", async t => {
     { ...base, items: [{ count: 1 }] },
     { ...base, items: [{ count: 1, turn: 0, size: "percent" }] },
     { ...base, items: [{ count: 1, turn: 0 }, null] },
+    { ...base, items: [{ count: 1, turn: 0, pan: { x: 1.1, y: 0 } }] },
+    { ...base, items: [{ count: 1, turn: 0, pan: { x: 0, y: -0.1 } }] },
+    { ...base, items: [{ count: 1, turn: 0, pan: { x: 0 } }] },
+    { ...base, items: [{ count: 1, turn: 0, pan: null }] },
   ]
   for (const options of invalid) {
     const submitted = await server.post(`/api/drafts/${draftId}/submit`, options)

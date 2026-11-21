@@ -224,7 +224,10 @@ export function OptionsScreen(props: {
   /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
   function apply(preset: Preset) {
     presets.pick(preset)
-    setOptions(o => { Object.assign(o, structuredClone(preset.values)) })
+    setOptions(o => {
+      Object.assign(o, structuredClone(preset.values))
+      for (const item of o.items) delete item.pan
+    })
   }
 
   /** The page or photo picked by a tap in the preview (its `ref`): the bar under the preview changes it alone. */
@@ -238,7 +241,12 @@ export function OptionsScreen(props: {
   /** A quarter turn of the picked page or photo, on top of the turn it gets by itself. */
   function turnPicked(by: 90 | 270) {
     const index = refs().indexOf(picked()!)
-    setOptions(o => { o.items[index]!.turn = ((o.items[index]!.turn + by) % 360) as Rotation })
+    setOptions(o => {
+      const item = o.items[index]!
+      item.turn = ((item.turn + by) % 360) as Rotation
+      // the overlap is another one after a turn
+      delete item.pan
+    })
   }
   /** What the picked page or photo prints at: its own size, or the size for all. */
   const pickedSize = () => {
@@ -250,13 +258,24 @@ export function OptionsScreen(props: {
   function switchPickedSize() {
     const index = refs().indexOf(picked()!)
     const size = pickedSize() === "fill" ? "fit" : "fill"
-    setOptions(o => { o.items[index]!.size = size })
+    setOptions(o => {
+      o.items[index]!.size = size
+      delete o.items[index]!.pan
+    })
+  }
+  /** Moves the page or photo where it overlaps the border (see `Item.pan`). */
+  function panItem(ref: number, pan: { x: number; y: number }) {
+    const index = refs().indexOf(ref)
+    setOptions(o => { o.items[index]!.pan = pan })
   }
   /** "Größe für alle": the Print size for every page or photo; the sizes they had of their own go. */
   function setSizeForAll(printSize: PrintSizeMode) {
     setOptions(o => {
       o.printSize = printSize
-      for (const item of o.items) delete item.size
+      for (const item of o.items) {
+        delete item.size
+        delete item.pan
+      }
     })
   }
   /** The sizes in use while the printed pages or photos differ, or `undefined` while they are all the same. */
@@ -336,6 +355,7 @@ export function OptionsScreen(props: {
             picked={picked()}
             turned={ref => (options.items[refs().indexOf(ref)]?.turn ?? 0) !== 0}
             onPick={setPicked}
+            onPan={panItem}
           />
         </div>
         {/* one row of fixed height: the bar of the picked page or photo, or the stepper; nothing to step through on a
@@ -460,7 +480,14 @@ export function OptionsScreen(props: {
         </div>
         <div class="flex shrink-0 flex-col items-center gap-1">
           <span class="text-xs font-semibold text-muted">Position</span>
-          <PositionGrid value={options.position} onChange={position => setOptions(o => { o.position = position })} />
+          <PositionGrid
+            value={options.position}
+            onChange={position => setOptions(o => {
+              o.position = position
+              // Position decides again where the content lies
+              for (const item of o.items) delete item.pan
+            })}
+          />
         </div>
       </div>
       <Show when={cutOff()}>

@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js"
 import type { Margins } from "../../../shared/api.ts"
-import type { Box, Sheet, Size } from "../../../shared/layout.ts"
+import type { Box, Placement, Sheet, Size } from "../../../shared/layout.ts"
 import { itemName } from "../job-text.ts"
 import type { PdfPreview } from "../pdf-preview.ts"
 import { PdfPage } from "./PdfPage.tsx"
@@ -34,6 +34,20 @@ const swipeDistance = 50
 /** A finger that moves less than this, in CSS pixels, between down and up has tapped. */
 const tapDistance = 10
 
+/** How far the arrow keys move a panned page or photo, in points of the sheet. */
+const keyPanStep = 10
+
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
+
+/** Four arrows pointing outwards: the sign that a page or photo can be moved. */
+function MoveIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" class="size-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3" />
+    </svg>
+  )
+}
+
 /**
  * One sheet as it will print: the paper in its shape, every placement of the layout module's sheet in its box,
  * turned and clipped as the layout module says, and the unprintable edge as a pale band on top.
@@ -64,6 +78,8 @@ export function Preview(props: {
   turned: (ref: number) => boolean
   /** A tap on a page or photo picks it; a tap beside them gives `undefined`. */
   onPick: (ref: number | undefined) => void
+  /** The picked page or photo was moved where it overlaps the border: its new `pan` (see `Item`). */
+  onPan: (ref: number, pan: { x: number; y: number }) => void
 }) {
   // a sideways sheet (a grid read in landscape) is shown turned a quarter counter-clockwise, so its content reads upright
   const sideways = () => props.sheet?.sideways ?? false
@@ -99,6 +115,41 @@ export function Preview(props: {
     }
   }
   const name = (ref: number) => itemName(props.source.kind, ref)
+  // Panning: a drag on the overlay of the picked page or photo moves it along the axes where it overlaps the border.
+  // The sheet is drawn as it is read, so a pixel of the drag is 1 / `scale` points of the layout module's read frame.
+  let drag: { pointer: number; x: number; y: number; from: Placement["pan"]; pointsPerPixel: number } | undefined
+  function panDown(event: PointerEvent, placement: Placement) {
+    event.stopPropagation()
+    const width = paperShown?.getBoundingClientRect().width ?? 0
+    if (!event.isPrimary || width === 0) return
+    drag = { pointer: event.pointerId, x: event.clientX, y: event.clientY, from: placement.pan, pointsPerPixel: (sideways() ? props.paper.height : props.paper.width) / width }
+    ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
+  }
+  function panMove(event: PointerEvent, placement: Placement) {
+    if (!drag || event.pointerId !== drag.pointer) return
+    event.stopPropagation()
+    const { from, pointsPerPixel } = drag
+    // content moved right by `d` points: it lies `d / overflow` less far along
+    props.onPan(placement.ref, {
+      x: from.overflowX > 0 ? clamp01(from.x - ((event.clientX - drag.x) * pointsPerPixel) / from.overflowX) : from.x,
+      y: from.overflowY > 0 ? clamp01(from.y - ((event.clientY - drag.y) * pointsPerPixel) / from.overflowY) : from.y,
+    })
+  }
+  function panEnd(event: PointerEvent) {
+    if (!drag || event.pointerId !== drag.pointer) return
+    event.stopPropagation()
+    drag = undefined
+  }
+  const arrows: Record<string, [x: number, y: number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
+  function panKey(event: KeyboardEvent, { ref, pan }: Placement) {
+    const arrow = arrows[event.key]
+    if (!arrow) return
+    event.preventDefault()
+    props.onPan(ref, {
+      x: pan.overflowX > 0 ? clamp01(pan.x - (arrow[0] * keyPanStep) / pan.overflowX) : pan.x,
+      y: pan.overflowY > 0 ? clamp01(pan.y - (arrow[1] * keyPanStep) / pan.overflowY) : pan.y,
+    })
+  }
   return (
     <section
       aria-label="Vorschau"
@@ -167,6 +218,26 @@ export function Preview(props: {
               </Show>
               <Show when={props.picked === placement().ref}>
                 <div aria-hidden="true" class="pointer-events-none absolute inset-0 ring-4 ring-brand ring-inset" />
+              </Show>
+              <Show when={props.picked === placement().ref && (placement().pan.overflowX > 0 || placement().pan.overflowY > 0)}>
+                {/* the picked page or photo overlaps the border: a drag here moves it */}
+                <div
+                  role="group"
+                  tabindex="0"
+                  aria-label={`${name(placement().ref)} verschieben`}
+                  data-pan
+                  class="absolute inset-0 grid cursor-move place-items-center"
+                  style={{ "touch-action": "none" }}
+                  onPointerDown={event => panDown(event, placement())}
+                  onPointerMove={event => panMove(event, placement())}
+                  onPointerUp={panEnd}
+                  onPointerCancel={panEnd}
+                  onKeyDown={event => panKey(event, placement())}
+                >
+                  <span class="pointer-events-none grid size-12 place-items-center rounded-full bg-gray-900/70 text-white">
+                    <MoveIcon />
+                  </span>
+                </div>
               </Show>
             </div>
           )}

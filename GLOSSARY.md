@@ -29,3 +29,5 @@
 **Photo format**: A fixed size a photo is printed at, such as 10 × 15 cm, independent of the paper. The sheet then holds as many photos as fit. Not to be confused with Print size, which scales content relative to its own size or the sheet.
 
 **Repeats**: How many times a selected page or photo appears on the sheets, side by side, within one copy of the Print Job. Each page or photo has its own; two of each of four photos fill 8 Cells.
+
+**Pan**: Moving a page or photo that reaches over the edge of the printable area, to choose which part is cut off. It replaces Position for that page or photo on each axis where it overlaps, and only there. Not to be confused with Position, which is one of nine spots for all of them.

@@ -33,6 +33,12 @@ export type FormatLayout = Extract<Layout, { kind: "format" }>
 export type Item = {
   /** Repeats, 0 to `maxCount`: how often it appears on the sheets of one copy. 0 leaves it out. */
   count: number
+  /**
+   * Pans this page or photo where it overlaps the border of the printable area: how far along the overlap it lies,
+   * as the sheet is read, 0 (left or top edge flush) to 1 (right or bottom edge flush). Replaces Position on each
+   * axis where the content overlaps; an axis where it doesn't has no panning.
+   */
+  pan?: { x: number; y: number }
   /** Clockwise, added to the turn the layout module gives it by itself. */
   turn: 0 | 90 | 180 | 270
   /** Replaces `printSize` for this page or photo. */
@@ -102,13 +108,23 @@ function parseLayout(value: unknown): Layout | undefined {
   return { kind: "format", format, lage: l.lage as "save" | "portrait" | "landscape", gap: l.gap, cutLines: l.cutLines }
 }
 
+function parsePan(value: unknown): Item["pan"] | null | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "object" || value === null) return null
+  const { x, y } = value as Record<string, unknown>
+  const share = (n: unknown): n is number => typeof n === "number" && n >= 0 && n <= 1
+  return share(x) && share(y) ? { x, y } : null
+}
+
 function parseItem(value: unknown): Item | undefined {
   if (typeof value !== "object" || value === null) return undefined
-  const { count, turn, size } = value as Record<string, unknown>
+  const { count, turn, size, pan } = value as Record<string, unknown>
   if (!Number.isInteger(count) || (count as number) < 0 || (count as number) > maxCount) return undefined
   if (!rotations.includes(turn)) return undefined
   if (size !== undefined && size !== "fill" && size !== "fit") return undefined
-  return { count: count as number, turn: turn as Rotation, ...(size && { size }) }
+  const parsedPan = parsePan(pan)
+  if (parsedPan === null) return undefined
+  return { count: count as number, turn: turn as Rotation, ...(size && { size }), ...(parsedPan && { pan: parsedPan }) }
 }
 
 /**
