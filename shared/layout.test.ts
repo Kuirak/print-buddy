@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { cells, layout, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
+import { cells, contentPan, layout, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
 import type { FormatLayout, Item, PrintOptions } from "./print-options.ts"
 
 // A made-up sheet with round numbers: 600 × 800 pt, and a different margin on every side.
@@ -154,6 +154,32 @@ test("an item's pan replaces Position along each axis where its content overlaps
   await t.test("a pan changes where the content is drawn, not how large", () => {
     assert.equal(panned({ x: 0, y: 0 }).scale, panned({ x: 1, y: 1 }).scale)
     assert.notDeepEqual(panned({ x: 0, y: 0 }).matrix, panned({ x: 1, y: 1 }).matrix)
+  })
+
+  await t.test("a pan is along the content's own axes: turned, it lies along the sheet's axes the other way round", () => {
+    // 300 × 400 turned 90° at 250 % is 1000 × 750: it overlaps by 440 and 10 pt. Its left edge is now the top one,
+    // so a pan to its left edge (x 0) puts the top edge flush, and a pan to its top edge (y 0) the right edge flush.
+    const turned = only(layout({ source: pdf([300, 400]), options: options({ printSize: percent(250), items: [{ count: 1, turn: 90, pan: { x: 0, y: 0 } }] }), sheet, margins }))
+    assert.deepEqual([turned.left, turned.top], [-430, 20])
+    assert.deepEqual(turned.pan, { x: 1, y: 0, overflowX: 440, overflowY: 10, rotation: 90 })
+  })
+
+  await t.test("one photo shows the same part of itself in an upright and in a sideways slot of Platz sparen", () => {
+    const a4 = SHEET_SIZES.A4
+    const edge = { top: 12, right: 9, bottom: 12, left: 9 }
+    const save: FormatLayout = { kind: "format", format: "10x15", lage: "save", gap: true, cutLines: false }
+    const items: Item[] = [{ count: 20, turn: 0, pan: { y: 0 } }]
+    const source: LayoutInput["source"] = { kind: "photos", photos: [{ width: 4000, height: 3000, orientation: 1 }] }
+    const [first] = layout({ source, options: options({ layout: save, printSize: fill, items }), sheet: a4, margins: edge })
+    const rotations = new Set(first!.placements.map(placement => placement.pan.rotation))
+    assert.ok(rotations.size > 1, "the sheet has upright and sideways slots")
+    // along the photo's own axes every slot that overlaps along it lies at its top edge: y 0, whichever way the slot turned it
+    const ownY = first!.placements.flatMap(({ pan }) => {
+      const read = { ...(pan.overflowX > 0 && { x: pan.x }), ...(pan.overflowY > 0 && { y: pan.y }) }
+      return contentPan(read, pan.rotation).y ?? []
+    })
+    assert.ok(ownY.length > 1)
+    assert.deepEqual([...new Set(ownY)], [0])
   })
 })
 

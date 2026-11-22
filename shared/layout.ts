@@ -60,9 +60,10 @@ export type Placement = Box & {
   /**
    * Panning, as the sheet is read: `x` and `y` are how far along the overlap the content lies, 0 (left or top edge of the
    * printable area flush) to 1 (right or bottom edge flush). `overflowX` and `overflowY` are the points by which it overlaps
-   * the printable area on that axis; 0 where it fits, so there is nothing to pan.
+   * the printable area on that axis; 0 where it fits, so there is nothing to pan. `rotation` is the clockwise turn of the
+   * upright content as read (without the sheet's own): `contentPan` brings a pan made here back to the item's own axes.
    */
-  pan: { x: number; y: number; overflowX: number; overflowY: number }
+  pan: { x: number; y: number; overflowX: number; overflowY: number; rotation: Rotation }
 }
 
 export type Sheet = {
@@ -152,7 +153,7 @@ type Content = {
   autoRotate: boolean
   /** The item's turn. */
   turn: Rotation
-  /** The item's pan: replaces Position on each axis where the content overlaps the printable area. */
+  /** The item's pan, along the content's own axes. */
   pan: Item["pan"]
   /** The item's size, or else the Print size. */
   printSize: PrintSizeMode
@@ -285,7 +286,8 @@ export function printableArea(sheet: Size, margins: Margins): Box {
  *   a percentage scales from the natural size. An item's `size` replaces the Print size for that item. At a Photo
  *   format a percentage counts as Füllen, and nothing is ever reported as cut off: cropping to the slot is expected.
  * - Position aligns the content to the printable part of its Cell. An item's `pan` replaces it on each axis where the
- *   content overlaps the printable part, and only there.
+ *   content overlaps the printable part, and only there. It is given along the content's own axes (see `readPan`), so
+ *   a photo turned to a sideways slot shows the same part of itself as in an upright one.
  * - Cells: see `cells`. Each page or photo is laid out in its Cell as on a sheet of its own; photos turn by themselves
  *   to the Cell, PDF pages never do, and the grid is read the other way after a landscape first page instead.
  *   No sheets when the layout can't be laid out.
@@ -347,7 +349,8 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
       const height = turned.height * scale
       const overflowX = width > printable.width + TOLERANCE ? width - printable.width : 0
       const overflowY = height > printable.height + TOLERANCE ? height - printable.height : 0
-      const along = { x: overflowX > 0 && content.pan ? content.pan.x : across, y: overflowY > 0 && content.pan ? content.pan.y : down }
+      const panned = content.pan ? readPan(content.pan, viewRotation as Rotation) : {}
+      const along = { x: overflowX > 0 ? (panned.x ?? across) : across, y: overflowY > 0 ? (panned.y ?? down) : down }
       const box = onSheet({
         left: printable.left + (printable.width - width) * along.x,
         top: printable.top + (printable.height - height) * along.y,
@@ -359,7 +362,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
         ref: content.ref,
         rotation,
         scale,
-        pan: { ...along, overflowX, overflowY },
+        pan: { ...along, overflowX, overflowY, rotation: viewRotation as Rotation },
         ...box,
         matrix: matrixFor(
           compose(TURNS[rotation], ORIENTATIONS[content.orientation]),
@@ -397,4 +400,33 @@ export function overSheetLimit(sheets: readonly Sheet[], copies: number): boolea
 
 function flipped({ width, height }: Size): Size {
   return { width: height, height: width }
+}
+
+type Pan = NonNullable<Item["pan"]>
+
+/** A pan with only the axes that are given. */
+function axes(x: number | undefined, y: number | undefined): Pan {
+  return { ...(x !== undefined && { x }), ...(y !== undefined && { y }) }
+}
+
+const behind = (n: number | undefined) => (n === undefined ? undefined : 1 - n)
+
+/**
+ * An item's pan along the content's own axes (0: its left or top edge flush, 1: its right or bottom edge) as it lies
+ * along the axes of the sheet as read, when the upright content is turned clockwise by `rotation`: turned a quarter, its
+ * left edge is the top one and its bottom edge the left one.
+ */
+export function readPan({ x: u, y: v }: Pan, rotation: Rotation): Pan {
+  if (rotation === 90) return axes(behind(v), u)
+  if (rotation === 180) return axes(behind(u), behind(v))
+  if (rotation === 270) return axes(v, behind(u))
+  return axes(u, v)
+}
+
+/** The reverse of `readPan`: a pan made along the sheet's axes, as an item's pan along its own. */
+export function contentPan({ x, y }: Pan, rotation: Rotation): Pan {
+  if (rotation === 90) return axes(y, behind(x))
+  if (rotation === 180) return axes(behind(x), behind(y))
+  if (rotation === 270) return axes(behind(y), x)
+  return axes(x, y)
 }

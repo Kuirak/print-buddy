@@ -34,11 +34,12 @@ export type Item = {
   /** Repeats, 0 to `maxCount`: how often it appears on the sheets of one copy. 0 leaves it out. */
   count: number
   /**
-   * Pans this page or photo where it overlaps the border of the printable area: how far along the overlap it lies,
-   * as the sheet is read, 0 (left or top edge flush) to 1 (right or bottom edge flush). Replaces Position on each
-   * axis where the content overlaps; an axis where it doesn't has no panning.
+   * Pans this page or photo where it overlaps the border of the printable area, along its own axes (as stored upright,
+   * before any turn, so it shows the same part of itself in every Cell): how far along it lies, `x` from its left edge (0)
+   * to its right edge (1), `y` from its top edge to its bottom edge. Replaces Position on each axis where the content
+   * overlaps; an axis where it doesn't, or that isn't given, keeps Position.
    */
-  pan?: { x: number; y: number }
+  pan?: { x?: number; y?: number }
   /** Clockwise, added to the turn the layout module gives it by itself. */
   turn: 0 | 90 | 180 | 270
   /** Replaces `printSize` for this page or photo. */
@@ -112,8 +113,9 @@ function parsePan(value: unknown): Item["pan"] | null | undefined {
   if (value === undefined) return undefined
   if (typeof value !== "object" || value === null) return null
   const { x, y } = value as Record<string, unknown>
-  const share = (n: unknown): n is number => typeof n === "number" && n >= 0 && n <= 1
-  return share(x) && share(y) ? { x, y } : null
+  const share = (n: unknown): n is number | undefined => n === undefined || (typeof n === "number" && n >= 0 && n <= 1)
+  if (!share(x) || !share(y)) return null
+  return x === undefined && y === undefined ? undefined : { ...(x !== undefined && { x }), ...(y !== undefined && { y }) }
 }
 
 function parseItem(value: unknown): Item | undefined {

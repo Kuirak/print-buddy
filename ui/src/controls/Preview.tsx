@@ -1,6 +1,6 @@
 import { For, Show } from "solid-js"
 import type { Margins } from "../../../shared/api.ts"
-import type { Box, Placement, Sheet, Size } from "../../../shared/layout.ts"
+import { contentPan, type Box, type Placement, type Sheet, type Size } from "../../../shared/layout.ts"
 import { itemName } from "../job-text.ts"
 import type { PdfPreview } from "../pdf-preview.ts"
 import { PdfPage } from "./PdfPage.tsx"
@@ -78,8 +78,8 @@ export function Preview(props: {
   turned: (ref: number) => boolean
   /** A tap on a page or photo picks it; a tap beside them gives `undefined`. */
   onPick: (ref: number | undefined) => void
-  /** The picked page or photo was moved where it overlaps the border: its new `pan` (see `Item`). */
-  onPan: (ref: number, pan: { x: number; y: number }) => void
+  /** The picked page or photo was moved where it overlaps the border: the axes of its `pan` that changed (see `Item`). */
+  onPan: (ref: number, pan: { x?: number; y?: number }) => void
 }) {
   // a sideways sheet (a grid read in landscape) is shown turned a quarter counter-clockwise, so its content reads upright
   const sideways = () => props.sheet?.sideways ?? false
@@ -125,14 +125,18 @@ export function Preview(props: {
     drag = { pointer: event.pointerId, x: event.clientX, y: event.clientY, from: placement.pan, pointsPerPixel: (sideways() ? props.paper.height : props.paper.width) / width }
     ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
   }
+  /** Reports a pan made along the sheet's axes (only where the content overlaps there) along the item's own. */
+  function pan({ ref, pan: at }: Placement, to: { x: number; y: number }) {
+    props.onPan(ref, contentPan({ ...(at.overflowX > 0 && { x: clamp01(to.x) }), ...(at.overflowY > 0 && { y: clamp01(to.y) }) }, at.rotation))
+  }
   function panMove(event: PointerEvent, placement: Placement) {
     if (!drag || event.pointerId !== drag.pointer) return
     event.stopPropagation()
     const { from, pointsPerPixel } = drag
     // content moved right by `d` points: it lies `d / overflow` less far along
-    props.onPan(placement.ref, {
-      x: from.overflowX > 0 ? clamp01(from.x - ((event.clientX - drag.x) * pointsPerPixel) / from.overflowX) : from.x,
-      y: from.overflowY > 0 ? clamp01(from.y - ((event.clientY - drag.y) * pointsPerPixel) / from.overflowY) : from.y,
+    pan(placement, {
+      x: from.x - ((event.clientX - drag.x) * pointsPerPixel) / from.overflowX,
+      y: from.y - ((event.clientY - drag.y) * pointsPerPixel) / from.overflowY,
     })
   }
   function panEnd(event: PointerEvent) {
@@ -141,14 +145,12 @@ export function Preview(props: {
     drag = undefined
   }
   const arrows: Record<string, [x: number, y: number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }
-  function panKey(event: KeyboardEvent, { ref, pan }: Placement) {
+  function panKey(event: KeyboardEvent, placement: Placement) {
     const arrow = arrows[event.key]
     if (!arrow) return
     event.preventDefault()
-    props.onPan(ref, {
-      x: pan.overflowX > 0 ? clamp01(pan.x - (arrow[0] * keyPanStep) / pan.overflowX) : pan.x,
-      y: pan.overflowY > 0 ? clamp01(pan.y - (arrow[1] * keyPanStep) / pan.overflowY) : pan.y,
-    })
+    const at = placement.pan
+    pan(placement, { x: at.x - (arrow[0] * keyPanStep) / at.overflowX, y: at.y - (arrow[1] * keyPanStep) / at.overflowY })
   }
   return (
     // The tray keeps one height, whatever the sheet's shape: a sheet in landscape sits in its middle rather than shrinking

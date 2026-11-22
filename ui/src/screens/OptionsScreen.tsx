@@ -241,12 +241,7 @@ export function OptionsScreen(props: {
   /** A quarter turn of the picked page or photo, on top of the turn it gets by itself. */
   function turnPicked(by: 90 | 270) {
     const index = refs().indexOf(picked()!)
-    setOptions(o => {
-      const item = o.items[index]!
-      item.turn = ((item.turn + by) % 360) as Rotation
-      // the overlap is another one after a turn
-      delete item.pan
-    })
+    setOptions(o => { o.items[index]!.turn = ((o.items[index]!.turn + by) % 360) as Rotation })
   }
   /** What the picked page or photo prints at: its own size, or the size for all. */
   const pickedSize = () => {
@@ -263,10 +258,10 @@ export function OptionsScreen(props: {
       delete o.items[index]!.pan
     })
   }
-  /** Moves the page or photo where it overlaps the border (see `Item.pan`). */
-  function panItem(ref: number, pan: { x: number; y: number }) {
+  /** Moves the page or photo where it overlaps the border: the axes of its `pan` that changed (see `Item.pan`). */
+  function panItem(ref: number, pan: { x?: number; y?: number }) {
     const index = refs().indexOf(ref)
-    setOptions(o => { o.items[index]!.pan = pan })
+    setOptions(o => { o.items[index]!.pan = { ...o.items[index]!.pan, ...pan } })
   }
   /** "Größe für alle": the Print size for every page or photo; the sizes they had of their own go. */
   function setSizeForAll(printSize: PrintSizeMode) {
