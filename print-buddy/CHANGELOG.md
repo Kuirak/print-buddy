@@ -2,9 +2,13 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
-## Unreleased
+## 2026.11.7
 
-- A page or photo that reaches over the edge of the printable area can be moved: pick it in the preview and drag the four-arrow sign on it (or use the arrow keys) to choose which part is cut off. Switching Füllen/Einpassen, "Größe für alle" and Position put it back.
+- A page or photo that reaches over the edge of the printable area can be moved: pick it in the preview and drag the four-arrow sign on it (or use the arrow keys) to choose which part is cut off. It shows the same part of itself wherever it appears, also in a turned slot of "Platz sparen". Switching Füllen/Einpassen, "Größe für alle" and Position put it back.
+- "Datei auswählen" shows the loading screen at once and opens the picked files without waiting.
+- The preview keeps one height, so switching between portrait and landscape sheets moves nothing below it. "Größe für alle" and Position sit right under the preview.
+- "Drucken hat nicht geklappt" names the cause and offers "Einstellungen ändern"; Print Options the server refused get no retry.
+- The status screen shows the Print Buddy, a line per state and what is printing. "Bericht kopieren" is a quiet link.
 
 ## 2026.11.6
 
