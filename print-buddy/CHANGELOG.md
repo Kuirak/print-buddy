@@ -4,7 +4,7 @@ Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts a
 
 ## Unreleased
 
-- A page or photo that reaches over the edge of the printable area can be moved: pick it in the preview and drag the four-arrow sign on it (or use the arrow keys) to choose which part is cut off. Turning it, switching Füllen/Einpassen, "Größe für alle" and Position put it back.
+- A page or photo that reaches over the edge of the printable area can be moved: pick it in the preview and drag the four-arrow sign on it (or use the arrow keys) to choose which part is cut off. Switching Füllen/Einpassen, "Größe für alle" and Position put it back.
 
 ## 2026.11.6
 

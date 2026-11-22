@@ -264,22 +264,33 @@ test("a picked page that overlaps the border can be panned by dragging its 4-arr
   expect(first!.pan!.y).toBe(0.5)
 })
 
-test.each([
-  ["Position is chosen", async (_tap: (name: string) => Promise<void>, choice: (group: string, name: string) => HTMLElement, user: ReturnType<typeof userEvent.setup>) => { await user.click(choice("Position", "oben")) }, 0],
-  ["the page is turned", async (tap: (name: string) => Promise<void>) => { await tap("Nach rechts drehen") }, 90],
-])("a pan is dropped when %s", async (_when, act, turn) => {
+test("a pan is dropped when Position is chosen, and kept when the page is turned", async () => {
   const { user, tap, choice, bar, print } = await openOptions()
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
   await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
   await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
   ;(await screen.findByRole("group", { name: "Seite 1 verschieben" })).focus()
   await user.keyboard("{ArrowLeft}")
+  await tap("Nach rechts drehen")
 
-  await act(tap, choice, user)
+  // turned a quarter, the page's own x axis lies along the sheet's y: the key moved x, and that stays with the page
+  const [turned] = ((await print()) as { items: { turn: number; pan?: { x?: number; y?: number } }[] }).items
+  expect(turned).toMatchObject({ turn: 90 })
+  expect(turned!.pan?.x).toBeGreaterThan(0.5)
+})
+
+test("choosing a Position drops a pan", async () => {
+  const { user, choice, bar, print } = await openOptions()
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
+  await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
+  await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
+  ;(await screen.findByRole("group", { name: "Seite 1 verschieben" })).focus()
+  await user.keyboard("{ArrowLeft}")
+
+  await user.click(choice("Position", "oben"))
 
   const [first] = ((await print()) as { items: object[] }).items
-  expect(first).toEqual(expect.not.objectContaining({ pan: expect.anything() }))
-  expect(first).toMatchObject({ turn })
+  expect(first).not.toHaveProperty("pan")
 })
 
 test("Größe für alle offers Füllen, Einpassen and 100 % for photos, without percentage steps; PDFs keep the steps", async () => {

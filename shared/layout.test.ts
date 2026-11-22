@@ -53,7 +53,7 @@ test("a PDF page at 100 % keeps its size in points and sits in the middle of the
     width: 300,
     height: 400,
     matrix: [1, 0, 0, 1, 140, 210],
-    pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0 }, clip: { left: 0, top: 0, width: 600, height: 800 },
+    pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 }, clip: { left: 0, top: 0, width: 600, height: 800 },
   })
 })
 
@@ -136,19 +136,19 @@ test("an item's pan replaces Position along each axis where its content overlaps
   })
 
   await t.test("the placement reports where it lies and by how much it overlaps; without a pan that is Position", () => {
-    assert.deepEqual(panned(undefined, percent(250), "top-right").pan, { x: 1, y: 0, overflowX: 190, overflowY: 260 })
-    assert.deepEqual(panned({ x: 0.2, y: 0.4 }).pan, { x: 0.2, y: 0.4, overflowX: 190, overflowY: 260 })
+    assert.deepEqual(panned(undefined, percent(250), "top-right").pan, { x: 1, y: 0, overflowX: 190, overflowY: 260, rotation: 0 })
+    assert.deepEqual(panned({ x: 0.2, y: 0.4 }).pan, { x: 0.2, y: 0.4, overflowX: 190, overflowY: 260, rotation: 0 })
   })
 
   await t.test("an axis where the content fits keeps Position, and reports no overflow", () => {
     // 100 %: 300 × 400 lies inside 560 × 740
     const placement = panned({ x: 0, y: 0 }, percent(100))
     assert.deepEqual([placement.left, placement.top], [140, 190])
-    assert.deepEqual(placement.pan, { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0 })
+    assert.deepEqual(placement.pan, { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 })
     const wide = only(layout({ source: pdf([600, 100]), options: options({ items: [{ count: 1, turn: 0, pan: { x: 1, y: 0 } }] }), sheet, margins }))
     // 600 × 100 overlaps across by 40 pt: x pans, y keeps Position (centre)
     assert.deepEqual([wide.left, wide.top], [-30, 340])
-    assert.deepEqual(wide.pan, { x: 1, y: 0.5, overflowX: 40, overflowY: 0 })
+    assert.deepEqual(wide.pan, { x: 1, y: 0.5, overflowX: 40, overflowY: 0, rotation: 0 })
   })
 
   await t.test("a pan changes where the content is drawn, not how large", () => {
@@ -267,7 +267,7 @@ test("an item's turn turns a PDF page clockwise in 90° steps", async t => {
   for (const [turn, [width, height], matrix] of cases) {
     await t.test(`${turn}°`, () => {
       const placement = only(layout({ source: pdf([400, 200]), options: options({ items: [{ count: 1, turn }], position: "top-left" }), sheet, margins }))
-      assert.deepEqual(placement, { ref: 1, rotation: turn, scale: 1, left: 10, top: 20, width, height, matrix, pan: { x: 0, y: 0, overflowX: 0, overflowY: 0 }, clip: { left: 0, top: 0, width: 600, height: 800 } })
+      assert.deepEqual(placement, { ref: 1, rotation: turn, scale: 1, left: 10, top: 20, width, height, matrix, pan: { x: 0, y: 0, overflowX: 0, overflowY: 0, rotation: turn }, clip: { left: 0, top: 0, width: 600, height: 800 } })
     })
   }
 
@@ -332,7 +332,7 @@ test("a photo comes out upright for each of the 8 EXIF orientations", async t =>
         return [a * x! + c * y! + e, b * x! + d * y! + f]
       }
 
-      assert.deepEqual(placement, { ref: 0, rotation: 0, scale: 1, left: 10, top: 20, width, height, matrix, pan: { x: 0, y: 0, overflowX: 0, overflowY: 0 }, clip: { left: 0, top: 0, width: 600, height: 800 } })
+      assert.deepEqual(placement, { ref: 0, rotation: 0, scale: 1, left: 10, top: 20, width, height, matrix, pan: { x: 0, y: 0, overflowX: 0, overflowY: 0, rotation: 0 }, clip: { left: 0, top: 0, width: 600, height: 800 } })
       // The box's top edge is 780 pt above the sheet's bottom edge.
       assert.deepEqual(onSheet(stored[topLeft]), [10, 780])
       assert.deepEqual(onSheet(stored[topRight]), [10 + width, 780])
@@ -401,7 +401,7 @@ test("an item's turn turns its page or photo by its own amount, on top of EXIF a
   await t.test("it adds to the EXIF orientation: stored on its side (EXIF 6), then turned 90°, makes half a turn", () => {
     const source = photos([1000, 500, 6])
     const placement = only(layout({ source, options: options({ position: "top-left", items: turned(90) }), sheet, margins }))
-    assert.deepEqual(placement, { ref: 0, rotation: 90, scale: 1, left: 10, top: 20, width: 240, height: 120, matrix: [-1, 0, 0, -1, 250, 780], pan: { x: 0, y: 0, overflowX: 0, overflowY: 0 }, clip: { left: 0, top: 0, width: 600, height: 800 } })
+    assert.deepEqual(placement, { ref: 0, rotation: 90, scale: 1, left: 10, top: 20, width: 240, height: 120, matrix: [-1, 0, 0, -1, 250, 780], pan: { x: 0, y: 0, overflowX: 0, overflowY: 0, rotation: 90 }, clip: { left: 0, top: 0, width: 600, height: 800 } })
   })
 })
 
@@ -499,8 +499,8 @@ test("pages and photos in a grid: each laid out in its Cell as on a sheet of its
     assert.deepEqual(rounded(sheets), [
       {
         placements: [
-          { ref: 1, rotation: 90, scale: 1.4, left: 10, top: 65, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 735], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0 }, clip: { left: 10, top: 20, width: 560, height: 370 } },
-          { ref: 2, rotation: 90, scale: 1.4, left: 10, top: 435, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 365], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0 }, clip: { left: 10, top: 390, width: 560, height: 370 } },
+          { ref: 1, rotation: 90, scale: 1.4, left: 10, top: 65, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 735], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 }, clip: { left: 10, top: 20, width: 560, height: 370 } },
+          { ref: 2, rotation: 90, scale: 1.4, left: 10, top: 435, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 365], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 }, clip: { left: 10, top: 390, width: 560, height: 370 } },
         ],
         cutOff: false,
         emptySpace: true,
@@ -508,7 +508,7 @@ test("pages and photos in a grid: each laid out in its Cell as on a sheet of its
         cutLines: [],
       },
       {
-        placements: [{ ref: 3, rotation: 90, scale: 1.4, left: 10, top: 65, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 735], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0 }, clip: { left: 10, top: 20, width: 560, height: 370 } }],
+        placements: [{ ref: 3, rotation: 90, scale: 1.4, left: 10, top: 65, width: 560, height: 280, matrix: [0, -1.4, 1.4, 0, 10, 735], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 }, clip: { left: 10, top: 20, width: 560, height: 370 } }],
         cutOff: false,
         emptySpace: true,
         sideways: true,
@@ -688,8 +688,8 @@ test("on A4 with the Printer's margins, two A4 pages of 595 × 842 pt print at 6
   assert.deepEqual(rounded(sheets), [
     {
       placements: [
-        { ref: 1, rotation: 90, scale: 0.69, left: 9, top: 12.51, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 829.38], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0 }, clip: { left: 9, top: 12, width: 577.28, height: 408.94 } },
-        { ref: 2, rotation: 90, scale: 0.69, left: 9, top: 421.45, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 420.44], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0 }, clip: { left: 9, top: 420.94, width: 577.28, height: 408.94 } },
+        { ref: 1, rotation: 90, scale: 0.69, left: 9, top: 12.51, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 829.38], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 }, clip: { left: 9, top: 12, width: 577.28, height: 408.94 } },
+        { ref: 2, rotation: 90, scale: 0.69, left: 9, top: 421.45, width: 577.28, height: 407.93, matrix: [0, -0.69, 0.69, 0, 9, 420.44], pan: { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 }, clip: { left: 9, top: 420.94, width: 577.28, height: 408.94 } },
       ],
       cutOff: false,
       emptySpace: true,
