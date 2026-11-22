@@ -3,6 +3,14 @@
 @theme {
   --color-brand: #1a73e8;
   --color-muted: #6b7480;
+  /* the Print Buddy on the status screen while the Printer works: a small lift and settle, like a printer running */
+  --animate-hum: hum 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+
+  @keyframes hum {
+    0%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-4px) rotate(-1deg); }
+    60% { transform: translateY(0) rotate(0.5deg); }
+  }
 }
 
 @utility btn-primary {

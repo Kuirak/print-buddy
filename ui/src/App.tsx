@@ -148,10 +148,9 @@ export function App() {
   }
 
   /**
-   * Opens the options screen with the phone's copy, as soon as the browser has read the files' facts,
-   * and uploads them meanwhile. The way in for a share, for "Datei auswählen", for the way back from the
-   * login, which brings the Print Options chosen before it as `initial`, and for "Erneut versuchen" when
-   * the upload failed before Drucken. Goes to "Bitte nochmal teilen" when the phone holds no files.
+   * Opens the options screen with the phone's copy, for a share, for the way back from the login, which brings the
+   * Print Options chosen before it as `initial`, and for "Erneut versuchen" when the upload failed before Drucken.
+   * Goes to "Bitte nochmal teilen" when the phone holds no files.
    */
   async function openHeld(initial?: PrintOptions) {
     const files = await phoneFiles.held()
@@ -160,6 +159,11 @@ export function App() {
       await leaveJob("share-again")
       return
     }
+    await openFiles(files, initial)
+  }
+
+  /** Opens the options screen with `files` as soon as the browser has read their facts, and uploads them meanwhile. */
+  async function openFiles(files: File[], initial?: PrintOptions) {
     const started = beginUpload(files)
     // a 401 shows "Anmeldung abgelaufen" by itself, and the files stay on the phone for after the login
     started.done.catch(error => {
@@ -172,12 +176,19 @@ export function App() {
     if (facts && upload === started) setScreen({ name: "options", files, facts, upload: started, initial })
   }
 
+  /**
+   * "Datei auswählen". The loading screen shows at once, and the picked files open without waiting for the phone's
+   * copy: writing several large photos to it takes seconds on a phone. Everything that reads the copy later waits for
+   * the write (see `phoneFiles`).
+   */
   async function pick(files: File[]) {
     filesHeld = true
     chosen = undefined
     update.setJobInProgress(true)
-    await phoneFiles.keep(files)
-    await openHeld()
+    setScreen({ name: "opening" })
+    // a copy that can't be written shows only later: "Nochmal drucken" or the way back from the login then find no files
+    void phoneFiles.keep(files).catch(() => {})
+    await openFiles(files)
   }
 
   /**
@@ -294,12 +305,15 @@ export function App() {
         <Match when={on("send-failed")}>
           {failed => (
             <SendFailedScreen
+              error={failed().error}
               report={{ happened: sendFailure(failed().error), files: phoneFiles.held, options: failed().options }}
               onRetry={() => {
                 const current = failed()
                 if (current.printed) void print(current.options)
                 else void openHeld(current.options)
               }}
+              // the options screen again, with what was sent, to change it; the upload failure's retry already does that
+              onEdit={failed().printed ? () => void openHeld(failed().options) : undefined}
               onClose={() => void leaveJob()}
             />
           )}

@@ -380,6 +380,35 @@ export function OptionsScreen(props: {
         </div>
       </div>
       <div class="flex min-w-0 flex-1 flex-col gap-3 lg:col-start-2 lg:row-start-2 lg:self-stretch">
+      {/* Größe für alle and Position side by side, right under the preview: on a phone the sheet stays on the screen
+          while they change it, which only the preview shows */}
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex min-w-0 flex-col gap-1">
+          <span class="text-xs font-semibold text-muted">Größe für alle</span>
+          <PrintSize
+            value={options.printSize}
+            choices={kind === "pdf" ? ["fit", "fill", "100"] : atFormat() ? ["fill", "fit"] : ["fill", "fit", "100"]}
+            steps={kind === "pdf"}
+            mixed={mixedSizes()}
+            percent={percent()}
+            onChange={setSizeForAll}
+          />
+        </div>
+        <div class="flex shrink-0 flex-col items-center gap-1">
+          <span class="text-xs font-semibold text-muted">Position</span>
+          <PositionGrid
+            value={options.position}
+            onChange={position => setOptions(o => {
+              o.position = position
+              // Position decides again where the content lies
+              for (const item of o.items) delete item.pan
+            })}
+          />
+        </div>
+      </div>
+      <Show when={cutOff()}>
+        <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
+      </Show>
       <LayoutStrip
         choices={layoutChoices()}
         value={options.layout}
@@ -464,34 +493,6 @@ export function OptionsScreen(props: {
             </div>
           </div>
         )}
-      </Show>
-      {/* Größe für alle and Position side by side, so that both fit on the screen with the preview */}
-      <div class="flex items-start justify-between gap-3">
-        <div class="flex min-w-0 flex-col gap-1">
-          <span class="text-xs font-semibold text-muted">Größe für alle</span>
-          <PrintSize
-            value={options.printSize}
-            choices={kind === "pdf" ? ["fit", "fill", "100"] : atFormat() ? ["fill", "fit"] : ["fill", "fit", "100"]}
-            steps={kind === "pdf"}
-            mixed={mixedSizes()}
-            percent={percent()}
-            onChange={setSizeForAll}
-          />
-        </div>
-        <div class="flex shrink-0 flex-col items-center gap-1">
-          <span class="text-xs font-semibold text-muted">Position</span>
-          <PositionGrid
-            value={options.position}
-            onChange={position => setOptions(o => {
-              o.position = position
-              // Position decides again where the content lies
-              for (const item of o.items) delete item.pan
-            })}
-          />
-        </div>
-      </div>
-      <Show when={cutOff()}>
-        <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
       </Show>
       {/* the last thing on the screen, so that at the end of the page nothing lies under it */}
       <div class="sticky bottom-0 z-10 -mx-4 mt-auto border-t border-gray-200 bg-white px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">

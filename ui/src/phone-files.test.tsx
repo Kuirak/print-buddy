@@ -1,6 +1,6 @@
 import { render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test } from "vitest"
+import { expect, onTestFinished, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { phoneFiles } from "./phone-files.ts"
 import { receiveShare } from "./share-target.ts"
@@ -30,6 +30,28 @@ test("files chosen with Datei auswählen stay on the phone through Drucken", asy
   await printAndConfirm(user)
   await screen.findByText("Auftrag Nr. 42")
   expect(await names()).toEqual(["IMG_2.jpg", "IMG_1.jpg"])
+})
+
+test("after Datei auswählen the app shows Wird geladen at once and opens the files without waiting for the phone's copy", async () => {
+  // the browser can't read this file, so the options screen waits for the server's facts: held back until the loading screen showed
+  const facts = Promise.withResolvers<Response>()
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => facts.promise,
+  })
+  // writing large photos to the phone's copy takes seconds on a phone; here it never ends
+  const keep = vi.spyOn(phoneFiles, "keep").mockReturnValue(new Promise(() => {}))
+  onTestFinished(() => keep.mockRestore())
+  const user = userEvent.setup()
+  render(() => <App />)
+
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["no PDF header"], "Rechnung.pdf", { type: "application/pdf" }))
+  expect(await screen.findByText("Wird geladen …")).toBeInTheDocument()
+  expect(screen.queryByText("Datei auswählen")).not.toBeInTheDocument()
+
+  facts.resolve(json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201))
+  expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
+  expect(keep).toHaveBeenCalledOnce()
 })
 
 test("shared files stay on the phone after the app has opened with them", async () => {

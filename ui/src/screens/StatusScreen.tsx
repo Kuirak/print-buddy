@@ -3,6 +3,7 @@ import type { JobStatus, JobSubmitted } from "../../../shared/api.ts"
 import { cancelJob, readJob } from "../api.ts"
 import { Collapsible } from "../controls/Collapsible.tsx"
 import { Dialog } from "../controls/Dialog.tsx"
+import { Logo } from "../controls/Logo.tsx"
 import { ReportButton } from "../controls/ReportButton.tsx"
 import { ThumbScreen } from "../controls/ThumbScreen.tsx"
 import { counted, layoutName, paperNames, printedNumbers, printSizeText, ranges } from "../job-text.ts"
@@ -10,6 +11,13 @@ import { stateWords } from "../state-words.ts"
 
 const pollEveryMs = 2_000
 const hintAfterSeconds = 60
+
+/** A friendly line under the state word, for the states where there is something to say. */
+const stateLines: Partial<Record<JobStatus["state"], string>> = {
+  waiting: "Der Auftrag ist beim Drucker und wartet, bis er dran ist.",
+  printing: "Gleich kommen die Blätter heraus.",
+  done: "Dein Ausdruck liegt im Drucker.",
+}
 
 /** Whole seconds as m:ss, for example 75 as 1:15. */
 function minutesSeconds(seconds: number) {
@@ -134,36 +142,48 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
         </>
       }
     >
-      <h1 class="text-xl font-bold">{stateWords[state()]}</h1>
-      <Show when={running()}>
-        <p>läuft seit {minutesSeconds(elapsed())}</p>
-      </Show>
-      <Show when={state() === "done" && status()}>
-        {done => <p>gedauert {minutesSeconds(Math.round((done().endedAt! - done().sentAt) / 1000))}</p>}
-      </Show>
-      <Show when={status()?.reason}>{reason => <p>{reason()}</p>}</Show>
-      <p class="text-muted">Auftrag Nr. {props.job.cupsJobId}</p>
+      {/* the Print Buddy and the state, in the middle of the screen as on Start; it hums along while it prints */}
+      <section class="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <Logo class={`mb-2 size-24 drop-shadow-md [@media(max-height:640px)]:size-16 ${state() === "printing" ? "motion-safe:animate-hum" : ""}`} />
+        <h1 class="text-2xl font-bold">{stateWords[state()]}</h1>
+        <Show when={stateLines[state()]}>{line => <p>{line()}</p>}</Show>
+        <Show when={status()?.reason}>{reason => <p>{reason()}</p>}</Show>
+        {/* what is printing: never a file name, which Print Buddy doesn't keep */}
+        <Show when={status()}>
+          {known => (
+            <p class="text-muted">
+              {counted(known().sheets, "Blatt", "Blätter")} · {known().options.color === "color" ? "Farbe" : "Schwarz-Weiß"} · {paperNames[known().options.paper]}
+            </p>
+          )}
+        </Show>
+        <Show when={running()}>
+          <p class="text-muted tabular-nums">läuft seit {minutesSeconds(elapsed())}</p>
+        </Show>
+        <Show when={state() === "done" && status()}>
+          {done => <p class="text-muted tabular-nums">gedauert {minutesSeconds(Math.round((done().endedAt! - done().sentAt) / 1000))}</p>}
+        </Show>
+      </section>
       <Show when={state() === "waiting" && elapsed() >= hintAfterSeconds}>
         <p class="rounded-lg bg-[#fff1d6] p-3 text-[#7a4b00]">Schläft der Drucker oder ist er aus? Der Auftrag wartet weiter.</p>
       </Show>
       <Show when={state() === "error" && status()}>
         {failed => (
-          <>
-            <Collapsible title="Details">
-              <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-                <dt class="text-muted">Meldung</dt>
-                <dd>{failed().details.printerMessage || "–"}</dd>
-                <dt class="text-muted">Zustand</dt>
-                <dd>{failed().details.jobState}</dd>
-                <dt class="text-muted">Gründe</dt>
-                <dd>{[...failed().details.jobStateReasons, ...failed().details.printerStateReasons].join(", ")}</dd>
-              </dl>
-              <p class="mt-1 text-sm">CUPS-Auftrag Nr. {failed().cupsJobId}</p>
-            </Collapsible>
-          </>
+          <Collapsible title="Details">
+            <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <dt class="text-muted">Meldung</dt>
+              <dd>{failed().details.printerMessage || "–"}</dd>
+              <dt class="text-muted">Zustand</dt>
+              <dd>{failed().details.jobState}</dd>
+              <dt class="text-muted">Gründe</dt>
+              <dd>{[...failed().details.jobStateReasons, ...failed().details.printerStateReasons].join(", ")}</dd>
+            </dl>
+            <p class="mt-1 text-sm">CUPS-Auftrag Nr. {failed().cupsJobId}</p>
+          </Collapsible>
         )}
       </Show>
-      <div class="mt-2">
+      {/* for when something needs explaining later: quiet, below everything the person needs now */}
+      <div class="flex items-center justify-between gap-3 text-sm">
+        <span class="text-muted">Auftrag Nr. {props.job.cupsJobId}</span>
         <ReportButton subject={{ job: props.job }} />
       </div>
     </ThumbScreen>

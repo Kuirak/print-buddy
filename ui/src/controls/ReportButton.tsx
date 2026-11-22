@@ -1,7 +1,10 @@
 import { createSignal, Show } from "solid-js"
 import { copyReport, type ReportSubject } from "../report.ts"
 
-/** "Bericht kopieren": puts the report about `subject` on the clipboard and says whether that worked. */
+/**
+ * "Bericht kopieren": puts the report about `subject` on the clipboard and says whether that worked. A quiet link
+ * rather than a button, because it is for later, when something needs explaining, never the next step.
+ */
 export function ReportButton(props: { subject: ReportSubject }) {
   const [outcome, setOutcome] = createSignal<string>()
 
@@ -11,8 +14,8 @@ export function ReportButton(props: { subject: ReportSubject }) {
   }
 
   return (
-    <div class="flex flex-col gap-1">
-      <button type="button" class="btn-secondary" onClick={() => void copy()}>
+    <div class="flex flex-col items-center gap-1">
+      <button type="button" class="-mx-2 min-h-11 cursor-pointer rounded-lg px-2 text-sm font-semibold text-brand" onClick={() => void copy()}>
         Bericht kopieren
       </button>
       <Show when={outcome()}>

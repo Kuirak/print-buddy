@@ -277,6 +277,37 @@ test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, wh
   }
 })
 
+test("when the server refuses the Print Options, the screen says so and Einstellungen ändern opens them again instead of a retry", async () => {
+  let drafts = 0
+  const api = mockApi({
+    "POST /api/drafts": () => json({ draftId: `d${++drafts}` }, 201),
+    "POST /api/drafts/d1/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
+    "POST /api/drafts/d1/submit": () => json({ error: "invalid-options" }, 400),
+    "POST /api/drafts/d2/files": () => json({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842 }] }, 201),
+    "POST /api/drafts/d2/submit": () => json({ jobId: "j1", cupsJobId: 42 }, 201),
+    "GET /api/jobs/j1": () => jobStatus(),
+  })
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["%PDF-1.4"], "Rechnung.pdf", { type: "application/pdf" }))
+  await openDetails(user)
+  await user.click(screen.getByRole("button", { name: "Mehr Kopien" }))
+  await closeDetails(user)
+  await printAndConfirm(user)
+
+  expect(await screen.findByRole("heading", { name: "Drucken hat nicht geklappt" })).toBeInTheDocument()
+  expect(screen.getByText(/Diese Einstellungen passen nicht zu der Datei/)).toBeInTheDocument()
+  // the same request would be refused the same way
+  expect(screen.queryByRole("button", { name: "Erneut versuchen" })).not.toBeInTheDocument()
+
+  await user.click(screen.getByRole("button", { name: "Einstellungen ändern" }))
+  await printAndConfirm(user)
+
+  expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
+  const submit = api.calls.find(call => call.path === "/api/drafts/d2/submit")!
+  expect(JSON.parse(submit.body as string)).toMatchObject({ copies: 2 })
+})
+
 test("when the server can't be reached at all, Drucken hat nicht geklappt keeps every photo for Erneut versuchen", async () => {
   let drafts = 0
   let online = false

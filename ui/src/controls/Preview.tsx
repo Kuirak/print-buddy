@@ -151,17 +151,20 @@ export function Preview(props: {
     })
   }
   return (
+    // The tray keeps one height, whatever the sheet's shape: a sheet in landscape sits in its middle rather than shrinking
+    // it, so that stepping between portrait and landscape sheets, or turning the paper, moves nothing below the preview.
+    // `flex` with the paper's auto margins centres it, and still lets a zoomed sheet scroll to its every edge.
     <section
       aria-label="Vorschau"
-      class={`overflow-auto rounded-xl bg-gray-200 p-3 ${sheetHeights}`}
-      style={{ "max-height": `calc(${sheetHeight} + 24px)`, "touch-action": swipes() ? "pan-y pinch-zoom" : "auto" }}
+      class={`flex overflow-auto rounded-xl bg-gray-200 p-3 ${sheetHeights}`}
+      style={{ height: `calc(${sheetHeight} + 24px)`, "touch-action": swipes() ? "pan-y pinch-zoom" : "auto" }}
       onPointerDown={down}
       onPointerUp={up}
       onPointerCancel={() => { start = undefined }}
     >
       <div
         ref={paperShown}
-        class="relative mx-auto overflow-hidden bg-white shadow-md"
+        class="relative m-auto shrink-0 overflow-hidden bg-white shadow-md"
         style={{
           "aspect-ratio": `${shape()}`,
           width: `calc(min(100%, ${sheetHeight} * ${shape()}) * ${props.zoom})`,

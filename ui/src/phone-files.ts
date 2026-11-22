@@ -32,19 +32,35 @@ async function run<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) =>
   }
 }
 
+/**
+ * The calls of this page, one after another in the order they were made: the app doesn't wait for a `keep` before it
+ * goes on with the picked files, and a later read or clear must not overtake it.
+ */
+let queue: Promise<unknown> = Promise.resolve()
+function inOrder<T>(work: () => Promise<T>): Promise<T> {
+  const next = queue.then(work, work)
+  queue = next.catch(() => {})
+  return next
+}
+
 export const phoneFiles = {
   /** Replaces what the phone holds with these files. */
-  async keep(files: File[]): Promise<void> {
-    await run("readwrite", store => store.put(files, key))
+  keep(files: File[]): Promise<void> {
+    return inOrder(async () => { await run("readwrite", store => store.put(files, key)) })
   },
 
   /** The files the phone holds, in the order they were kept. Empty when it holds none. */
-  async held(): Promise<File[]> {
-    return (await run<File[] | undefined>("readonly", store => store.get(key))) ?? []
+  held(): Promise<File[]> {
+    return inOrder(async () => (await run<File[] | undefined>("readonly", store => store.get(key))) ?? [])
   },
 
   /** The person left the job: the phone forgets the files. */
-  async clear(): Promise<void> {
-    await run("readwrite", store => store.delete(key))
+  clear(): Promise<void> {
+    return inOrder(async () => { await run("readwrite", store => store.delete(key)) })
+  },
+
+  /** Resolves once every call made so far is done, whether it worked or not: before the page is left, for example. */
+  async settled(): Promise<void> {
+    await queue
   },
 }
