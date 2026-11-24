@@ -20,7 +20,7 @@ import { SendingScreen } from "./screens/SendingScreen.tsx"
 import { ShareAgainScreen } from "./screens/ShareAgainScreen.tsx"
 import { StartScreen } from "./screens/StartScreen.tsx"
 import { StatusScreen } from "./screens/StatusScreen.tsx"
-import { startUpload, type Upload, type UploadEnd } from "./upload.ts"
+import { startUpload, type Draft, type Upload, type UploadEnd } from "./upload.ts"
 
 /**
  * The options screen: one PDF, or photos in the order they were shared or picked, while `upload` puts them on the server.
@@ -128,13 +128,14 @@ export function App() {
   }
 
   /**
-   * Starts uploading the phone's copy into a new draft. Every upload goes through here: after a share,
-   * after "Datei auswählen", and for "Nochmal drucken" and "Erneut versuchen". When the server refuses a
-   * file, the Refusal screen shows, whatever screen shows then. Other failures are for the caller.
+   * Starts uploading the phone's copy into a new draft, or `files` after the files of `onto`. Every upload goes through
+   * here: after a share, after "Datei auswählen", after "Fotos hinzufügen", and for "Nochmal drucken" and "Erneut
+   * versuchen". When the server refuses a file, the Refusal screen shows, whatever screen shows then. Other failures
+   * are for the caller.
    */
-  function beginUpload(files: File[]): Upload {
+  function beginUpload(files: File[], onto?: Draft): Upload {
     upload?.stop()
-    const started = startUpload(files)
+    const started = startUpload(files, onto)
     upload = started
     void started.done.then(async end => {
       if (upload !== started || !("refusal" in end)) return
@@ -162,9 +163,12 @@ export function App() {
     await openFiles(files, initial)
   }
 
-  /** Opens the options screen with `files` as soon as the browser has read their facts, and uploads them meanwhile. */
-  async function openFiles(files: File[], initial?: PrintOptions) {
-    const started = beginUpload(files)
+  /**
+   * Opens the options screen with `files` as soon as the browser has read their facts, and uploads them meanwhile.
+   * With `onto`, the draft that holds the files before them, only the rest is uploaded, after those.
+   */
+  async function openFiles(files: File[], initial?: PrintOptions, onto?: Draft) {
+    const started = onto ? beginUpload(files.slice(onto.facts.length), onto) : beginUpload(files)
     // a 401 shows "Anmeldung abgelaufen" by itself, and the files stay on the phone for after the login
     started.done.catch(error => {
       if (upload !== started || isLoginExpired(error)) return
@@ -174,6 +178,20 @@ export function App() {
     // a file the browser can't read waits for the server, which may refuse it
     const facts = await readFacts(files) ?? await started.done.then(end => "draft" in end ? end.draft.facts : undefined, () => undefined)
     if (facts && upload === started) setScreen({ name: "options", files, facts, upload: started, initial })
+  }
+
+  /**
+   * "Fotos hinzufügen" on the options screen `from`: the photos come after the ones there, each printed once, and
+   * those keep what `options` chose for them. When every photo before is on the server already, only the new ones are
+   * uploaded, into the same draft; else the upload starts again with all of them.
+   */
+  async function addPhotos(from: OptionsState, added: File[], options: PrintOptions) {
+    const files = [...from.files, ...added]
+    chosen = { ...options, items: [...options.items, ...added.map(() => ({ count: 1, turn: 0 as const }))] }
+    // the screen before must not print the photos without the new ones meanwhile
+    setScreen({ name: "opening" })
+    void phoneFiles.keep(files).catch(() => {})
+    await openFiles(files, chosen, from.upload.draft())
   }
 
   /**
@@ -277,6 +295,7 @@ export function App() {
               initial={options.initial}
               onChange={changed => { chosen = changed }}
               onPrint={changed => void print(changed, options)}
+              onAddPhotos={(added, changed) => void addPhotos(options, added, changed)}
               onBack={() => void leaveJob()}
             />
           )}

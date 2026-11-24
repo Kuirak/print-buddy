@@ -32,6 +32,9 @@ export type PhotoFacts = {
   orientation: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 }
 
+/** The most photos one draft holds: one more is refused as `too-many-photos`. */
+export const maxPhotos = 20
+
 export type RefusalType = "unsupported-type" | "too-large" | "too-many-photos" | "one-pdf-only" | "mixed-types"
 
 /**

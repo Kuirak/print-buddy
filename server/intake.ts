@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import type { FileFacts, PdfFacts, Refusal, RefusalType } from "../shared/api.ts"
+import { maxPhotos, type FileFacts, type PdfFacts, type Refusal, type RefusalType } from "../shared/api.ts"
 import { photoFacts, sniff } from "../shared/file-header.ts"
 import type { Now } from "./clock.ts"
 import { openSourcePdf, shownPart } from "./source-pdf.ts"
@@ -20,8 +20,6 @@ type AddFileResult =
   | { outcome: "unknown-draft" }
 
 export type Intake = ReturnType<typeof createIntake>
-
-const maxPhotos = 20
 
 /** How long a draft may wait for its submit. */
 const keepFor = 60 * 60 * 1000

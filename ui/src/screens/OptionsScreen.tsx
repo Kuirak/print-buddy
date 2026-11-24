@@ -1,5 +1,5 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
-import type { FileFacts, FileKind, PaperMargins } from "../../../shared/api.ts"
+import { maxPhotos, type FileFacts, type FileKind, type PaperMargins } from "../../../shared/api.ts"
 import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, printableArea, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import { maxCount, minOwnSize, type FormatLayout, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
@@ -48,6 +48,11 @@ export function OptionsScreen(props: {
   /** The Print Options as they are now, whenever they change, so that they survive a login that runs out meanwhile. */
   onChange: (options: PrintOptions) => void
   onPrint: (options: PrintOptions) => void
+  /**
+   * "Fotos hinzufügen", photos only: more photos after these, with the Print Options as they are now. Every photo
+   * already there keeps where it is and what was chosen for it.
+   */
+  onAddPhotos?: (files: File[], options: PrintOptions) => void
   /** "Zurück": the person gives the job up. */
   onBack: () => void
 }) {
@@ -304,6 +309,8 @@ export function OptionsScreen(props: {
       setStep(0)
     }
   })
+  /** The photos picked with "Fotos hinzufügen" were more than the Print Job has room for: none was added. */
+  const [tooManyAdded, setTooManyAdded] = createSignal(false)
 
   return (
     <>
@@ -489,21 +496,56 @@ export function OptionsScreen(props: {
           </div>
         )}
       </Show>
-      {/* the last thing on the screen, so that at the end of the page nothing lies under it */}
+      {/* the last thing on the screen, so that at the end of the page nothing lies under it. "Fotos hinzufügen" sits
+          beside Drucken: under the thumb wherever the person has scrolled to, and never over the preview */}
       <div class="sticky bottom-0 z-10 -mx-4 mt-auto border-t border-gray-200 bg-white px-4 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-        {/* not before the layout is known: the confirmation says how many sheets, at what size, and whether something
-            is cut off; and not before the upload is done, so that it says it from the server's facts */}
-        <button
-          type="button"
-          class="btn-primary"
-          disabled={props.uploading !== undefined || printed().length === 0 || !sheets() || tooMany() || noSlots() || ownProblem() !== undefined}
-          onClick={() => setOver("confirmation")}
+        <div class="flex gap-2">
+          {/* more photos after the ones there, up to as many as one Print Job holds */}
+          <Show when={kind === "photos" && props.onAddPhotos && files.length < maxPhotos}>
+            <label class="flex min-h-14 w-16 shrink-0 cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border border-gray-300 bg-white text-[13px] font-semibold has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand">
+              {/* a picture with a plus: one more photo */}
+              <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M16 5h6M19 2v6" />
+                <path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5" />
+                <path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" />
+                <circle cx="9" cy="9" r="2" />
+              </svg>
+              Fotos
+              <input
+                type="file"
+                aria-label="Fotos hinzufügen"
+                accept="image/jpeg,image/png"
+                multiple
+                class="sr-only"
+                onChange={event => {
+                  const added = [...(event.currentTarget.files ?? [])]
+                  // empty the field, so that picking the same photo again counts as a change
+                  event.currentTarget.value = ""
+                  if (added.length === 0) return
+                  if (files.length + added.length > maxPhotos) setTooManyAdded(true)
+                  else props.onAddPhotos!(added, snapshot(options))
+                }}
+              />
+            </label>
+          </Show>
+          {/* not before the layout is known: the confirmation says how many sheets, at what size, and whether something
+              is cut off; and not before the upload is done, so that it says it from the server's facts */}
+          <button
+            type="button"
+            class="btn-primary min-h-14 min-w-0 flex-1"
+            disabled={props.uploading !== undefined || printed().length === 0 || !sheets() || tooMany() || noSlots() || ownProblem() !== undefined}
+            onClick={() => setOver("confirmation")}
+          >
+            {props.uploading !== undefined
+              ? `Wird hochgeladen … ${Math.min(99, Math.round(props.uploading * 100))} %`
+              : printed().length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
+          </button>
+        </div>
+        <Show
+          when={tooMany()
+            ? `Höchstens ${maxSheets} Blätter pro Druck.`
+            : tooManyAdded() ? `Höchstens ${maxPhotos} Fotos auf einmal: noch ${maxPhotos - files.length} möglich.` : formatProblem()}
         >
-          {props.uploading !== undefined
-            ? `Wird hochgeladen … ${Math.min(99, Math.round(props.uploading * 100))} %`
-            : printed().length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
-        </button>
-        <Show when={tooMany() ? `Höchstens ${maxSheets} Blätter pro Druck.` : formatProblem()}>
           {reason => <p role="alert" class="pt-1 text-center text-sm font-semibold text-[#b3261e]">{reason()}</p>}
         </Show>
       </div>

@@ -2,6 +2,10 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
+## Unreleased
+
+- "Fotos" beside Drucken adds more photos to a print, up to 20, from wherever the screen is scrolled. They come after the photos already there, which keep their counts, turns, sizes and the layout; only the new ones are uploaded.
+
 ## 2026.11.7
 
 - A page or photo that reaches over the edge of the printable area can be moved: pick it in the preview and drag the four-arrow sign on it (or use the arrow keys) to choose which part is cut off. It shows the same part of itself wherever it appears, also in a turned slot of "Platz sparen". Switching Füllen/Einpassen, "Größe für alle" and Position put it back.

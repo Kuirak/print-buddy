@@ -24,8 +24,11 @@ export interface Upload {
   stop(): void
 }
 
-/** Starts uploading the files into a new draft, one per request, in their order. */
-export function startUpload(files: readonly File[]): Upload {
+/**
+ * Starts uploading the files, one per request, in their order: into a new draft, or after the files of `onto`, a
+ * draft that is complete, for photos added to it. The progress counts these files only.
+ */
+export function startUpload(files: readonly File[], onto?: Draft): Upload {
   const stopper = new AbortController()
   const [progress, setProgress] = createSignal(0)
   const [draft, setDraft] = createSignal<Draft>()
@@ -33,8 +36,8 @@ export function startUpload(files: readonly File[]): Upload {
 
   async function run(): Promise<UploadEnd> {
     try {
-      const { draftId } = await createDraft(stopper.signal)
-      const facts: FileFacts[] = []
+      const draftId = onto?.draftId ?? (await createDraft(stopper.signal)).draftId
+      const facts: FileFacts[] = [...(onto?.facts ?? [])]
       let uploaded = 0
       // one at a time, so the server holds the photos in the order they were shared or picked
       for (const file of files) {
