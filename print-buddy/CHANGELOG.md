@@ -5,6 +5,7 @@ Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts a
 ## Unreleased
 
 - "Fotos" beside Drucken adds more photos to a print, up to 20, from wherever the screen is scrolled. They come after the photos already there, which keep their counts, turns, sizes and the layout; only the new ones are uploaded.
+- Colour prints through Dell's engine no longer lose the far edges of the printable area: the Printer now gets only its printable area, as it does from the queue's driver, so a frame drawn at the edge of the page is printed whole.
 
 ## 2026.11.7
 
