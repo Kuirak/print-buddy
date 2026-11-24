@@ -1,4 +1,4 @@
-import { render, screen, within } from "@solidjs/testing-library"
+import { cleanup, render, screen, within } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, onTestFinished, test, vi } from "vitest"
 import type { FileFacts, PrinterInfo } from "../../shared/api.ts"
@@ -12,6 +12,13 @@ import { printerInfo } from "./testing/printer-info.ts"
 
 /** A PDF of that many A4 pages. */
 const pdfOf = (pageCount: number): FileFacts => ({ kind: "pdf", pageCount, pages: Array.from({ length: pageCount }, () => ({ width: 595, height: 842 })) })
+
+/** A PDF of one A4 page whose ink lies in these points from the page's top-left. */
+const pdfWithContent = (content: { left: number, top: number, right: number, bottom: number }): FileFacts =>
+  ({ kind: "pdf", pageCount: 1, pages: [{ width: 595, height: 842, content }] })
+
+/** Ink well inside the printable area of A4 at the printer's margins. */
+const inkInside = { left: 30, top: 30, right: 565, bottom: 812 }
 
 /** A landscape photo of 4000 × 3000 pixels. */
 const photo: FileFacts = { kind: "photo", format: "jpeg", width: 4000, height: 3000, orientation: 1 }
@@ -131,7 +138,7 @@ test("Drucken is not available before the printer info is there, so the confirma
   await expect.poll(() => print).toBeEnabled()
   await user.click(print)
   expect(panel().total).toBe("1")
-  expect(panel().settings).toEqual(["Farbe", "A4", "Normal", "Einpassen (97 %)", "Mitte"])
+  expect(panel().settings).toEqual(["Farbe", "A4", "Normal", "Füllen (100 %)", "Mitte"])
 })
 
 test("the printer info is read again when the read fails, so Drucken doesn't stay unavailable", async () => {
@@ -271,16 +278,34 @@ test("when pages or photos have sizes of their own that differ, the size chip sa
 })
 
 test("the cut-off warning shows for a grid that cuts content off, and never at a Photo format", async () => {
-  const pdf = await openOptions(pdfOf(1))
+  const pdf = await openOptions(pdfWithContent(inkInside))
   await pdf.tap("Drucken")
   expect(panel().message).toBe("")
   await pdf.tap("Abbrechen")
 
-  await pdf.user.click(pdf.choice("Größe für alle", "Füllen"))
+  // printed larger than the sheet, the ink reaches over the edge
+  for (let i = 0; i < 3; i++) await pdf.tap("Größer drucken")
   expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
   await pdf.tap("Drucken")
   expect(panel().message).toBe("⚠ Teile des Inhalts werden abgeschnitten.")
   expect(panel().drucken).toBeEnabled()
+})
+
+test("a new PDF starts at Füllen, and its cut-off warning follows where the page has ink", async () => {
+  const inside = await openOptions(pdfWithContent(inkInside))
+  expect(inside.choice("Größe für alle", "Füllen")).toBeChecked()
+  expect(screen.getByRole("status", { name: "Druckgröße in Prozent" })).toHaveTextContent("100 %")
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  await inside.tap("Drucken")
+  expect(panel().message).toBe("")
+  cleanup()
+
+  // the same page with ink in the unprintable edge
+  const edge = await openOptions(pdfWithContent({ ...inkInside, left: 2 }))
+  expect(edge.choice("Größe für alle", "Füllen")).toBeChecked()
+  expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
+  await edge.tap("Drucken")
+  expect(panel().message).toBe("⚠ Teile des Inhalts werden abgeschnitten.")
 })
 
 test("the cut-off warning stays away at a Photo format, cropped as the photos are", async () => {

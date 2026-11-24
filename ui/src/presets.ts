@@ -24,11 +24,13 @@ export type Preset = {
 }
 
 const fitCentre = { copies: 1, printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 } } as const
+/** A document is made to be printed: it fills the sheet at its own size, and only ink in the unprintable edge is cut off (see `layout`). */
+const fillCentre = { ...fitCentre, printSize: { kind: "fill" } } as const
 
 /** The first one of each file type is its default until the person stars another. */
 const builtIns: readonly Preset[] = [
-  { id: "document-color", name: "Dokument Farbe", kind: "pdf", values: { ...fitCentre, color: "color", paper: "A4", quality: "normal" } },
-  { id: "document-mono", name: "Dokument s/w", kind: "pdf", values: { ...fitCentre, color: "mono", paper: "A4", quality: "normal" } },
+  { id: "document-color", name: "Dokument Farbe", kind: "pdf", values: { ...fillCentre, color: "color", paper: "A4", quality: "normal" } },
+  { id: "document-mono", name: "Dokument s/w", kind: "pdf", values: { ...fillCentre, color: "mono", paper: "A4", quality: "normal" } },
   { id: "envelope-dl", name: "Umschlag DL", kind: "pdf", values: { ...fitCentre, color: "mono", paper: "EnvDL", quality: "normal" } },
   { id: "photo", name: "Foto", kind: "photo", values: { ...fitCentre, color: "color", paper: "A4", quality: "normal" } },
   { id: "photo-mono-draft", name: "Foto s/w Toner sparen", kind: "photo", values: { ...fitCentre, color: "mono", paper: "A4", quality: "draft" } },

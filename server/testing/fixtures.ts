@@ -117,6 +117,31 @@ export async function encryptedPdf(passwords: { userPassword: string; ownerPassw
   return new Uint8Array(await doc.save())
 }
 
+/** A page of `pdfWithInk`: its MediaBox, and black rectangles on it as `[left, top, width, height]` in points from its top left. */
+export interface PdfInkSpec {
+  size: [number, number]
+  rotate?: 90 | 180 | 270
+  ink?: [number, number, number, number][]
+  /** White rectangles, drawn over the ink: they take up no toner, and are no content. */
+  paper?: [number, number, number, number][]
+}
+
+/** A PDF whose pages have ink exactly where the specs say, made by pdf-lib. */
+export async function pdfWithInk(pages: PdfInkSpec[]): Promise<Uint8Array<ArrayBuffer>> {
+  const { PDFDocument, degrees, rgb } = await import("@cantoo/pdf-lib")
+  const doc = await PDFDocument.create()
+  for (const spec of pages) {
+    const page = doc.addPage(spec.size)
+    if (spec.rotate) page.setRotation(degrees(spec.rotate))
+    const draw = (rects: [number, number, number, number][] | undefined, color: ReturnType<typeof rgb>) => {
+      for (const [left, top, width, height] of rects ?? []) page.drawRectangle({ x: left, y: spec.size[1] - top - height, width, height, color })
+    }
+    draw(spec.ink, rgb(0, 0, 0))
+    draw(spec.paper, rgb(1, 1, 1))
+  }
+  return new Uint8Array(await doc.save())
+}
+
 /** A 40×30 px JPEG without EXIF data. */
 export function sampleJpeg(): Uint8Array<ArrayBuffer> {
   return new Uint8Array(Buffer.from(sampleJpegBase64, "base64"))

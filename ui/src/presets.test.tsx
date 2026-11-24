@@ -89,20 +89,20 @@ function stored(own: unknown[], defaults: Record<string, string> = {}) {
 
 const documentMono = {
   copies: 1, color: "mono", paper: "A4", quality: "normal",
-  printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 },
+  printSize: { kind: "fill" }, position: "center", layout: { kind: "grid", perSheet: 1 },
 }
 
 const documentColor = {
   copies: 1, color: "color", paper: "A4", quality: "normal",
-  printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 },
+  printSize: { kind: "fill" }, position: "center", layout: { kind: "grid", perSheet: 1 },
 }
 
 test.each([
-  ["pdf", "★ Dokument Farbe", { color: "color", paper: "A4", quality: "normal" }],
-  ["pdf", "Dokument s/w", { color: "mono", paper: "A4", quality: "normal" }],
-  ["pdf", "Umschlag DL", { color: "mono", paper: "EnvDL", quality: "normal" }],
-  ["photo", "★ Foto", { color: "color", paper: "A4", quality: "normal" }],
-  ["photo", "Foto s/w Toner sparen", { color: "mono", paper: "A4", quality: "draft" }],
+  ["pdf", "★ Dokument Farbe", { color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" } }],
+  ["pdf", "Dokument s/w", { color: "mono", paper: "A4", quality: "normal", printSize: { kind: "fill" } }],
+  ["pdf", "Umschlag DL", { color: "mono", paper: "EnvDL", quality: "normal", printSize: { kind: "fit" } }],
+  ["photo", "★ Foto", { color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" } }],
+  ["photo", "Foto s/w Toner sparen", { color: "mono", paper: "A4", quality: "draft", printSize: { kind: "fit" } }],
 ] as const)("for a %s, tapping the built-in Preset %s sets its Print Options", async (kind, name, values) => {
   const { print, chip, pick, tap, set } = await openOptions(kind)
 
@@ -114,7 +114,7 @@ test.each([
   expect(chip(name)).toBeChecked()
   expect(await print()).toEqual({
     copies: 1, ...values,
-    printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1),
+    position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1),
   })
 })
 
@@ -165,16 +165,16 @@ test("a Preset sets Print size, Position, the layout and copies, and is told apa
     // how often each page prints and how it is turned are not part of a Preset: tapping it must not set them even if storage has them
     { id: "a", name: "Zwei auf eins", kind: "pdf", values: { ...documentMono, copies: 3, printSize: { kind: "percent", value: 85 }, position: "top-left", layout: twoPerSheet, items: [{ count: 4, turn: 90 }] } },
     { id: "b", name: "Oben", kind: "pdf", values: { ...documentMono, position: "top" } },
-    { id: "c", name: "Füllen", kind: "pdf", values: { ...documentMono, printSize: { kind: "fill" } } },
+    { id: "c", name: "Einpassen", kind: "pdf", values: { ...documentMono, printSize: { kind: "fit" } } },
     { id: "d", name: "Doppelt", kind: "pdf", values: { ...documentMono, layout: twoPerSheet } },
   ])
   const { print, chip, pick, set, details } = await openOptions()
 
-  for (const name of ["Zwei auf eins", "Oben", "Füllen", "Doppelt", "Eigene …"]) expect(chip(name)).not.toBeChecked()
+  for (const name of ["Zwei auf eins", "Oben", "Einpassen", "Doppelt", "Eigene …"]) expect(chip(name)).not.toBeChecked()
   expect(chip("★ Dokument Farbe")).toBeChecked()
 
   // each differs from Dokument s/w in one field only, so with colour it is no longer Dokument Farbe
-  for (const name of ["Oben", "Füllen", "Doppelt"]) {
+  for (const name of ["Oben", "Einpassen", "Doppelt"]) {
     await pick(name)
     expect(chip(name)).toBeChecked()
     expect(chip("Dokument s/w")).not.toBeChecked()

@@ -880,3 +880,47 @@ test("photos at a Photo format: each turns to its slot, fills it or fits into it
     assert.deepEqual(sheets, [])
   })
 })
+
+// A page that is 600 × 800 as a reader shows it, with its ink at `content` (or none, or not known).
+const inked = (content: { left: number; top: number; right: number; bottom: number } | null | undefined, size: [number, number] = [600, 800]): LayoutInput["source"] => ({
+  kind: "pdf",
+  pages: [{ width: size[0], height: size[1], ...(content !== undefined && { content }) }],
+})
+const fillSheet = (source: LayoutInput["source"], changes: Partial<PrintOptions> = {}) =>
+  layout({ source, options: options({ printSize: { kind: "fill" }, ...changes }), sheet, margins })[0]!.cutOff
+
+test("Füllen cuts off only what has ink: blank paper in the unprintable edge is no cut-off", () => {
+  // The page is as large as the sheet and sits in the middle of the printable area (x 10 … 570, y 20 … 760), 10 pt above
+  // and to the left of the sheet. So the printable area is x 20 … 580, y 30 … 770 of the page.
+  assert.equal(fillSheet(inked({ left: 20, top: 30, right: 580, bottom: 770 })), false)
+  assert.equal(fillSheet(inked(null)), false)
+  // ink in each of the four edges
+  assert.equal(fillSheet(inked({ left: 19, top: 30, right: 580, bottom: 770 })), true)
+  assert.equal(fillSheet(inked({ left: 20, top: 29, right: 580, bottom: 770 })), true)
+  assert.equal(fillSheet(inked({ left: 20, top: 30, right: 581, bottom: 770 })), true)
+  assert.equal(fillSheet(inked({ left: 20, top: 30, right: 580, bottom: 771 })), true)
+  // nothing known about the ink: the whole page counts, as before
+  assert.equal(fillSheet(inked(undefined)), true)
+})
+
+test("what is cut off is judged on the page as placed: scaled, panned, and turned", () => {
+  // Füllen of 300 × 400 on 600 × 800 doubles it. Ink in the middle two thirds stays clear of the edge.
+  assert.equal(fillSheet(inked({ left: 20, top: 20, right: 280, bottom: 380 }, [300, 400])), false)
+  // 100 % of the 600 × 800 page, turned a quarter clockwise: 800 wide, so 240 pt of it lies beyond each side, and the page's top is on the right.
+  const turned = (content: Parameters<typeof inked>[0]) =>
+    layout({ source: inked(content), options: options({ items: [{ count: 1, turn: 90 }] }), sheet, margins })[0]!.cutOff
+  assert.equal(turned({ left: 100, top: 300, right: 500, bottom: 550 }), false)
+  // ink along the page's top, which is now its right edge, lies beyond the printable area
+  assert.equal(turned({ left: 100, top: 0, right: 500, bottom: 550 }), true)
+  assert.equal(turned(undefined), true)
+  // Panned to show the page's top, which lies on the right, the bottom is what falls off the left: ink at the top is kept, ink at the bottom is cut.
+  const panned = (content: Parameters<typeof inked>[0], y: number) =>
+    layout({ source: inked(content), options: options({ items: [{ count: 1, turn: 90, pan: { y } }] }), sheet, margins })[0]!.cutOff
+  assert.equal(panned({ left: 100, top: 0, right: 500, bottom: 550 }, 0), false)
+  assert.equal(panned({ left: 100, top: 0, right: 500, bottom: 550 }, 1), true)
+})
+
+test("a photo is cut off wherever it is larger than the printable area: it has no known ink", () => {
+  const photos: LayoutInput["source"] = { kind: "photos", photos: [{ width: 2500, height: 3333, orientation: 1 }] }
+  assert.equal(layout({ source: photos, options: options({ printSize: { kind: "fill" } }), sheet, margins })[0]!.cutOff, true)
+})

@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { maxPhotos, type FileFacts, type PdfFacts, type Refusal, type RefusalType } from "../shared/api.ts"
 import { photoFacts, sniff } from "../shared/file-header.ts"
 import type { Now } from "./clock.ts"
+import { pageContents } from "./pdf-content.ts"
 import { openSourcePdf, shownPart } from "./source-pdf.ts"
 
 export interface DraftFile {
@@ -118,7 +119,9 @@ async function pdfFacts(bytes: Uint8Array): Promise<PdfFacts | undefined> {
       const [width, height] = [box.right - box.left, box.top - box.bottom]
       return rotation % 180 === 0 ? { width, height } : { width: height, height: width }
     })
-    return { kind: "pdf", pageCount: pages.length, pages }
+    // where each page has ink; a page it is not found for is left as the page, and counts as all ink
+    const contents = await pageContents(bytes, pages)
+    return { kind: "pdf", pageCount: pages.length, pages: pages.map((page, i) => (contents[i] === undefined ? page : { ...page, content: contents[i] })) }
   } catch {
     return undefined
   }

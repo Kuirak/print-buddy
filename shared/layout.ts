@@ -1,7 +1,7 @@
 // The layout module: where content sits on a sheet. The browser preview and the server renderer both
 // call `layout`, so the printout matches the preview. Keep this file free of DOM and Node imports.
 
-import type { Margins } from "./api.ts"
+import type { Margins, PageContent } from "./api.ts"
 import { photoFormats, type FormatLayout, type Item, type Layout, type PerSheet, type PrintOptions, type PrintSizeMode, type Rotation } from "./print-options.ts"
 
 /** In points (1/72 inch). */
@@ -36,7 +36,7 @@ export type LayoutInput = {
    * A PDF's pages with the sizes a reader shows, in points. Or the photos of a Print Job.
    * `options.items` holds one item per page or photo, in the same order.
    */
-  source: { kind: "pdf"; pages: Size[] } | { kind: "photos"; photos: Photo[] }
+  source: { kind: "pdf"; pages: (Size & { content?: PageContent | null })[] } | { kind: "photos"; photos: Photo[] }
   options: Pick<PrintOptions, "printSize" | "position" | "layout" | "items">
   sheet: Size
   margins: Margins
@@ -157,6 +157,32 @@ type Content = {
   pan: Item["pan"]
   /** The item's size, or else the Print size. */
   printSize: PrintSizeMode
+  /** A PDF page's ink, in the page's own points (see `PdfFacts`); undefined for a photo and for a page whose ink is unknown. */
+  ink?: PageContent | null
+}
+
+/** A rectangle on an upright page of size `page`, as it lies once the page is turned clockwise by `rotation`. */
+function turnedRect(r: PageContent, { width, height }: Size, rotation: Rotation): PageContent {
+  if (rotation === 90) return { left: height - r.bottom, top: r.left, right: height - r.top, bottom: r.right }
+  if (rotation === 180) return { left: width - r.right, top: height - r.bottom, right: width - r.left, bottom: height - r.top }
+  if (rotation === 270) return { left: r.top, top: width - r.right, right: r.bottom, bottom: width - r.left }
+  return r
+}
+
+/**
+ * Whether part of what the placement puts on the sheet lies outside the printable part of its Cell and won't print.
+ * That is the page or photo itself, except for a PDF page whose ink is known: blank paper that is cut off doesn't count.
+ * `readBox` is the placement as the sheet is read, `view` how it got there: its scale, size, and the clockwise turn of the upright page.
+ */
+function cutOff(content: Content, view: { scale: number; width: number; height: number; rotation: Rotation }, readBox: Box, printable: Box): boolean {
+  const { ink } = content
+  if (ink === null) return false
+  if (ink === undefined) return view.width > printable.width + TOLERANCE || view.height > printable.height + TOLERANCE
+  const r = turnedRect(ink, content.upright, view.rotation)
+  return readBox.left + r.left * view.scale < printable.left - TOLERANCE
+    || readBox.top + r.top * view.scale < printable.top - TOLERANCE
+    || readBox.left + r.right * view.scale > printable.left + printable.width + TOLERANCE
+    || readBox.top + r.bottom * view.scale > printable.top + printable.height + TOLERANCE
 }
 
 /**
@@ -300,8 +326,8 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
     const printSize: PrintSizeMode = item.size ? { kind: item.size } : forAll
     let content: Content
     if (source.kind === "pdf") {
-      const natural = source.pages[index]!
-      content = { ref: index + 1, natural, orientation: 1, upright: natural, autoRotate: false, turn: item.turn, pan: item.pan, printSize }
+      const { content: ink, ...natural } = source.pages[index]!
+      content = { ref: index + 1, natural, orientation: 1, upright: natural, autoRotate: false, turn: item.turn, pan: item.pan, printSize, ink }
     } else {
       const photo = source.photos[index]!
       const natural = photoNaturalSize(photo)
@@ -351,12 +377,13 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
       const overflowY = height > printable.height + TOLERANCE ? height - printable.height : 0
       const panned = content.pan ? readPan(content.pan, viewRotation as Rotation) : {}
       const along = { x: overflowX > 0 ? (panned.x ?? across) : across, y: overflowY > 0 ? (panned.y ?? down) : down }
-      const box = onSheet({
+      const readBox: Box = {
         left: printable.left + (printable.width - width) * along.x,
         top: printable.top + (printable.height - height) * along.y,
         width,
         height,
-      })
+      }
+      const box = onSheet(readBox)
       const rotation = ((viewRotation + (sideways ? 90 : 0)) % 360) as Rotation
       result.placements.push({
         ref: content.ref,
@@ -373,7 +400,7 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
         ),
         clip: cell.box,
       })
-      result.cutOff ||= !atFormat && (width > printable.width + TOLERANCE || height > printable.height + TOLERANCE)
+      result.cutOff ||= !atFormat && cutOff(content, { scale, width, height, rotation: viewRotation as Rotation }, readBox, printable)
       result.emptySpace ||= width < printable.width - TOLERANCE || height < printable.height - TOLERANCE
       if (options.layout.kind === "format" && options.layout.cutLines) result.cutLines.push(cell.box)
     })

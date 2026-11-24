@@ -49,15 +49,25 @@ async function openOptions(facts: FileFacts = letterPdf, { count = 1, routes = {
   return { api, user, files, print, choice, size, tap, percent, bar }
 }
 
-test("a new file starts at Einpassen, and the Print size row shows the percentage that gives", async () => {
-  const { size, percent, print } = await openOptions()
+test("a new PDF starts at Füllen, and the Print size row shows the percentage that gives; Einpassen gives less", async () => {
+  const { user, size, percent, print } = await openOptions()
+
+  // Füllen covers the whole sheet: 841.89 / 792 = 1.063
+  expect(await percent()).toHaveTextContent("106 %")
+  expect(size("Füllen")).toBeChecked()
+  expect(size("Einpassen")).not.toBeChecked()
+  expect(size("100 %")).not.toBeChecked()
 
   // the printable width of A4 is 595.28 − 2 × 9 = 577.28 pt, and 577.28 / 612 = 0.943
+  await user.click(size("Einpassen"))
   expect(await percent()).toHaveTextContent("94 %")
-  expect(size("Einpassen")).toBeChecked()
-  expect(size("Füllen")).not.toBeChecked()
-  expect(size("100 %")).not.toBeChecked()
   expect(await print()).toMatchObject({ printSize: { kind: "fit" } })
+})
+
+test("a new PDF is submitted at Füllen", async () => {
+  const { print } = await openOptions()
+
+  expect(await print()).toMatchObject({ printSize: { kind: "fill" } })
 })
 
 test.each([
@@ -76,7 +86,8 @@ test.each([
 })
 
 test("− and + move the Print size in steps of 5 % from the percentage shown", async () => {
-  const { tap, size, percent, print } = await openOptions()
+  const { user, tap, size, percent, print } = await openOptions()
+  await user.click(size("Einpassen"))
   expect(await percent()).toHaveTextContent("94 %")
 
   await tap("Größer drucken")
@@ -116,9 +127,10 @@ test("a warning shows while content is cut off, and goes away when it no longer 
   const { user, tap, size, percent } = await openOptions()
   const warning = () => screen.queryByText("Achtung: Teile des Inhalts werden abgeschnitten.")
   await percent()
-  expect(warning()).not.toBeInTheDocument()
-
   // Füllen covers the whole sheet, so the unprintable edge takes some of the content
+  expect(warning()).toBeInTheDocument()
+  await user.click(size("Einpassen"))
+  expect(warning()).not.toBeInTheDocument()
   await user.click(size("Füllen"))
   expect(warning()).toBeInTheDocument()
   await user.click(size("Einpassen"))
@@ -162,7 +174,8 @@ test.each(spots)("the spot %s is the marked one after a tap, and is submitted as
 })
 
 test("a tap on a page in the preview opens its bar in the place of the stepper; ↻ and ↺ turn that page only", async () => {
-  const { user, tap, percent, bar, print } = await openOptions()
+  const { user, tap, size, percent, bar, print } = await openOptions()
+  await user.click(size("Einpassen"))
   expect(screen.queryByRole("button", { name: "Drehen" })).not.toBeInTheDocument()
   expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toBeInTheDocument()
 
@@ -195,6 +208,7 @@ test("a tap on a photo picks that photo, and its bar turns it", async () => {
 
 test("the bar switches one page between Füllen and Einpassen; Größe für alle then shows both in use, and choosing one sets every page again", async () => {
   const { user, size, percent, bar, print } = await openOptions()
+  await user.click(size("Einpassen"))
   await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
 
   await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
@@ -241,7 +255,8 @@ const paperRect = { width: 400, height: 566, x: 0, y: 0, top: 0, left: 0, right:
 afterEach(() => { vi.restoreAllMocks() })
 
 test("a picked page that overlaps the border can be panned by dragging its 4-arrow overlay; Position takes over again after it", async () => {
-  const { user, bar, print } = await openOptions()
+  const { user, size, bar, print } = await openOptions()
+  await user.click(size("Einpassen"))
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
   await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
   // Einpassen lies inside the printable area: nothing to pan
@@ -265,7 +280,8 @@ test("a picked page that overlaps the border can be panned by dragging its 4-arr
 })
 
 test("a pan is dropped when Position is chosen, and kept when the page is turned", async () => {
-  const { user, tap, choice, bar, print } = await openOptions()
+  const { user, tap, size, bar, print } = await openOptions()
+  await user.click(size("Einpassen"))
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
   await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
   await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
@@ -280,7 +296,8 @@ test("a pan is dropped when Position is chosen, and kept when the page is turned
 })
 
 test("choosing a Position drops a pan", async () => {
-  const { user, choice, bar, print } = await openOptions()
+  const { user, choice, size, bar, print } = await openOptions()
+  await user.click(size("Einpassen"))
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
   await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
   await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
@@ -302,7 +319,8 @@ test("Größe für alle offers Füllen, Einpassen and 100 % for photos, without 
 })
 
 test("a landscape PDF page is never turned on its own", async () => {
-  const { percent } = await openOptions({ kind: "pdf", pageCount: 1, pages: [{ width: 792, height: 612 }] })
+  const { user, size, percent } = await openOptions({ kind: "pdf", pageCount: 1, pages: [{ width: 792, height: 612 }] })
+  await user.click(size("Einpassen"))
 
   // 577.28 / 792 = 0.729. Turned, the page would come out at 94 %
   expect(await percent()).toHaveTextContent("73 %")
@@ -310,9 +328,10 @@ test("a landscape PDF page is never turned on its own", async () => {
 
 test("the Print size follows the Printer's margins for the chosen paper", async () => {
   const wide = { top: 36, right: 36, bottom: 36, left: 36 }
-  const { user, choice, percent } = await openOptions(letterPdf, {
+  const { user, size, choice, percent } = await openOptions(letterPdf, {
     routes: { "GET /api/printer": () => printerInfo({ margins: { ...printerInfo().margins, A5: wide } }) },
   })
+  await user.click(size("Einpassen"))
   expect(await percent()).toHaveTextContent("94 %")
 
   // A5 is 419.53 pt wide. Without 2 × 36 pt that leaves 347.53 pt, and 347.53 / 612 = 0.568
@@ -361,5 +380,5 @@ test("Ansicht zooms into the preview in four steps and back, and leaves the Prin
 
   await tap("Ansicht verkleinern")
   expect(screen.getByText("Ansicht 200%")).toBeInTheDocument()
-  expect(await print()).toMatchObject({ printSize: { kind: "fit" } })
+  expect(await print()).toMatchObject({ printSize: { kind: "fill" } })
 })

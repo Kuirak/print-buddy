@@ -14,7 +14,7 @@
 
 **Household network**: The home Wi-Fi/LAN. Anyone on it is trusted to print.
 
-**Print size**: How large the file is printed on the sheet, as a percentage of its original size or fitted to or filling the sheet. Too large cuts content off; too small leaves part of the sheet empty.
+**Print size**: How large the file is printed on the sheet, as a percentage of its original size or fitted to or filling the sheet. Too large cuts content off; too small leaves part of the sheet empty. A PDF page is only cut off where it has ink: blank paper that falls outside the printable area costs nothing.
 
 **Position**: Where the content sits on the sheet: one of nine spots (corners, edge middles, centre). It decides where the empty part of the sheet ends up and, when the content is too large, which part is cut off.
 

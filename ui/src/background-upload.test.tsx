@@ -37,8 +37,8 @@ test("a picked PDF opens the options screen with its preview while the upload ru
 
   await user.upload(screen.getByLabelText("Datei auswählen"), pdfFile("Rechnung.pdf", [a4, a4]))
 
-  // laid out from what the browser read: two A4 pages, each at 97 % to fit the printable width
-  expect(await screen.findByRole("status", { name: "Druckgröße in Prozent" })).toHaveTextContent("97 %")
+  // laid out from what the browser read: two A4 pages, each at 100 % to fill the sheet
+  expect(await screen.findByRole("status", { name: "Druckgröße in Prozent" })).toHaveTextContent("100 %")
   expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("Seite 1 · 1/2")
   expect(screen.getByRole("button", { name: "Seite 2" })).toBeInTheDocument()
   expect(printButton()).toHaveTextContent("Wird hochgeladen … 0 %")
@@ -87,7 +87,7 @@ test("a shared file opens the options screen while its upload runs", async () =>
   render(() => <App />)
 
   expect(await screen.findByText("Rechnung.pdf")).toBeInTheDocument()
-  expect(await screen.findByRole("status", { name: "Druckgröße in Prozent" })).toHaveTextContent("97 %")
+  expect(await screen.findByRole("status", { name: "Druckgröße in Prozent" })).toHaveTextContent("100 %")
   expect(printButton()).toHaveTextContent("Wird hochgeladen … 0 %")
 })
 

@@ -106,7 +106,7 @@ test("after the login the options screen opens with the same file and the same P
   expect(await screen.findByText("Auftrag Nr. 42")).toBeInTheDocument()
   expect(JSON.parse(api.calls.find(call => call.path === "/api/drafts/d2/submit")!.body as string)).toEqual({
     copies: 2, color: "color", paper: "A5", quality: "draft",
-    printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1),
+    printSize: { kind: "fill" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1),
   })
   expect((await phoneFiles.held()).map(held => held.name)).toEqual(["Rechnung.pdf"])
 })

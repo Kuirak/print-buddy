@@ -15,11 +15,18 @@ export type FileFacts = PdfFacts | PhotoFacts
 /** The two file types a Print Job can hold: one PDF, or photos. */
 export type FileKind = FileFacts["kind"]
 
+/** A rectangle on a page in points, from the page's top-left corner as a reader shows the page. */
+export type PageContent = { left: number; top: number; right: number; bottom: number }
+
 export type PdfFacts = {
   kind: "pdf"
   pageCount: number
-  /** Each page's size in points as a reader shows it: the part of the CropBox that lies on the page, with the page's own rotation applied. */
-  pages: { width: number; height: number }[]
+  /**
+   * Each page's size in points as a reader shows it: the part of the CropBox that lies on the page, with the page's own rotation applied.
+   * `content` is where the page has ink: the smallest rectangle round everything that isn't paper white, `null` for a page that is
+   * all white. Absent when that could not be found out; the whole page counts as content then.
+   */
+  pages: { width: number; height: number; content?: PageContent | null }[]
 }
 
 export type PhotoFacts = {

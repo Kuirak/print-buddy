@@ -115,7 +115,7 @@ test("Nochmal drucken on Fertig sends the same file with the same Print Options 
   ])
   const again = api.calls.find(call => call.path === "/api/drafts/d2/files")!
   expect((again.body as FormData).get("file")).toBe(pdf)
-  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1) }
+  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1) }
   for (const draft of ["d1", "d2"]) {
     const submit = api.calls.find(call => call.path === `/api/drafts/${draft}/submit`)!
     expect(JSON.parse(submit.body as string)).toEqual(sent)
@@ -268,7 +268,7 @@ test("when sending fails, Drucken hat nicht geklappt offers Erneut versuchen, wh
 
   expect(await screen.findByRole("heading", { name: "Wartet" })).toBeInTheDocument()
   expect(screen.getByText("Auftrag Nr. 42")).toBeInTheDocument()
-  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1) }
+  const sent = { copies: 2, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" }, position: "center", layout: { kind: "grid", perSheet: 1 }, items: items(1) }
   for (const draft of ["d1", "d2", "d3"]) {
     const upload = api.calls.find(call => call.path === `/api/drafts/${draft}/files`)!
     expect((upload.body as FormData).get("file")).toBe(pdf)

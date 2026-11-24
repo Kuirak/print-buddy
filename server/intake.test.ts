@@ -3,13 +3,17 @@ import { readdir, readFile } from "node:fs/promises"
 import { request } from "node:http"
 import { join } from "node:path"
 import { test } from "node:test"
-import { docxHeader, encryptedPdf, heicHeader, pdfWithPages, sampleJpeg, samplePdf, samplePng, withExifOrientation } from "./testing/fixtures.ts"
+import type { PdfFacts } from "../shared/api.ts"
+import { docxHeader, encryptedPdf, heicHeader, pdfWithInk, pdfWithPages, sampleJpeg, samplePdf, samplePng, withExifOrientation } from "./testing/fixtures.ts"
 import { startTestServer, type TestServer } from "./testing/harness.ts"
 
 async function newDraft(server: TestServer): Promise<string> {
   const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
   return draftId
 }
+
+/** The pages' sizes without what else the facts say about them. */
+const sizes = (facts: PdfFacts) => facts.pages.map(({ width, height }) => ({ width, height }))
 
 test("a PDF returns its page count and the page sizes a reader shows", async t => {
   const server = await startTestServer()
@@ -25,17 +29,16 @@ test("a PDF returns its page count and the page sizes a reader shows", async t =
   const added = await server.upload(await newDraft(server), pdf, "Rechnung.pdf", "application/pdf")
 
   assert.equal(added.status, 201)
-  assert.deepEqual(await added.json(), {
-    kind: "pdf",
-    pageCount: 5,
-    pages: [
-      { width: 595, height: 842 },
-      { width: 400, height: 300 },
-      { width: 100, height: 50 },
-      { width: 500, height: 800 },
-      { width: 300, height: 400 },
-    ],
-  })
+  const facts = await added.json() as PdfFacts
+  assert.equal(facts.kind, "pdf")
+  assert.equal(facts.pageCount, 5)
+  assert.deepEqual(sizes(facts), [
+    { width: 595, height: 842 },
+    { width: 400, height: 300 },
+    { width: 100, height: 50 },
+    { width: 500, height: 800 },
+    { width: 300, height: 400 },
+  ])
 })
 
 test("a page's size is that of the part a reader shows: the CropBox only as far as it lies on the page, turned by quarter turns only", async t => {
@@ -56,7 +59,7 @@ test("a page's size is that of the part a reader shows: the CropBox only as far 
 
   const added = await server.upload(await newDraft(server), pdf, "Plan.pdf", "application/pdf")
 
-  assert.deepEqual((await added.json() as { pages: unknown }).pages, [
+  assert.deepEqual(sizes(await added.json() as PdfFacts), [
     { width: 150, height: 100 },
     { width: 130, height: 50 },
     { width: 200, height: 100 },
@@ -127,7 +130,9 @@ test("a PDF that is only protected against editing opens without a password and 
   const added = await server.upload(await newDraft(server), await encryptedPdf({ userPassword: "", ownerPassword: "owner" }), "a.pdf")
 
   assert.equal(added.status, 201)
-  assert.deepEqual(await added.json(), { kind: "pdf", pageCount: 1, pages: [{ width: 100, height: 100 }] })
+  const facts = await added.json() as PdfFacts
+  assert.equal(facts.pageCount, 1)
+  assert.deepEqual(sizes(facts), [{ width: 100, height: 100 }])
 })
 
 test("a second PDF in a draft is refused as one-pdf-only", async t => {
@@ -261,4 +266,42 @@ test("a file far over the limit is refused while it is still arriving", async t 
   assert.equal(answer.status, 413)
   assert.deepEqual(JSON.parse(answer.body), { refusal: "too-large", limitMb: 1 })
   assert.ok(answer.sent < total, `answered after ${answer.sent} of ${total} bytes`)
+})
+
+test("a PDF's pages come with where they have ink: the smallest rectangle round it, null for a page that is all paper", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const pdf = await pdfWithInk([
+    { size: [595, 842], ink: [[100, 50, 200, 100], [400, 700, 50, 20]] },
+    { size: [595, 842] },
+    // paper white drawn over the ink is no ink
+    { size: [595, 842], ink: [[0, 0, 595, 30]], paper: [[0, 0, 595, 30]] },
+    // a hairline across is found, with the rest of the page blank
+    { size: [300, 200], ink: [[0, 100, 300, 0.25]] },
+  ])
+
+  const added = await server.upload(await newDraft(server), pdf, "Plan.pdf", "application/pdf")
+
+  const { pages } = await added.json() as PdfFacts
+  assert.deepEqual(pages[0]!.content, { left: 100, top: 50, right: 450, bottom: 720 })
+  assert.equal(pages[1]!.content, null)
+  assert.equal(pages[2]!.content, null)
+  const line = pages[3]!.content!
+  assert.ok(line.left === 0 && line.right === 300 && line.top >= 99 && line.top <= 100 && line.bottom >= 100 && line.bottom <= 101, JSON.stringify(line))
+})
+
+test("a page's ink is where a reader shows it: after the page's own turn", async t => {
+  const server = await startTestServer()
+  t.after(server.close)
+  const pdf = await pdfWithInk([
+    // top left of a page 200 wide and 100 high, which a reader turns a quarter clockwise: it ends up top right of a page 100 wide
+    { size: [200, 100], rotate: 90, ink: [[10, 10, 20, 20]] },
+    { size: [200, 100], rotate: 180, ink: [[10, 10, 20, 20]] },
+  ])
+
+  const added = await server.upload(await newDraft(server), pdf, "Plan.pdf", "application/pdf")
+
+  const { pages } = await added.json() as PdfFacts
+  assert.deepEqual(pages[0]!.content, { left: 70, top: 10, right: 90, bottom: 30 })
+  assert.deepEqual(pages[1]!.content, { left: 170, top: 70, right: 190, bottom: 90 })
 })

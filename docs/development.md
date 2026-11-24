@@ -1,6 +1,6 @@
 # Development
 
-Needs Node 26, pnpm 12, and MuPDF's `mutool` on the `PATH` (`brew install mupdf`), which the tests of Dell jobs run. Run `pnpm install` once. How the parts work is in `architecture.md`; decisions that are hard to reverse are in `adr/`; the vocabulary is in `GLOSSARY.md`.
+Needs Node 26, pnpm 12, and MuPDF's `mutool` on the `PATH` (`brew install mupdf`), which the tests of Dell jobs and the ink of uploaded PDFs run. Run `pnpm install` once. How the parts work is in `architecture.md`; decisions that are hard to reverse are in `adr/`; the vocabulary is in `GLOSSARY.md`.
 
 ## Commands
 
@@ -49,6 +49,7 @@ server/            Runs as `node server/main.ts`, straight from the sources.
   renderer.ts        Renderer: builds the PDF or HBPL that goes to CUPS.
   dell-engine.ts     Dell's engine from the share folder: its file format, and the toner codes of a row of pixels.
   pdf-raster.ts      A page of a PDF as rows of pixels at 600 dpi, rendered by MuPDF's mutool, for Dell's engine.
+  pdf-content.ts     Where each page of an uploaded PDF has ink, from a 72 dpi rendering by mutool, for the cut-off warning.
   status-mapper.ts   Status mapper: CUPS job facts to a screen state and a German reason.
   printer/           Printer client: client.ts, the IPP codec, and hbpl.ts, which runs foo2hbpl2 on the raster of a Dell job.
   http/              One file per API resource: drafts, jobs, printer, report, session (with /login), health, share-target, ui (static files).
