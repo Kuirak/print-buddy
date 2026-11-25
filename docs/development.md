@@ -64,6 +64,7 @@ ui/                Vite root.
   src/upload.ts      The upload of the phone's copy into a draft, with its progress; it runs behind the options screen.
   src/file-facts.ts  The facts of the phone's copy, read in the browser so the options screen needn't wait for the upload.
   src/presets.ts     The Presets: the built-in ones, and the own ones and starred defaults in browser storage.
+  src/print-options-editor.ts  The Print Options editor: every edit of the Print Options on the options screen, and what follows from them. No Solid.
   src/phone-files.ts The phone's copy of the files of the job in progress.
   src/interrupted-job.ts  What else of a job survives the page load of the login.
   src/share-target.ts  Which requests the service worker answers itself, and what it does with a share.
@@ -77,7 +78,7 @@ ui/                Vite root.
   src/screens/       One screen per file.
   src/controls/      One hand-built control per file: stepper, Position grid, preset chips, layout strip, preview, the bar under it and so on.
   src/testing/       Seam 3 helpers, and setup.ts, which vitest runs before every test file.
-  src/*.test.tsx     Seam 3 tests, all in this one folder.
+  src/*.test.tsx     Seam 3 tests, all in this one folder. Tests of pure modules, such as the editor, sit beside them as *.test.ts.
 scripts/dev.ts     What `pnpm dev` runs.
 scripts/pdfjs-assets.ts  Runs before every build: copies pdf.js's decoders, fonts and character maps into ui/public/pdfjs.
 scripts/dell-engine.ts  Measures Dell's macOS driver into the file of Dell's engine. Runs on a Mac with the driver.
@@ -183,6 +184,8 @@ test("…", async t => {
 
 `ui/src/*.test.tsx`, vitest with happy-dom.
 
+The same folder holds the tests of pure modules of the app, as `ui/src/*.test.ts`, under the same vitest. They render nothing: like Seam 2, each loops over tables of cases against the module's interface. `print-options-editor.test.ts` has a table for every edit, the Pan rule, the Preset edit, the server's facts, the Photo format defaults and the derived values such as the percentage and the mixed sizes. A rule of the Print Options gets its case there. Seam 3 keeps one case per thing the person sees.
+
 ```tsx
 import { render, screen } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
@@ -223,7 +226,7 @@ test("…", async () => {
 ### Seam 3 by area
 
 - **Layout ready.** "Blatt in der Vorschau" is left out when the layout has one sheet, so it is no sign that the screen is laid out. Wait with `laidOut()` for the enabled "Drucken" instead. For a PDF, the status "Druckgröße in Prozent" shows the percentage too; photos have no − and +. With nothing printed the button named "Drucken" doesn't exist. It reads "Keine Seiten gewählt" or "Keine Fotos gewählt".
-- **Dialogs.** Testing Library still finds what is behind an open dialog, so a test must not tap it. Where a name is on both, such as Drucken or "Einstellungen", search inside the dialog with `within(confirmation())`. `sheetCount()` and `overSheetLimit()` have their own cases in `shared/layout.test.ts`. `ui/src/confirmation.test.tsx` covers the panel; its limit state is rendered with `Confirmation` alone, because the screen never opens it over the limit.
+- **Dialogs.** Testing Library still finds what is behind an open dialog, so a test must not tap it. Where a name is on both, such as Drucken or "Einstellungen", search inside the dialog with `within(confirmation())`. `sheetCount()` and the sheet limit of `layOut()` have their own cases in `shared/layout.test.ts`, and the confirmation's numbers theirs in `ui/src/print-options-editor.test.ts`. `ui/src/confirmation.test.tsx` covers the panel; its limit state is rendered with `Confirmation` alone, because the screen never opens it over the limit.
 - **Presets.** In `ui/src/presets.test.tsx` the preset chips are the `radiogroup` named "Voreinstellung". Saving and deleting a Preset ask on the screen itself, with a name field and "Voreinstellung löschen?", not with `window.prompt` or `window.confirm`.
 - **Wie oft and the preview.** `ui/src/thumbnails.test.tsx` covers the counts, "Alle gleich", the layout strip's grids and stepping; `ui/src/preview.test.tsx` the picking and the bar; `ui/src/formats.test.tsx` the Photo formats and Eigenes; `ui/src/chips.test.tsx` the chip controls. pdf.js draws the thumbnails too. A test tells the canvases apart by where they sit, inside a thumbnail's button or inside the preview. It also tells them apart by width. Thumbnails are 176 wide, the preview 1500 and more. `ui/src/testing/setup.ts` stands in for `IntersectionObserver` and reports every picture as in view at once, so the thumbnails of a long PDF draw. `swipe(dx, dy)` in `thumbnails.test.tsx` draws a touch pointer across the preview with `user.pointer`.
 - **Shares and the service worker.** `share(files)` in `ui/src/testing/share.ts` sends the request the manifest declares through `receiveShare()` and follows the redirect; render `<App />` after it. `fakeServiceWorker()` in `ui/src/testing/fake-service-worker.ts` stands in for `navigator.serviceWorker`: `newVersionInstalled()`, `takeOver()`, and `messages` for what the app told the waiting version. Without it a test runs as over plain HTTP. `ui/src/testing/fake-indexeddb.ts` is the phone's storage; it keeps values as they are, so an uploaded file is the same object as the picked one. Assert on the phone's copy with `phoneFiles.held()`. Chromium rejects `formData()` on an empty multipart body, which happy-dom does not.

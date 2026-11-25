@@ -32,8 +32,8 @@ function Row(props: { label: string; children: JSX.Element }) {
 export function OptionsDrawer(props: {
   options: PrintOptions
   presets: Presets
-  /** Changes one or more of the Print Options. */
-  onChange: (changes: Partial<PrintOptions>) => void
+  /** Changes one or more of copies, colour, paper and quality. */
+  onChange: (changes: Partial<Pick<PrintOptions, "copies" | "color" | "paper" | "quality">>) => void
   onPickPreset: (preset: Preset) => void
   onClose: () => void
 }) {

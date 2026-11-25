@@ -279,37 +279,6 @@ test("a picked page that overlaps the border can be panned by dragging its 4-arr
   expect(first!.pan!.y).toBe(0.5)
 })
 
-test("a pan is dropped when Position is chosen, and kept when the page is turned", async () => {
-  const { user, tap, size, bar, print } = await openOptions()
-  await user.click(size("Einpassen"))
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
-  await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
-  await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
-  ;(await screen.findByRole("group", { name: "Seite 1 verschieben" })).focus()
-  await user.keyboard("{ArrowLeft}")
-  await tap("Nach rechts drehen")
-
-  // turned a quarter, the page's own x axis lies along the sheet's y: the key moved x, and that stays with the page
-  const [turned] = ((await print()) as { items: { turn: number; pan?: { x?: number; y?: number } }[] }).items
-  expect(turned).toMatchObject({ turn: 90 })
-  expect(turned!.pan?.x).toBeGreaterThan(0.5)
-})
-
-test("choosing a Position drops a pan", async () => {
-  const { user, choice, size, bar, print } = await openOptions()
-  await user.click(size("Einpassen"))
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(paperRect)
-  await user.click(await screen.findByRole("img", { name: "Vorschau Seite 1" }))
-  await user.click(within(bar("Seite 1")!).getByRole("button", { name: "Einpassen" }))
-  ;(await screen.findByRole("group", { name: "Seite 1 verschieben" })).focus()
-  await user.keyboard("{ArrowLeft}")
-
-  await user.click(choice("Position", "oben"))
-
-  const [first] = ((await print()) as { items: object[] }).items
-  expect(first).not.toHaveProperty("pan")
-})
-
 test("Größe für alle offers Füllen, Einpassen and 100 % for photos, without percentage steps; PDFs keep the steps", async () => {
   await openOptions(landscapePhoto, { count: 2 })
 

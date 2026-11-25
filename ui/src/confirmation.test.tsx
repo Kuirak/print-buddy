@@ -138,7 +138,6 @@ test("Drucken is not available before the printer info is there, so the confirma
   await expect.poll(() => print).toBeEnabled()
   await user.click(print)
   expect(panel().total).toBe("1")
-  expect(panel().settings).toEqual(["Farbe", "A4", "Normal", "Füllen (100 %)", "Mitte"])
 })
 
 test("the printer info is read again when the read fails, so Drucken doesn't stay unavailable", async () => {
@@ -267,16 +266,6 @@ test("at a Photo format the chips say the Lage, the gap and the cut lines instea
   expect(panel().has("Eigenes 60 × 90 mm")).toBe(true)
 })
 
-test("when pages or photos have sizes of their own that differ, the size chip says so", async () => {
-  const { user, tap } = await openOptions(photo, 2)
-  await user.click(screen.getByRole("img", { name: "Vorschau Foto 1" }))
-  await user.click(within(screen.getByRole("toolbar", { name: "Foto 1" })).getByRole("button", { name: "Einpassen" }))
-
-  await tap("Drucken")
-
-  expect(panel().settings).toContain("Größe je Foto")
-})
-
 test("the cut-off warning shows for a grid that cuts content off, and never at a Photo format", async () => {
   const pdf = await openOptions(pdfWithContent(inkInside))
   await pdf.tap("Drucken")
@@ -294,7 +283,6 @@ test("the cut-off warning shows for a grid that cuts content off, and never at a
 test("a new PDF starts at Füllen, and its cut-off warning follows where the page has ink", async () => {
   const inside = await openOptions(pdfWithContent(inkInside))
   expect(inside.choice("Größe für alle", "Füllen")).toBeChecked()
-  expect(screen.getByRole("status", { name: "Druckgröße in Prozent" })).toHaveTextContent("100 %")
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   await inside.tap("Drucken")
   expect(panel().message).toBe("")
