@@ -83,6 +83,7 @@ const defaultOwnSize: OwnSize = { w: 60, h: 90 }
 /** Where a Photo format starts when it comes from a grid. */
 const defaultSwitches: FormatSwitches = { lage: "save", gap: true, cutLines: false }
 
+/** The facts as the layout module takes them: the PDF's, or the photos'. */
 function sourceOf(facts: readonly FileFacts[]): Source {
   const first = facts[0]
   return first?.kind === "pdf" ? first : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
