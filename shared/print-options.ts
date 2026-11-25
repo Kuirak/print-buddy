@@ -81,6 +81,16 @@ export const photoFormats = {
 /** The smallest own size, in mm on each side. Whether an own size fits the paper is the layout module's to say. */
 export const minOwnSize = 20
 
+/** Whether `mm` can be a side of an own size: a number of at least `minOwnSize`. */
+export function isOwnSide(mm: unknown): mm is number {
+  return typeof mm === "number" && Number.isFinite(mm) && mm >= minOwnSize
+}
+
+/** Whether anything prints: at least one item with a count above 0. */
+export function printsAnything(items: readonly Pick<Item, "count">[]): boolean {
+  return items.some(item => item.count > 0)
+}
+
 const positions: readonly Position[] = ["top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"]
 const rotations: readonly unknown[] = [0, 90, 180, 270]
 const perSheets: readonly unknown[] = [1, 2, 4, 6, 8]
@@ -102,8 +112,7 @@ function parseLayout(value: unknown): Layout | undefined {
   if (typeof l.format === "string" && Object.hasOwn(photoFormats, l.format)) format = l.format as keyof typeof photoFormats
   else if (typeof l.format === "object" && l.format !== null) {
     const { w, h } = l.format as Record<string, unknown>
-    const side = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= minOwnSize
-    if (!side(w) || !side(h)) return undefined
+    if (!isOwnSide(w) || !isOwnSide(h)) return undefined
     format = { w, h }
   } else return undefined
   return { kind: "format", format, lage: l.lage as "save" | "portrait" | "landscape", gap: l.gap, cutLines: l.cutLines }
@@ -134,7 +143,7 @@ function parseItem(value: unknown): Item | undefined {
  * unknown keys dropped, or `undefined` if anything is missing or out of range: a count outside 0 to `maxCount`, every
  * count 0, an own size under `minOwnSize`.
  * Whether `items` fits the files of the draft, a format suits them, an own size fits the paper and the Print Job
- * keeps to the sheet limit is checked by the renderer.
+ * keeps to the sheet limit is for `layOut` in the layout module to say.
  */
 export function parsePrintOptions(value: unknown): PrintOptions | undefined {
   if (typeof value !== "object" || value === null) return undefined
@@ -148,7 +157,7 @@ export function parsePrintOptions(value: unknown): PrintOptions | undefined {
   const layout = parseLayout(o.layout)
   if (!layout || !Array.isArray(o.items)) return undefined
   const items = o.items.map(parseItem)
-  if (!items.every(item => item !== undefined) || !items.some(item => item.count > 0)) return undefined
+  if (!items.every(item => item !== undefined) || !printsAnything(items)) return undefined
   return {
     copies: o.copies as number,
     color: o.color,
