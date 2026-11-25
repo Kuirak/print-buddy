@@ -8,7 +8,7 @@ import { join } from "node:path"
 import { Readable } from "node:stream"
 import sharp from "sharp"
 import type { Margins, PhotoFacts } from "../shared/api.ts"
-import { SHEET_SIZES, cells, layout, overSheetLimit, photoNaturalSize, sheetCount, type Box, type LayoutInput, type Matrix, type Placement, type Sheet } from "../shared/layout.ts"
+import { SHEET_SIZES, layOut, photoNaturalSize, sheetCount, type Box, type LayoutInput, type Matrix, type Placement, type Sheet } from "../shared/layout.ts"
 import type { PrintOptions } from "../shared/print-options.ts"
 import type { Engine } from "./dell-engine.ts"
 import type { DraftFile } from "./intake.ts"
@@ -26,7 +26,7 @@ export interface PrintDocument { format: "pdf" | "hbpl"; bytes: Uint8Array }
 export type RenderResult =
   /** `sheets` is the sheets of paper the Print Job takes: the sheets in `document`, for every copy. */
   | { outcome: "rendered"; document: PrintDocument; sheets: number }
-  /** The Print Options don't fit the draft's files. */
+  /** The Print Options can't print the draft's files: `layOut` gives a reason. */
   | { outcome: "invalid-options" }
 
 /** Dell's engine from the share folder, and what packs its raster into HBPL. */
@@ -50,24 +50,16 @@ export interface RenderWatch {
  * Where everything sits comes from the layout module; `margins` are the Printer's for the chosen paper.
  * With `dell`, colour Print Jobs become HBPL through Dell's engine; everything else is a PDF.
  *
- * The Print Options are invalid when `items` has not exactly one entry per page or photo of the draft, when a Photo
- * format is chosen for a PDF, when the layout has no Cells on the paper (an own size too large for it), or when the
- * Print Job would take more than `maxSheets`.
+ * The Print Options are invalid whenever `layOut` of the layout module gives a reason they can't print.
  */
 export async function render(
   files: readonly DraftFile[], options: PrintOptions, margins: Margins, dell?: DellPrinting, watch: RenderWatch = {},
 ): Promise<RenderResult> {
   const facts = files[0]?.facts
-  if (!facts) return { outcome: "invalid-options" }
-  const count = facts.kind === "pdf" ? facts.pages.length : files.length
-  if (options.items.length !== count) return { outcome: "invalid-options" }
-  // Photo formats are for photos, and one that doesn't fit the paper (an own size too large) has no slots
-  if (options.layout.kind === "format" && facts.kind === "pdf") return { outcome: "invalid-options" }
-  if (cells(options.layout, SHEET_SIZES[options.paper], margins).cells.length === 0) return { outcome: "invalid-options" }
-
-  const source: LayoutInput["source"] = facts.kind === "pdf" ? facts : { kind: "photos", photos: files.map(file => file.facts as PhotoFacts) }
-  const sheets = layout({ source, options, sheet: SHEET_SIZES[options.paper], margins })
-  if (overSheetLimit(sheets, options.copies)) return { outcome: "invalid-options" }
+  const source: LayoutInput["source"] = facts?.kind === "pdf" ? facts : { kind: "photos", photos: files.map(file => file.facts as PhotoFacts) }
+  const laidOut = layOut({ source, options, sheet: SHEET_SIZES[options.paper], margins })
+  if (laidOut.reason !== undefined) return { outcome: "invalid-options" }
+  const { sheets } = laidOut
   const sheetsOfJob = sheetCount(sheets, options.copies)
   if (options.color === "color" && dell) {
     watch.onProgress?.(0, sheets.length * options.copies)
