@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
 import { maxPhotos, type FileFacts, type FileKind, type PaperMargins } from "../../../shared/api.ts"
-import { cells, landscapeFirst, layout, maxSheets, overSheetLimit, printableArea, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
+import { cells, landscapeFirst, layOut, maxSheets, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
 import { maxCount, minOwnSize, type FormatLayout, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
@@ -27,9 +27,6 @@ const readPrinterAgainAfterMs = 2_000
 const onOffOnlyAbove = 30
 
 const lagen = (["save", "portrait", "landscape"] as const).map(value => ({ value, label: lageNames[value] }))
-
-/** A length in points as whole millimetres, rounded down. */
-const wholeMm = (points: number) => Math.floor((points * 25.4) / 72)
 
 export function OptionsScreen(props: {
   fileName: string
@@ -118,12 +115,20 @@ export function OptionsScreen(props: {
       for (const url of photoUrls) URL.revokeObjectURL(url)
     }
   })
-  /** Where everything sits, sheet by sheet. The preview, the percentage and the cut-off warning all read this. */
-  const sheets = createMemo(() => {
+  /** The sheets, or why the Print Options can't print, from the layout module. `undefined` until the margins are there. */
+  const laidOut = createMemo(() => {
     const known = margins()
-    // for a moment after the server's facts replaced the browser's, the items may not match the pages
-    if (!known || options.items.length !== refs().length) return undefined
-    return layout({ source: source(), options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
+    return known && layOut({ source: source(), options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
+  })
+  /**
+   * Where everything sits, sheet by sheet. The preview, the percentage and the cut-off warning all read this. Not laid
+   * out yet without the margins, nor while the items don't match the pages, which they may not for a moment after the
+   * server's facts replaced the browser's. Over the sheet limit the sheets still show; any other reason has none.
+   */
+  const sheets = createMemo(() => {
+    const known = laidOut()
+    if (!known || known.reason === "items-mismatch") return undefined
+    return "sheets" in known ? known.sheets : []
   })
   /**
    * Which sheet the person stepped to, counted from 0, or the page or photo whose first sheet to show once it is laid
@@ -161,11 +166,6 @@ export function OptionsScreen(props: {
   const [over, setOver] = createSignal<"details" | "confirmation">()
   /** A Print Job is cut off when any of its sheets is. */
   const cutOff = () => sheets()?.some(sheet => sheet.cutOff) ?? false
-  /** The Print Job would take more paper than one may. */
-  const tooMany = () => {
-    const laidOut = sheets()
-    return laidOut !== undefined && overSheetLimit(laidOut, options.copies)
-  }
 
   /** The Photo format chosen, if one is. */
   const atFormat = (): FormatLayout | undefined => (options.layout.kind === "format" ? options.layout : undefined)
@@ -201,29 +201,26 @@ export function OptionsScreen(props: {
     setOwnSize(next)
     setOptions(o => { if (o.layout.kind === "format" && typeof o.layout.format !== "string") o.layout.format = next })
   }
-  /** The layout gives no slots on the paper: the format doesn't fit it. */
-  const noSlots = () => {
-    const known = margins()?.[options.paper]
-    return known !== undefined && cells(options.layout, SHEET_SIZES[options.paper], known).cells.length === 0
-  }
-  /** What is wrong with the own size, in German, or `undefined` when it prints. */
-  const ownProblem = () => {
+  /**
+   * Why the Print Options can't print, in German, and where it says so: under Breite and Höhe for the own size, under
+   * Drucken otherwise. Nothing printed has no sentence, Drucken itself says it; items that don't match aren't laid out yet.
+   */
+  const problem = (): { text: string; at: "own" | "drucken" } | undefined => {
+    const known = laidOut()
+    if (!known) return undefined
     const format = atFormat()?.format
-    if (format === undefined || typeof format === "string") return undefined
-    if (!(format.w >= minOwnSize && format.h >= minOwnSize)) return `Breite und Höhe mindestens ${minOwnSize} mm.`
-    if (!noSlots()) return undefined
-    const sheet = SHEET_SIZES[options.paper]
-    const edge = margins()![options.paper]
-    // too large for the Lage chosen, but it fits lying the other way: that is what to change
-    const fitting = (["portrait", "landscape"] as const).find(lage => cells({ ...atFormat()!, lage }, sheet, edge).cells.length > 0)
-    if (fitting) return `Passt nur mit Lage ${lageNames[fitting]}.`
-    const area = printableArea(sheet, edge)
-    return `Zu groß für ${paperNames[options.paper]}: höchstens ${wholeMm(area.width)} × ${wholeMm(area.height)} mm.`
-  }
-  /** A named Photo format that doesn't fit the paper chosen after it, in German. */
-  const formatProblem = () => {
-    const format = atFormat()?.format
-    return typeof format === "string" && noSlots() ? `${formatNames[format]} passt nicht auf ${paperNames[options.paper]}.` : undefined
+    switch (known.reason) {
+      case "own-size-too-small":
+        return { text: `Breite und Höhe mindestens ${minOwnSize} mm.`, at: "own" }
+      case "no-cells":
+        if (typeof format === "string") return { text: `${formatNames[format]} passt nicht auf ${paperNames[options.paper]}.`, at: "drucken" }
+        // too large for the Lage chosen, but it fits lying the other way: that is what to change
+        if (known.otherLage) return { text: `Passt nur mit Lage ${lageNames[known.otherLage]}.`, at: "own" }
+        return { text: `Zu groß für ${paperNames[options.paper]}: höchstens ${known.printable.w} × ${known.printable.h} mm.`, at: "own" }
+      case "over-sheet-limit":
+        return { text: `Höchstens ${maxSheets} Blätter pro Druck.`, at: "drucken" }
+    }
+    return undefined
   }
 
   /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
@@ -446,8 +443,8 @@ export function OptionsScreen(props: {
             </label>
             <span>mm</span>
           </div>
-          <Show when={ownProblem()}>
-            {problem => <p role="alert" class="text-sm font-semibold text-[#b3261e]">{problem()}</p>}
+          <Show when={problem()?.at === "own" && problem()!.text}>
+            {text => <p role="alert" class="text-sm font-semibold text-[#b3261e]">{text()}</p>}
           </Show>
         </div>
       </Show>
@@ -533,7 +530,7 @@ export function OptionsScreen(props: {
           <button
             type="button"
             class="btn-primary min-h-14 min-w-0 flex-1"
-            disabled={props.uploading !== undefined || printed().length === 0 || !sheets() || tooMany() || noSlots() || ownProblem() !== undefined}
+            disabled={props.uploading !== undefined || laidOut()?.reason !== undefined || !sheets()}
             onClick={() => setOver("confirmation")}
           >
             {props.uploading !== undefined
@@ -542,9 +539,9 @@ export function OptionsScreen(props: {
           </button>
         </div>
         <Show
-          when={tooMany()
-            ? `Höchstens ${maxSheets} Blätter pro Druck.`
-            : tooManyAdded() ? `Höchstens ${maxPhotos} Fotos auf einmal: noch ${maxPhotos - files.length} möglich.` : formatProblem()}
+          when={laidOut()?.reason === "over-sheet-limit"
+            ? problem()!.text
+            : tooManyAdded() ? `Höchstens ${maxPhotos} Fotos auf einmal: noch ${maxPhotos - files.length} möglich.` : problem()?.at === "drucken" && problem()!.text}
         >
           {reason => <p role="alert" class="pt-1 text-center text-sm font-semibold text-[#b3261e]">{reason()}</p>}
         </Show>
@@ -562,15 +559,15 @@ export function OptionsScreen(props: {
     </Show>
     {/* Drucken waits for the layout, so it is known here */}
     <Show when={over() === "confirmation" && sheets()}>
-      {laidOut => (
+      {shownSheets => (
         <Confirmation
           kind={kind}
           source={pictures()}
           refs={refs()}
           options={options}
-          sheetsPerCopy={laidOut().length}
-          sheets={sheetCount(laidOut(), options.copies)}
-          overLimit={tooMany()}
+          sheetsPerCopy={shownSheets().length}
+          sheets={sheetCount(shownSheets(), options.copies)}
+          overLimit={laidOut()?.reason === "over-sheet-limit"}
           maxSheets={maxSheets}
           paper={SHEET_SIZES[options.paper]}
           cells={cells(options.layout, SHEET_SIZES[options.paper], margins()![options.paper], landscapeFirst(source(), options.items)).cells.map(cell => cell.box)}
