@@ -1,8 +1,8 @@
-// The layout module: where content sits on a sheet. The browser preview and the server renderer both
-// call `layout`, so the printout matches the preview. Keep this file free of DOM and Node imports.
+// The layout module: where content sits on a sheet, or why the Print Options can't print. The browser preview and the
+// server renderer both call `layOut`, so the printout matches the preview. Keep this file free of DOM and Node imports.
 
 import type { Margins, PageContent } from "./api.ts"
-import { photoFormats, type FormatLayout, type Item, type Layout, type PerSheet, type PrintOptions, type PrintSizeMode, type Rotation } from "./print-options.ts"
+import { isOwnSide, photoFormats, printsAnything, type FormatLayout, type Item, type Layout, type PerSheet, type PrintOptions, type PrintSizeMode, type Rotation } from "./print-options.ts"
 
 /** In points (1/72 inch). */
 export type Size = { width: number; height: number }
@@ -37,7 +37,7 @@ export type LayoutInput = {
    * `options.items` holds one item per page or photo, in the same order.
    */
   source: { kind: "pdf"; pages: (Size & { content?: PageContent | null })[] } | { kind: "photos"; photos: Photo[] }
-  options: Pick<PrintOptions, "printSize" | "position" | "layout" | "items">
+  options: Pick<PrintOptions, "copies" | "printSize" | "position" | "layout" | "items">
   sheet: Size
   margins: Margins
 }
@@ -301,8 +301,34 @@ export function printableArea(sheet: Size, margins: Margins): Box {
   return { left: margins.left, top: margins.top, width: sheet.width - margins.left - margins.right, height: sheet.height - margins.top - margins.bottom }
 }
 
+/** The sheets of Print Options that can print, one entry per sheet of one copy. */
+export type LaidOut = { reason?: undefined; sheets: Sheet[] }
+
 /**
- * Where each page or photo sits, sheet by sheet. Every item with a count above 0 must have its page or photo in the source.
+ * Why Print Options can't print the source on the sheet: every reason Drucken is off because of the Print Options.
+ * Each carries what the options screen needs to say it.
+ */
+export type Unprintable =
+  /** `options.items` hasn't exactly one item per page or photo of the source. The options screen hasn't laid it out yet. */
+  | { reason: "items-mismatch" }
+  /** A Photo format for a PDF: formats are for photos. */
+  | { reason: "format-on-pdf" }
+  /** An own size with a side under `minOwnSize`, or without a number. */
+  | { reason: "own-size-too-small" }
+  /**
+   * The layout has no Cells on the sheet: a Photo format too large for it. `otherLage` is the Lage it would fit with,
+   * if it fits lying the other way. `printable` is the printable area in whole mm, rounded down: the largest own size that fits.
+   */
+  | { reason: "no-cells"; otherLage?: "portrait" | "landscape"; printable: { w: number; h: number } }
+  /** Every item has a count of 0. */
+  | { reason: "nothing-printed" }
+  /** The Print Job would take more than `maxSheets`, copies included. Its sheets for one copy come along, for the preview. */
+  | { reason: "over-sheet-limit"; sheets: Sheet[] }
+
+/**
+ * The layout module's main entry: where each page or photo sits, sheet by sheet, or why the Print Options can't print.
+ * The reasons are checked in the order of `Unprintable`, and the first that applies is given: what is wrong with the
+ * layout comes before nothing printed, so the options screen can say it while nothing is printed.
  *
  * - Sequence: the items in the file's order, each as often as its `count` says, next to itself (A A B B).
  *   An item with a count of 0 is left out.
@@ -316,9 +342,36 @@ export function printableArea(sheet: Size, margins: Margins): Box {
  *   a photo turned to a sideways slot shows the same part of itself as in an upright one.
  * - Cells: see `cells`. Each page or photo is laid out in its Cell as on a sheet of its own; photos turn by themselves
  *   to the Cell, PDF pages never do, and the grid is read the other way after a landscape first page instead.
- *   No sheets when the layout can't be laid out.
  */
-export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[] {
+export function layOut(input: LayoutInput): LaidOut | Unprintable {
+  const { source, options, sheet, margins } = input
+  const chosen = options.layout
+  if (options.items.length !== (source.kind === "pdf" ? source.pages.length : source.photos.length)) return { reason: "items-mismatch" }
+  if (chosen.kind === "format") {
+    if (source.kind === "pdf") return { reason: "format-on-pdf" }
+    if (typeof chosen.format !== "string" && !(isOwnSide(chosen.format.w) && isOwnSide(chosen.format.h))) return { reason: "own-size-too-small" }
+  }
+  const areas = cells(chosen, sheet, margins, landscapeFirst(source, options.items))
+  if (areas.cells.length === 0) {
+    const otherLage = chosen.kind === "format"
+      ? (["portrait", "landscape"] as const).find(lage => cells({ ...chosen, lage }, sheet, margins).cells.length > 0)
+      : undefined
+    const { width, height } = printableArea(sheet, margins)
+    const printable = { w: Math.floor(width / POINTS_PER_MM), h: Math.floor(height / POINTS_PER_MM) }
+    return { reason: "no-cells", ...(otherLage && { otherLage }), printable }
+  }
+  if (!printsAnything(options.items)) return { reason: "nothing-printed" }
+  const sheets = place(input, areas)
+  return sheetCount(sheets, options.copies) > maxSheets ? { reason: "over-sheet-limit", sheets } : { sheets }
+}
+
+export function layout(input: LayoutInput): Sheet[] {
+  const areas = cells(input.options.layout, input.sheet, input.margins, landscapeFirst(input.source, input.options.items))
+  return areas.cells.length === 0 ? [] : place(input, areas)
+}
+
+/** The sheets, for Print Options that can print (see `layOut`), into the `areas` of their layout on the sheet. */
+function place({ source, options, sheet, margins }: LayoutInput, { cells: areas, sideways }: Cells): Sheet[] {
   const atFormat = options.layout.kind === "format"
   const forAll: PrintSizeMode = atFormat && options.printSize.kind === "percent" ? { kind: "fill" } : options.printSize
   const contents = options.items.flatMap((item, index): Content[] => {
@@ -345,8 +398,6 @@ export function layout({ source, options, sheet, margins }: LayoutInput): Sheet[
     return Array<Content>(item.count).fill(content)
   })
 
-  const { cells: areas, sideways } = cells(options.layout, sheet, margins, landscapeFirst(source, options.items))
-  if (areas.length === 0) return []
   // Everything is laid out the way the sheet is read, and only then put onto the sheet the way the Printer feeds it.
   const asRead = (box: Box): Box =>
     sideways ? { left: box.top, top: sheet.width - box.left - box.width, width: box.height, height: box.width } : box
