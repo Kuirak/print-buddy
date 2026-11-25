@@ -32,6 +32,9 @@ export type Editing = {
 /** How the photos lie at a Photo format, and what helps cutting them apart: they carry over from format to format. */
 export type FormatSwitches = Pick<FormatLayout, "lage" | "gap" | "cutLines">
 
+/** What the detailed controls behind "Einstellungen" set: copies, colour, paper and quality. */
+export type Details = Pick<PrintOptions, "copies" | "color" | "paper" | "quality">
+
 /** A layout as the strip offers it: a grid, or a Photo format by its name, or Eigenes. The editor adds the rest. */
 export type LayoutPick = { kind: "grid"; perSheet: PerSheet } | { kind: "format"; format: Extract<FormatLayout["format"], string> | "own" }
 
@@ -62,8 +65,8 @@ export type Edit =
   | { kind: "format-switches"; changes: Partial<FormatSwitches> }
   /** One side of the own size, which Eigenes prints at while it is chosen. */
   | { kind: "own-size"; side: "w" | "h"; mm: number }
-  /** The detailed controls behind "Einstellungen". */
-  | { kind: "details"; changes: Partial<Pick<PrintOptions, "copies" | "color" | "paper" | "quality">> }
+  /** One or more of the details. */
+  | { kind: "details"; changes: Partial<Details> }
   /** Picking a Preset: its seven fields. How often each page or photo prints, its turn and its size of its own stay. */
   | { kind: "preset"; values: PresetValues }
   /**
@@ -171,7 +174,7 @@ export function edit(editing: Editing, change: Edit): Edited {
     }
     case "layout": {
       const chosen = change.layout
-      if (chosen.kind === "grid") options.layout = chosen
+      if (chosen.kind === "grid") options.layout = { ...chosen }
       else {
         if (options.layout.kind === "grid" || options.printSize.kind === "percent") options.printSize = { kind: "fill" }
         options.layout = { kind: "format", format: chosen.format === "own" ? { ...ownSize } : chosen.format, ...formatSwitches(options) }

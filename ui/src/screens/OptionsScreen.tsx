@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onSettled, Show, untrack } from "solid-js"
 import { maxPhotos, type FileFacts, type FileKind, type PaperMargins } from "../../../shared/api.ts"
 import { maxSheets, SHEET_SIZES } from "../../../shared/layout.ts"
-import { maxCount, minOwnSize, type FormatLayout, type Layout, type PrintOptions } from "../../../shared/print-options.ts"
+import { maxCount, minOwnSize, type FormatLayout, type PrintOptions } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { Confirmation } from "../controls/Confirmation.tsx"
@@ -20,7 +20,7 @@ import { ViewZoom } from "../controls/ViewZoom.tsx"
 import { formatNames, itemName, lageNames, paperNames, sizeNames } from "../job-text.ts"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type Preset } from "../presets.ts"
-import { derive, edit, startEditing, type Edit, type Edited, type LayoutPick } from "../print-options-editor.ts"
+import { derive, edit, startEditing, type Edit, type Edited } from "../print-options-editor.ts"
 
 const readPrinterAgainAfterMs = 2_000
 
@@ -152,9 +152,6 @@ export function OptionsScreen(props: {
   }
   /** The layouts on offer: the grids, and for photos the Photo formats, with the Lage and switches a format starts with. */
   const layoutChoices = () => (kind === "pdf" ? gridChoices : [...gridChoices, ...formatChoices(derived().formatSwitches, editing().ownSize)])
-  /** A tile of the strip, as the editor takes it: a grid, or a Photo format by name, or Eigenes. */
-  const pickOf = (layout: Layout): LayoutPick =>
-    layout.kind === "grid" ? layout : { kind: "format", format: typeof layout.format === "string" ? layout.format : "own" }
   /** What is wrong with the own size, in German, said under Breite and Höhe; `undefined` while nothing is. */
   const ownProblem = () => {
     const known = derived().unprintable
@@ -296,7 +293,7 @@ export function OptionsScreen(props: {
         paper={SHEET_SIZES[options().paper]}
         margins={margins()?.[options().paper]}
         landscape={derived().landscape}
-        onChange={layout => change({ kind: "layout", layout: pickOf(layout) })}
+        onChange={layout => change({ kind: "layout", layout })}
       />
       {/* one own size per Print Job, in mm */}
       <Show when={atFormat() && typeof atFormat()!.format !== "string"}>
