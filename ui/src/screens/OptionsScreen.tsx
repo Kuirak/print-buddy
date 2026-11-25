@@ -157,7 +157,7 @@ export function OptionsScreen(props: {
     layout.kind === "grid" ? layout : { kind: "format", format: typeof layout.format === "string" ? layout.format : "own" }
   /** What is wrong with the own size, in German, said under Breite and Höhe; `undefined` while nothing is. */
   const ownProblem = () => {
-    const known = derived().laidOut
+    const known = derived().unprintable
     if (known?.reason === "own-size-too-small") return `Breite und Höhe mindestens ${minOwnSize} mm.`
     if (known?.reason !== "no-cells" || typeof atFormat()?.format === "string") return undefined
     // too large for the Lage chosen, but it fits lying the other way: that is what to change
@@ -191,7 +191,7 @@ export function OptionsScreen(props: {
     const format = atFormat()?.format
     if (derived().overLimit) return `Höchstens ${maxSheets} Blätter pro Druck.`
     if (tooManyAdded()) return `Höchstens ${maxPhotos} Fotos auf einmal: noch ${maxPhotos - files.length} möglich.`
-    if (derived().laidOut?.reason === "no-cells" && typeof format === "string") return `${formatNames[format]} passt nicht auf ${paperNames[options().paper]}.`
+    if (derived().unprintable?.reason === "no-cells" && typeof format === "string") return `${formatNames[format]} passt nicht auf ${paperNames[options().paper]}.`
     return undefined
   }
 
@@ -412,7 +412,7 @@ export function OptionsScreen(props: {
           <button
             type="button"
             class="btn-primary min-h-14 min-w-0 flex-1"
-            disabled={props.uploading !== undefined || derived().laidOut?.reason !== undefined || !sheets()}
+            disabled={props.uploading !== undefined || derived().unprintable !== undefined || !sheets()}
             onClick={() => setOver("confirmation")}
           >
             {props.uploading !== undefined
@@ -443,15 +443,7 @@ export function OptionsScreen(props: {
           source={pictures()}
           refs={refs()}
           options={options()}
-          sheetsPerCopy={numbers().sheetsPerCopy}
-          sheets={numbers().sheets}
-          overLimit={numbers().overLimit}
-          maxSheets={numbers().maxSheets}
-          paper={numbers().paper}
-          cells={numbers().cells}
-          percent={numbers().percent}
-          mixedSizes={numbers().mixedSizes}
-          cutOff={numbers().cutOff}
+          numbers={numbers()}
           onConfirm={() => props.onPrint(options())}
           onBack={() => setOver(undefined)}
         />

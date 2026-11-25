@@ -1,7 +1,7 @@
 // The Print Options editor: every edit of the Print Options on the options screen, and everything derived from them.
 // Plain TypeScript without Solid: the options screen keeps the result in a signal and adds the view state and the German.
 import type { FileFacts, PaperMargins } from "../../shared/api.ts"
-import { cells, landscapeFirst, layOut, maxSheets, sheetCount, SHEET_SIZES, type Box, type LaidOut, type LayoutInput, type Sheet, type Size, type Unprintable } from "../../shared/layout.ts"
+import { cells, landscapeFirst, layOut, maxSheets, sheetCount, SHEET_SIZES, type Box, type LayoutInput, type Sheet, type Size, type Unprintable } from "../../shared/layout.ts"
 import {
   isOwnSide,
   maxCount,
@@ -90,9 +90,22 @@ function sourceOf(facts: readonly FileFacts[]): Source {
   return first?.kind === "pdf" ? first : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
 }
 
+/**
+ * The ref of the first page or photo: a PDF's pages count from 1, photos from 0, as the preview and the thumbnails name
+ * them. The page or photo with ref `ref` has the item `items[ref - firstRef(source)]`.
+ */
+function firstRef(source: Source) {
+  return source.kind === "pdf" ? 1 : 0
+}
+
+/** Every page or photo by its ref, in the order of `options.items`. */
+function refsOf(source: Source): number[] {
+  return (source.kind === "pdf" ? source.pages : source.photos).map((_, index) => index + firstRef(source))
+}
+
 /** Each page or photo once, printed once, unturned. */
 function everyOnce(source: Source): Item[] {
-  return (source.kind === "pdf" ? source.pages : source.photos).map(() => ({ count: 1, turn: 0 }))
+  return refsOf(source).map(() => ({ count: 1, turn: 0 }))
 }
 
 /** The own size of a layout at Eigenes. */
@@ -110,11 +123,6 @@ export function startEditing(facts: readonly FileFacts[], from: PresetValues & {
   return { source, options: { ...options, items: options.items ?? everyOnce(source) }, ownSize: ownSizeOf(options.layout) ?? defaultOwnSize }
 }
 
-/** Where the page or photo with this ref is in `items`: a PDF's pages count from 1, photos from 0. */
-function indexOf(source: Source, ref: number) {
-  return source.kind === "pdf" ? ref - 1 : ref
-}
-
 /** The Lage and the switches a Photo format chosen now starts with: those of the format chosen, or where a format starts. */
 function formatSwitches(options: PrintOptions): FormatSwitches {
   if (options.layout.kind === "grid") return defaultSwitches
@@ -127,7 +135,7 @@ export function edit(editing: Editing, change: Edit): Edited {
   const options = structuredClone(editing.options)
   let { source, ownSize } = editing
   let show: ShowSheet | undefined
-  const itemOf = (ref: number) => options.items[indexOf(editing.source, ref)]!
+  const itemOf = (ref: number) => options.items[ref - firstRef(editing.source)]!
   switch (change.kind) {
     case "repeats": {
       const item = itemOf(change.ref)
@@ -232,15 +240,17 @@ export const asSizeChoice = (size: PrintSizeMode): SizeChoice | undefined =>
 
 /** What "Jetzt drucken?" says in numbers, besides the Print Options themselves (see `Confirmation`). */
 export type ConfirmationNumbers = {
-  /** Sheets of paper for one copy, and for all copies. */
+  /** Sheets of paper for one copy, and for all copies: `sheetCount()` of the layout module. */
   sheetsPerCopy: number
   sheets: number
+  /** The Print Job takes more sheets than one may: Drucken is unavailable. */
   overLimit: boolean
-  maxSheets: number
   /** The layout as a sketch: the paper and the Cells or slots on it. */
   paper: Size
   cells: Box[]
+  /** The percentage the content is printed at, as the Print size row shows it. */
   percent: number | undefined
+  /** Several sizes are in use: the chip says the size is chosen page by page or photo by photo. */
   mixedSizes: boolean
   cutOff: boolean
 }
@@ -256,10 +266,10 @@ export type Derived = {
   /** What the page or photo with this ref prints at: its own size, or the size for all; none of them at a percentage. */
   sizeOf(ref: number): "fill" | "fit" | undefined
   /**
-   * The sheets from the layout module, or why the Print Options can't print. Until the margins are there only an own
-   * size too small, which needs no margins to tell; `undefined` otherwise.
+   * Why the Print Options can't print, from the layout module; `undefined` while they print. Until the margins are
+   * there only an own size too small, which needs no margins to tell.
    */
-  laidOut: LaidOut | Unprintable | undefined
+  unprintable: Unprintable | undefined
   /** The sheets the preview draws: see `derive`. */
   sheets: Sheet[] | undefined
   /** A Print Job is cut off when any of its sheets is. */
@@ -290,15 +300,17 @@ export type Derived = {
  */
 export function derive({ source, options }: Editing, margins: PaperMargins | undefined): Derived {
   const paper = SHEET_SIZES[options.paper]
+  const outcome = margins && layOut({ source, options, sheet: paper, margins: margins[options.paper] })
   const own = ownSizeOf(options.layout)
-  const laidOut: LaidOut | Unprintable | undefined = margins
-    ? layOut({ source, options, sheet: paper, margins: margins[options.paper] })
+  const unprintable: Unprintable | undefined = outcome
+    ? (outcome.reason === undefined ? undefined : outcome)
     : own && !(isOwnSide(own.w) && isOwnSide(own.h)) ? { reason: "own-size-too-small" } : undefined
-  const sheets = !margins || !laidOut || laidOut.reason === "items-mismatch" ? undefined : "sheets" in laidOut ? (laidOut.sheets ?? []) : []
-  const refs = (source.kind === "pdf" ? source.pages : source.photos).map((_, index) => (source.kind === "pdf" ? index + 1 : index))
-  const itemOf = (ref: number) => options.items[indexOf(source, ref)]
+  const sheets = !outcome || outcome.reason === "items-mismatch" ? undefined : "sheets" in outcome ? (outcome.sheets ?? []) : []
+  const refs = refsOf(source)
+  const itemOf = (ref: number) => options.items[ref - firstRef(source)]
   const landscape = landscapeFirst(source, options.items)
-  const overLimit = sheets !== undefined && sheetCount(sheets, options.copies) > maxSheets
+  const allSheets = sheets ? sheetCount(sheets, options.copies) : 0
+  const overLimit = allSheets > maxSheets
   const cutOff = sheets?.some(sheet => sheet.cutOff) ?? false
   const forAll = asSizeChoice(options.printSize)
   const used = new Set(options.items.filter(item => item.count > 0).map(item => item.size ?? forAll))
@@ -317,7 +329,7 @@ export function derive({ source, options }: Editing, margins: PaperMargins | und
       const item = itemOf(ref)
       return item && sizeOf(options, item)
     },
-    laidOut,
+    unprintable,
     sheets,
     cutOff,
     overLimit,
@@ -327,9 +339,8 @@ export function derive({ source, options }: Editing, margins: PaperMargins | und
     percent,
     confirmation: index => sheets && {
       sheetsPerCopy: sheets.length,
-      sheets: sheetCount(sheets, options.copies),
+      sheets: allSheets,
       overLimit,
-      maxSheets,
       paper,
       cells: cells(options.layout, paper, margins![options.paper], landscape).cells.map(cell => cell.box),
       percent: percent(index),

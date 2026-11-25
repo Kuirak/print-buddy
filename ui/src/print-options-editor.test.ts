@@ -208,7 +208,7 @@ test.each<[string, Partial<PrintOptions>, SizeChoice[] | undefined]>([
 
 test("until the Printer's margins are there, nothing is laid out", () => {
   const derived = derive(editing(photosOf(2)), undefined)
-  expect(derived.laidOut).toBeUndefined()
+  expect(derived.unprintable).toBeUndefined()
   expect(derived.sheets).toBeUndefined()
 })
 
@@ -225,7 +225,7 @@ test.each<[string, FileFacts[], Partial<PrintOptions>, Unprintable["reason"] | u
   ["over 100 sheets", photosOf(3), { items: items(50, 50, 1) }, "over-sheet-limit", Array<number>(101).fill(1)],
 ])("the preview: %s", (_name, facts, before, reason, placements) => {
   const derived = derive(editing(facts, before), margins)
-  expect(derived.laidOut?.reason).toBe(reason)
+  expect(derived.unprintable?.reason).toBe(reason)
   expect(derived.sheets?.map(sheet => sheet.placements.length)).toEqual(placements)
 })
 
@@ -237,14 +237,14 @@ test("an own size under 20 mm is drawn at the size typed", () => {
 test("an own size under 20 mm is over the sheet limit too when its sheets are", () => {
   // 100 photos in slots 15 mm wide take more than one sheet a copy: over 100 sheets in 100 copies
   const derived = derive(editing(photosOf(2), { copies: 100, items: items(50, 50), layout: format({ w: 15, h: 90 }) }), margins)
-  expect(derived.laidOut?.reason).toBe("own-size-too-small")
+  expect(derived.unprintable?.reason).toBe("own-size-too-small")
   expect(derived.overLimit).toBe(true)
 })
 
 test("while the server's facts count differently for a moment, nothing is laid out", () => {
   const start = editing(photosOf(2))
   const derived = derive({ ...start, options: { ...start.options, items: items(1) } }, margins)
-  expect(derived.laidOut?.reason).toBe("items-mismatch")
+  expect(derived.unprintable?.reason).toBe("items-mismatch")
   expect(derived.sheets).toBeUndefined()
 })
 
@@ -278,7 +278,7 @@ test("the confirmation's numbers: sheets of one copy and of all, the sketch of t
   const derived = derive(editing(pdfOf(3), { copies: 2, printSize: { kind: "fit" }, layout: { kind: "grid", perSheet: 2 } }), margins)
   const numbers = derived.confirmation(0)!
   // Einpassen in a Cell of 408.95 × 577.28 pt: 577.28 / 842 = 0.686
-  expect(numbers).toMatchObject({ sheetsPerCopy: 2, sheets: 4, overLimit: false, maxSheets: 100, percent: 69, mixedSizes: false, cutOff: false })
+  expect(numbers).toMatchObject({ sheetsPerCopy: 2, sheets: 4, overLimit: false, percent: 69, mixedSizes: false, cutOff: false })
   expect(numbers.cells).toHaveLength(2)
 
   const over = derive(editing(photosOf(2), { copies: 5, items: items(25, 0) }), margins)
