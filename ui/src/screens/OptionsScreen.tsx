@@ -1,7 +1,7 @@
-import { createEffect, createMemo, createSignal, createStore, onSettled, Show, snapshot, untrack } from "solid-js"
+import { createEffect, createMemo, createSignal, onSettled, Show, untrack } from "solid-js"
 import { maxPhotos, type FileFacts, type FileKind, type PaperMargins } from "../../../shared/api.ts"
-import { cells, landscapeFirst, layOut, maxSheets, sheetCount, SHEET_SIZES, type LayoutInput } from "../../../shared/layout.ts"
-import { maxCount, minOwnSize, type FormatLayout, type Item, type Layout, type PrintOptions, type PrintSizeMode, type Rotation } from "../../../shared/print-options.ts"
+import { maxSheets, SHEET_SIZES } from "../../../shared/layout.ts"
+import { maxCount, minOwnSize, type FormatLayout, type Layout, type PrintOptions } from "../../../shared/print-options.ts"
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { Confirmation } from "../controls/Confirmation.tsx"
@@ -11,7 +11,7 @@ import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
 import { PositionGrid } from "../controls/PositionGrid.tsx"
 import { PresetChips } from "../controls/PresetChips.tsx"
 import { Preview, type PreviewSource } from "../controls/Preview.tsx"
-import { asSizeChoice, PrintSize } from "../controls/PrintSize.tsx"
+import { PrintSize } from "../controls/PrintSize.tsx"
 import { SheetSteps } from "../controls/SheetSteps.tsx"
 import { Stepper } from "../controls/Stepper.tsx"
 import { Thumbnails } from "../controls/Thumbnails.tsx"
@@ -20,6 +20,7 @@ import { ViewZoom } from "../controls/ViewZoom.tsx"
 import { formatNames, itemName, lageNames, paperNames, sizeNames } from "../job-text.ts"
 import { openPdf, type PdfPreview } from "../pdf-preview.ts"
 import { createPresets, type Preset } from "../presets.ts"
+import { derive, edit, startEditing, type Edit, type Edited, type LayoutPick } from "../print-options-editor.ts"
 
 const readPrinterAgainAfterMs = 2_000
 
@@ -58,29 +59,29 @@ export function OptionsScreen(props: {
   const files = untrack(() => props.files)
   /** A PDF or photos, as the layout module names them. The facts can't change it: the server refuses a file of the other type. */
   const kind = untrack(() => props.kind) === "pdf" ? "pdf" : "photos"
-  const source = createMemo((): LayoutInput["source"] => {
-    const facts = props.facts
-    return facts[0]?.kind === "pdf" ? facts[0] : { kind: "photos", photos: facts.filter(fact => fact.kind === "photo") }
-  })
-  /** Every page of the PDF, counted from 1, or every photo, counted from 0, in the order of `options.items`: what the thumbnails show. */
-  const refs = createMemo(() => {
-    const known = source()
-    return known.kind === "pdf" ? known.pages.map((_, index) => index + 1) : known.photos.map((_, index) => index)
-  })
-  /** Each page or photo once, printed once, unturned. */
-  const everyOnce = () => refs().map((): Item => ({ count: 1, turn: 0 }))
   // a new file starts from the starred Preset, never from the Print Options of the job before, with every page or photo printed once
-  const [options, setOptions] = createStore<PrintOptions>(structuredClone(untrack(() => props.initial)) ?? {
-    ...structuredClone(presets.starred().values),
-    items: untrack(everyOnce),
-  })
-  /** The pages or photos that print, as `refs` counts them. */
-  const printed = () => refs().filter((_, index) => (options.items[index]?.count ?? 0) > 0)
+  const [editing, setEditing] = createSignal(startEditing(untrack(() => props.facts), untrack(() => props.initial) ?? presets.starred().values))
+  /** The Print Options as they are now. The editor never changes them in place: each edit gives new ones. */
+  const options = () => editing().options
+  const [margins, setMargins] = createSignal<PaperMargins>()
+  /** Everything that follows from the Print Options, from the editor: the sheets or why they can't print, the percentage and so on. */
+  const derived = createMemo(() => derive(editing(), margins()))
+  /** Every page of the PDF, counted from 1, or every photo, counted from 0: what the thumbnails show. */
+  const refs = () => derived().refs
   /** A PDF this long shows pictures that only switch its pages on and off: a counter for each would fill the screen. */
   const onOffOnly = () => kind === "pdf" && refs().length > onOffOnlyAbove
-  createEffect(() => JSON.stringify(options), () => props.onChange(snapshot(options)))
+  createEffect(() => JSON.stringify(options()), () => props.onChange(untrack(options)))
+  /** Applies an edit of the Print Options, on top of any edit not yet shown, and goes to the sheet the editor says. */
+  function change(next: Edit) {
+    let edited!: Edited
+    setEditing(before => (edited = edit(before, next)).editing)
+    const { show } = edited
+    if (show === "first") setStep(0)
+    else if (show) setStep({ first: show.ref })
+  }
+  // the server's facts, once the upload is done, in place of the browser's
+  createEffect(() => props.facts, (facts, before) => { if (before) change({ kind: "facts", facts }) })
 
-  const [margins, setMargins] = createSignal<PaperMargins>()
   // what the preview draws: the PDF's pages through pdf.js, or the photos straight from the phone's copies
   const [pdf, setPdf] = createSignal<PdfPreview>()
   const photoUrls = kind === "photos" ? files.map(file => URL.createObjectURL(file)) : []
@@ -115,21 +116,8 @@ export function OptionsScreen(props: {
       for (const url of photoUrls) URL.revokeObjectURL(url)
     }
   })
-  /** The sheets, or why the Print Options can't print, from the layout module. `undefined` until the margins are there. */
-  const laidOut = createMemo(() => {
-    const known = margins()
-    return known && layOut({ source: source(), options, sheet: SHEET_SIZES[options.paper], margins: known[options.paper] })
-  })
-  /**
-   * Where everything sits, sheet by sheet. The preview, the percentage and the cut-off warning all read this. Not laid
-   * out yet without the margins, nor while the items don't match the pages, which they may not for a moment after the
-   * server's facts replaced the browser's. Over the sheet limit the sheets still show; any other reason has none.
-   */
-  const sheets = createMemo(() => {
-    const known = laidOut()
-    if (!known || known.reason === "items-mismatch") return undefined
-    return "sheets" in known ? known.sheets : []
-  })
+  /** The sheets the preview draws, from the editor: see `derive`. */
+  const sheets = () => derived().sheets
   /**
    * Which sheet the person stepped to, counted from 0, or the page or photo whose first sheet to show once it is laid
    * out. A number may point past the end after pages were left out.
@@ -152,160 +140,59 @@ export function OptionsScreen(props: {
     if (kind === "pdf" && onSheet.length === 2 && onSheet[0] !== onSheet[1]) return `Seiten ${onSheet.join(" und ")} · ${place}`
     return `Blatt ${place}`
   }
-  /**
-   * The percentage on the shown sheet: the one given, or for Einpassen and Füllen read off its first page or photo that
-   * has no size of its own, else off its first one.
-   */
-  const percent = () => {
-    if (options.printSize.kind === "percent") return options.printSize.value
-    const placements = shown()?.placements ?? []
-    const read = placements.find(placement => options.items[refs().indexOf(placement.ref)]?.size === undefined) ?? placements[0]
-    return read && Math.round(read.scale * 100)
-  }
+  /** The percentage on the shown sheet. */
+  const percent = () => derived().percent(current())
   /** What lies over the screen: the detailed controls behind "Einstellungen", or "Jetzt drucken?". */
   const [over, setOver] = createSignal<"details" | "confirmation">()
-  /** A Print Job is cut off when any of its sheets is. */
-  const cutOff = () => sheets()?.some(sheet => sheet.cutOff) ?? false
 
   /** The Photo format chosen, if one is. */
-  const atFormat = (): FormatLayout | undefined => (options.layout.kind === "format" ? options.layout : undefined)
-  /** The own size in mm of this Print Job: what "Eigenes" stands for, kept while another layout is chosen. */
-  const [ownSize, setOwnSize] = createSignal({ w: 60, h: 90 })
-  // whatever brings an own size (the inputs, a Preset, the Print Options from before the login) sets it for the tile too
-  createEffect(
-    () => {
-      const format = atFormat()?.format
-      return format !== undefined && typeof format !== "string" ? { w: format.w, h: format.h } : undefined
-    },
-    own => { if (own) setOwnSize(own) },
-  )
-  /** The layouts on offer: the grids, and for photos the Photo formats, which keep the Lage and switches chosen. */
-  const layoutChoices = () => {
-    if (kind === "pdf") return gridChoices
-    const { lage, gap, cutLines } = atFormat() ?? { lage: "save", gap: true, cutLines: false }
-    return [...gridChoices, ...formatChoices({ lage, gap, cutLines }, ownSize())]
+  const atFormat = (): FormatLayout | undefined => {
+    const { layout } = options()
+    return layout.kind === "format" ? layout : undefined
   }
-  function chooseLayout(chosen: Layout) {
-    setOptions(o => {
-      // a Photo format prints at Füllen, its default, or Einpassen: coming from a grid, or from a percentage, it starts at Füllen
-      if (chosen.kind === "format" && (o.layout.kind === "grid" || o.printSize.kind === "percent")) o.printSize = { kind: "fill" }
-      o.layout = chosen
-    })
-    setStep(0)
-  }
-  function setFormat(changes: Partial<Pick<FormatLayout, "lage" | "gap" | "cutLines">>) {
-    setOptions(o => { if (o.layout.kind === "format") Object.assign(o.layout, changes) })
-  }
-  function setOwnSide(side: "w" | "h", mm: number) {
-    const next = { ...ownSize(), [side]: mm }
-    setOwnSize(next)
-    setOptions(o => { if (o.layout.kind === "format" && typeof o.layout.format !== "string") o.layout.format = next })
-  }
+  /** The layouts on offer: the grids, and for photos the Photo formats, with the Lage and switches a format starts with. */
+  const layoutChoices = () => (kind === "pdf" ? gridChoices : [...gridChoices, ...formatChoices(derived().formatSwitches, editing().ownSize)])
+  /** A tile of the strip, as the editor takes it: a grid, or a Photo format by name, or Eigenes. */
+  const pickOf = (layout: Layout): LayoutPick =>
+    layout.kind === "grid" ? layout : { kind: "format", format: typeof layout.format === "string" ? layout.format : "own" }
   /**
    * Why the Print Options can't print, in German, and where it says so: under Breite and Höhe for the own size, under
    * Drucken otherwise. Nothing printed has no sentence, Drucken itself says it; items that don't match aren't laid out yet.
    */
   const problem = (): { text: string; at: "own" | "drucken" } | undefined => {
-    const known = laidOut()
+    const known = derived().laidOut
     if (!known) return undefined
     const format = atFormat()?.format
     switch (known.reason) {
       case "own-size-too-small":
         return { text: `Breite und Höhe mindestens ${minOwnSize} mm.`, at: "own" }
       case "no-cells":
-        if (typeof format === "string") return { text: `${formatNames[format]} passt nicht auf ${paperNames[options.paper]}.`, at: "drucken" }
+        if (typeof format === "string") return { text: `${formatNames[format]} passt nicht auf ${paperNames[options().paper]}.`, at: "drucken" }
         // too large for the Lage chosen, but it fits lying the other way: that is what to change
         if (known.otherLage) return { text: `Passt nur mit Lage ${lageNames[known.otherLage]}.`, at: "own" }
-        return { text: `Zu groß für ${paperNames[options.paper]}: höchstens ${known.printable.w} × ${known.printable.h} mm.`, at: "own" }
+        return { text: `Zu groß für ${paperNames[options().paper]}: höchstens ${known.printable.w} × ${known.printable.h} mm.`, at: "own" }
       case "over-sheet-limit":
         return { text: `Höchstens ${maxSheets} Blätter pro Druck.`, at: "drucken" }
     }
     return undefined
   }
 
-  /** Sets what the Preset stores. How often each page or photo prints, and how it is turned, stay as they are. */
+  /** Picks a Preset: it is marked, and the editor sets what it stores. */
   function apply(preset: Preset) {
     presets.pick(preset)
-    setOptions(o => {
-      Object.assign(o, structuredClone(preset.values))
-      for (const item of o.items) delete item.pan
-    })
+    change({ kind: "preset", values: preset.values })
   }
 
   /** The page or photo picked by a tap in the preview (its `ref`): the bar under the preview changes it alone. */
   const [picked, setPicked] = createSignal<number>()
   const pickedItem = () => {
-    const index = refs().indexOf(picked() ?? -1)
-    return index < 0 ? undefined : options.items[index]
+    const ref = picked()
+    return ref === undefined ? undefined : derived().itemOf(ref)
   }
   // one that is left out has nothing left to change
   createEffect(() => pickedItem()?.count ?? 0, count => { if (count === 0) setPicked(undefined) })
-  /** A quarter turn of the picked page or photo, on top of the turn it gets by itself. */
-  function turnPicked(by: 90 | 270) {
-    const index = refs().indexOf(picked()!)
-    setOptions(o => { o.items[index]!.turn = ((o.items[index]!.turn + by) % 360) as Rotation })
-  }
   /** What the picked page or photo prints at: its own size, or the size for all. */
-  const pickedSize = () => {
-    const own = pickedItem()?.size
-    if (own) return own
-    return options.printSize.kind === "percent" ? undefined : options.printSize.kind
-  }
-  /** Füllen becomes Einpassen; anything else becomes Füllen. For the picked page or photo only. */
-  function switchPickedSize() {
-    const index = refs().indexOf(picked()!)
-    const size = pickedSize() === "fill" ? "fit" : "fill"
-    setOptions(o => {
-      o.items[index]!.size = size
-      delete o.items[index]!.pan
-    })
-  }
-  /** Moves the page or photo where it overlaps the border: the axes of its `pan` that changed (see `Item.pan`). */
-  function panItem(ref: number, pan: { x?: number; y?: number }) {
-    const index = refs().indexOf(ref)
-    setOptions(o => { o.items[index]!.pan = { ...o.items[index]!.pan, ...pan } })
-  }
-  /** "Größe für alle": the Print size for every page or photo; the sizes they had of their own go. */
-  function setSizeForAll(printSize: PrintSizeMode) {
-    setOptions(o => {
-      o.printSize = printSize
-      for (const item of o.items) {
-        delete item.size
-        delete item.pan
-      }
-    })
-  }
-  /** The sizes in use while the printed pages or photos differ, or `undefined` while they are all the same. */
-  const mixedSizes = () => {
-    const forAll = asSizeChoice(options.printSize)
-    const used = new Set(options.items.filter(item => item.count > 0).map(item => item.size ?? forAll))
-    return used.size > 1 ? [...used].filter(size => size !== undefined) : undefined
-  }
-
-  /** How often a page or photo prints: 0 leaves it out, up to `maxCount`. The preview goes to the first sheet of one brought back. */
-  function setCount(ref: number, count: number) {
-    const index = refs().indexOf(ref)
-    const next = Math.max(0, Math.min(maxCount, count))
-    const back = options.items[index]!.count === 0 && next > 0
-    setOptions(o => { o.items[index]!.count = next })
-    if (back) setStep({ first: ref })
-  }
-
-  /** "Alle gleich": every page or photo that prints, prints `count` times. None is switched on or off. */
-  function setAll(count: number) {
-    setOptions(o => {
-      for (const item of o.items) if (item.count > 0) item.count = count
-    })
-  }
-
-  // The server's facts agree with the browser's, unless the browser read the file differently: then every
-  // page or photo the server found prints once.
-  createEffect(refs, (now, before) => {
-    if (before && now.length !== before.length) {
-      setOptions(o => { o.items = everyOnce() })
-      setStep(0)
-    }
-  })
+  const pickedSize = () => derived().sizeOf(picked()!)
   /** The photos picked with "Fotos hinzufügen" were more than the Print Job has room for: none was added. */
   const [tooManyAdded, setTooManyAdded] = createSignal(false)
 
@@ -326,7 +213,7 @@ export function OptionsScreen(props: {
         </button>
         <h1 class="truncate font-bold">{props.fileName}</h1>
       </div>
-      <PresetChips presets={presets} options={options} onPick={apply} onOwn={() => setOver("details")} />
+      <PresetChips presets={presets} options={options()} onPick={apply} onOwn={() => setOver("details")} />
       </div>
       <div class="flex min-w-0 flex-col gap-2 lg:sticky lg:top-2 lg:col-start-1 lg:row-span-2 lg:row-start-1">
         <div class="flex items-center justify-between gap-2">
@@ -342,19 +229,19 @@ export function OptionsScreen(props: {
         </div>
         <div data-picks>
           <Preview
-            paper={SHEET_SIZES[options.paper]}
-            margins={margins()?.[options.paper]}
+            paper={SHEET_SIZES[options().paper]}
+            margins={margins()?.[options().paper]}
             sheet={shown()}
             source={pictures()}
-            grey={options.color === "mono"}
+            grey={options().color === "mono"}
             zoom={zoom()}
             index={current()}
             count={sheets()?.length ?? 0}
             onStep={setStep}
             picked={picked()}
-            turned={ref => (options.items[refs().indexOf(ref)]?.turn ?? 0) !== 0}
+            turned={ref => (derived().itemOf(ref)?.turn ?? 0) !== 0}
             onPick={setPicked}
-            onPan={panItem}
+            onPan={(ref, pan) => change({ kind: "pan", ref, pan })}
           />
         </div>
         {/* one row of fixed height: the bar of the picked page or photo, or the stepper; nothing to step through on a
@@ -371,8 +258,8 @@ export function OptionsScreen(props: {
             <ItemBar
               name={itemName(kind, picked()!)}
               size={pickedSize() ? sizeNames[pickedSize()!] : `${percent()} %`}
-              onTurn={turnPicked}
-              onSize={switchPickedSize}
+              onTurn={by => change({ kind: "turn", ref: picked()!, by })}
+              onSize={() => change({ kind: "switch-size", ref: picked()! })}
               onClose={() => setPicked(undefined)}
             />
           </Show>
@@ -385,36 +272,32 @@ export function OptionsScreen(props: {
         <div class="flex min-w-0 flex-col gap-1">
           <span class="text-xs font-semibold text-muted">Größe für alle</span>
           <PrintSize
-            value={options.printSize}
+            value={options().printSize}
             choices={kind === "pdf" ? ["fit", "fill", "100"] : atFormat() ? ["fill", "fit"] : ["fill", "fit", "100"]}
             steps={kind === "pdf"}
-            mixed={mixedSizes()}
+            mixed={derived().mixedSizes}
             percent={percent()}
-            onChange={setSizeForAll}
+            onChange={printSize => change({ kind: "size-for-all", printSize })}
           />
         </div>
         <div class="flex shrink-0 flex-col items-center gap-1">
           <span class="text-xs font-semibold text-muted">Position</span>
           <PositionGrid
-            value={options.position}
-            onChange={position => setOptions(o => {
-              o.position = position
-              // Position decides again where the content lies
-              for (const item of o.items) delete item.pan
-            })}
+            value={options().position}
+            onChange={position => change({ kind: "position", position })}
           />
         </div>
       </div>
-      <Show when={cutOff()}>
+      <Show when={derived().cutOff}>
         <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
       </Show>
       <LayoutStrip
         choices={layoutChoices()}
-        value={options.layout}
-        paper={SHEET_SIZES[options.paper]}
-        margins={margins()?.[options.paper]}
-        landscape={landscapeFirst(source(), options.items)}
-        onChange={chooseLayout}
+        value={options().layout}
+        paper={SHEET_SIZES[options().paper]}
+        margins={margins()?.[options().paper]}
+        landscape={derived().landscape}
+        onChange={layout => change({ kind: "layout", layout: pickOf(layout) })}
       />
       {/* one own size per Print Job, in mm */}
       <Show when={atFormat() && typeof atFormat()!.format !== "string"}>
@@ -426,8 +309,8 @@ export function OptionsScreen(props: {
                 type="number"
                 inputmode="numeric"
                 class="w-20 rounded-lg border border-gray-300 p-2"
-                value={ownSize().w}
-                onInput={event => setOwnSide("w", event.currentTarget.valueAsNumber)}
+                value={editing().ownSize.w}
+                onInput={event => change({ kind: "own-size", side: "w", mm: event.currentTarget.valueAsNumber })}
               />
             </label>
             <span aria-hidden="true">×</span>
@@ -437,8 +320,8 @@ export function OptionsScreen(props: {
                 type="number"
                 inputmode="numeric"
                 class="w-20 rounded-lg border border-gray-300 p-2"
-                value={ownSize().h}
-                onInput={event => setOwnSide("h", event.currentTarget.valueAsNumber)}
+                value={editing().ownSize.h}
+                onInput={event => change({ kind: "own-size", side: "h", mm: event.currentTarget.valueAsNumber })}
               />
             </label>
             <span>mm</span>
@@ -458,11 +341,11 @@ export function OptionsScreen(props: {
               label="Wie oft"
               decreaseLabel="Seltener"
               increaseLabel="Öfter"
-              value={options.items[0]?.count ?? 1}
+              value={options().items[0]?.count ?? 1}
               min={1}
               max={maxCount}
               unit="×"
-              onChange={count => setOptions(o => { o.items[0]!.count = count })}
+              onChange={count => change({ kind: "repeats", ref: refs()[0]!, count })}
               compact
             />
           </div>
@@ -471,11 +354,11 @@ export function OptionsScreen(props: {
         <Thumbnails
           source={pictures()}
           refs={refs()}
-          counts={options.items.map(item => item.count)}
+          counts={options().items.map(item => item.count)}
           onOffOnly={onOffOnly()}
-          grey={options.color === "mono"}
-          onCount={setCount}
-          onAll={setAll}
+          grey={options().color === "mono"}
+          onCount={(ref, count) => change({ kind: "repeats", ref, count })}
+          onAll={count => change({ kind: "all-same", count })}
         />
       </Show>
       {/* how the photos lie at a Photo format, and what helps cutting them apart */}
@@ -484,11 +367,11 @@ export function OptionsScreen(props: {
           <div class="flex flex-col gap-3">
             <div class="flex flex-col gap-1">
               <span class="text-xs font-semibold text-muted">Lage der Fotos</span>
-              <ChoiceGroup label="Lage der Fotos" choices={lagen} value={format().lage} onChange={lage => setFormat({ lage })} compact />
+              <ChoiceGroup label="Lage der Fotos" choices={lagen} value={format().lage} onChange={lage => change({ kind: "format-switches", changes: { lage } })} compact />
             </div>
             <div class="flex flex-wrap gap-2">
-              <ToggleChip label="Abstand zum Schneiden" state={format().gap ? "on" : "off"} onChange={gap => setFormat({ gap })} />
-              <ToggleChip label="Schnittlinien" state={format().cutLines ? "on" : "off"} onChange={cutLines => setFormat({ cutLines })} />
+              <ToggleChip label="Abstand zum Schneiden" state={format().gap ? "on" : "off"} onChange={gap => change({ kind: "format-switches", changes: { gap } })} />
+              <ToggleChip label="Schnittlinien" state={format().cutLines ? "on" : "off"} onChange={cutLines => change({ kind: "format-switches", changes: { cutLines } })} />
             </div>
           </div>
         )}
@@ -520,7 +403,7 @@ export function OptionsScreen(props: {
                   event.currentTarget.value = ""
                   if (added.length === 0) return
                   if (files.length + added.length > maxPhotos) setTooManyAdded(true)
-                  else props.onAddPhotos!(added, snapshot(options))
+                  else props.onAddPhotos!(added, options())
                 }}
               />
             </label>
@@ -530,16 +413,16 @@ export function OptionsScreen(props: {
           <button
             type="button"
             class="btn-primary min-h-14 min-w-0 flex-1"
-            disabled={props.uploading !== undefined || laidOut()?.reason !== undefined || !sheets()}
+            disabled={props.uploading !== undefined || derived().laidOut?.reason !== undefined || !sheets()}
             onClick={() => setOver("confirmation")}
           >
             {props.uploading !== undefined
               ? `Wird hochgeladen … ${Math.min(99, Math.round(props.uploading * 100))} %`
-              : printed().length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
+              : derived().printed.length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
           </button>
         </div>
         <Show
-          when={laidOut()?.reason === "over-sheet-limit"
+          when={derived().overLimit
             ? problem()!.text
             : tooManyAdded() ? `Höchstens ${maxPhotos} Fotos auf einmal: noch ${maxPhotos - files.length} möglich.` : problem()?.at === "drucken" && problem()!.text}
         >
@@ -550,31 +433,31 @@ export function OptionsScreen(props: {
     </main>
     <Show when={over() === "details"}>
       <OptionsDrawer
-        options={options}
+        options={options()}
         presets={presets}
-        onChange={changes => setOptions(o => { Object.assign(o, changes) })}
+        onChange={changes => change({ kind: "details", changes })}
         onPickPreset={apply}
         onClose={() => setOver(undefined)}
       />
     </Show>
     {/* Drucken waits for the layout, so it is known here */}
-    <Show when={over() === "confirmation" && sheets()}>
-      {shownSheets => (
+    <Show when={over() === "confirmation" && derived().confirmation(current())}>
+      {numbers => (
         <Confirmation
           kind={kind}
           source={pictures()}
           refs={refs()}
-          options={options}
-          sheetsPerCopy={shownSheets().length}
-          sheets={sheetCount(shownSheets(), options.copies)}
-          overLimit={laidOut()?.reason === "over-sheet-limit"}
-          maxSheets={maxSheets}
-          paper={SHEET_SIZES[options.paper]}
-          cells={cells(options.layout, SHEET_SIZES[options.paper], margins()![options.paper], landscapeFirst(source(), options.items)).cells.map(cell => cell.box)}
-          percent={percent()}
-          mixedSizes={mixedSizes() !== undefined}
-          cutOff={cutOff()}
-          onConfirm={() => props.onPrint(snapshot(options))}
+          options={options()}
+          sheetsPerCopy={numbers().sheetsPerCopy}
+          sheets={numbers().sheets}
+          overLimit={numbers().overLimit}
+          maxSheets={numbers().maxSheets}
+          paper={numbers().paper}
+          cells={numbers().cells}
+          percent={numbers().percent}
+          mixedSizes={numbers().mixedSizes}
+          cutOff={numbers().cutOff}
+          onConfirm={() => props.onPrint(options())}
           onBack={() => setOver(undefined)}
         />
       )}
