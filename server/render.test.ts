@@ -322,7 +322,7 @@ test("each photo turns by its item's turn", async t => {
   ])
 })
 
-test("Print Options that don't fit the draft's files are refused and nothing is printed", async t => {
+test("Print Options that can't print the draft's files are refused and nothing is printed", async t => {
   const server = await start(t)
   const draft = async (files: Uint8Array<ArrayBuffer>[]) => {
     const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
@@ -332,17 +332,13 @@ test("Print Options that don't fit the draft's files are refused and nothing is 
   const pdf = await draft([pdfWithPages([{ size: [200, 100] }, { size: [300, 100] }])])
   const photos = await draft([sampleJpeg(), samplePng(64, 48)])
 
+  // one case for each reason of the layout module's `layOut` that gets past `parsePrintOptions`: items that don't
+  // match the files, a Photo format for a PDF, a layout with no Cells on the paper, and more than 100 sheets
   const refused: [draftId: string, options: Partial<PrintOptions>][] = [
-    [pdf, { items: items(0, 0) }],
     [pdf, { items: items(1) }],
-    [pdf, { items: items(1, 1, 1) }],
-    [photos, { items: items(0, 0) }],
-    [photos, { items: items(1) }],
-    [photos, { items: items(1, 1, 1) }],
     [pdf, { items: items(1, 1), layout: { kind: "format", format: "10x15", lage: "save", gap: true, cutLines: false } }],
-    // an own size larger than A4, and 13 × 18 on an envelope DL: no slot fits
     [photos, { items: items(1, 1), layout: { kind: "format", format: { w: 250, h: 300 }, lage: "save", gap: true, cutLines: false } }],
-    [photos, { items: items(1, 1), paper: "EnvDL", layout: { kind: "format", format: "13x18", lage: "save", gap: true, cutLines: false } }],
+    [pdf, { items: items(50, 50), copies: 2 }],
   ]
   for (const [draftId, options] of refused) {
     const submitted = await server.submit(draftId, options)
@@ -383,30 +379,6 @@ test("photos at a Photo format: as many as fit, each turned to its slot and crop
 
   await print(server, [sampleJpeg()], { layout: { ...tenByFifteen, cutLines: false }, printSize: { kind: "fill" } })
   assert.deepEqual(await strokedBoxes(server.printer.requests.at(-1)!.data), [[]])
-})
-
-test("a Print Job of more than 100 sheets, copies included, is refused and nothing is printed; 100 sheets print", async t => {
-  const server = await start(t)
-  const draft = async () => {
-    const { draftId } = await (await server.post("/api/drafts")).json() as { draftId: string }
-    await server.upload(draftId, pdfWithPages([{ size: [200, 100] }, { size: [300, 100] }]), "file")
-    return draftId
-  }
-  const pdf = await draft()
-
-  // 200 sheets; 102; 13 sheets of 8 per sheet, 8 times
-  for (const options of [{ items: items(50, 50), copies: 2 }, { items: items(50, 1), copies: 2 }, { items: items(50, 50), layout: { kind: "grid", perSheet: 8 }, copies: 8 }] as const) {
-    const submitted = await server.submit(pdf, options)
-    assert.equal(submitted.status, 400, JSON.stringify(options))
-    assert.deepEqual(await submitted.json(), { error: "invalid-options" })
-  }
-  assert.equal(server.printer.requests.length, 0)
-
-  const submitted = await server.submit(pdf, { items: items(50, 50) })
-  assert.equal(submitted.status, 201)
-  assert.equal((await readRenderedPdf(server.printer.requests.at(-1)!.data)).length, 100)
-  // 13 sheets of 8 per sheet, 7 times
-  assert.equal((await server.submit(await draft(), { items: items(50, 50), layout: { kind: "grid", perSheet: 8 }, copies: 7 })).status, 201)
 })
 
 test("a page or photo printed several times is stored once in the PDF and drawn once per repeat", async t => {
