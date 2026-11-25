@@ -257,7 +257,7 @@ function formatSlots(layout: FormatLayout, sheet: Size, margins: Margins): Box[]
 }
 
 /**
- * The Cells a layout divides a sheet into, in the order they fill. `layout` places into them, and the sketch of a
+ * The Cells a layout divides a sheet into, in the order they fill. `layOut` places into them, and the sketch of a
  * layout draws them. No Cells for a layout that can't be laid out on the sheet.
  *
  * - 1 per sheet is the whole sheet; its printable part is the sheet's printable area.
@@ -365,13 +365,8 @@ export function layOut(input: LayoutInput): LaidOut | Unprintable {
   return sheetCount(sheets, options.copies) > maxSheets ? { reason: "over-sheet-limit", sheets } : { sheets }
 }
 
-export function layout(input: LayoutInput): Sheet[] {
-  const areas = cells(input.options.layout, input.sheet, input.margins, landscapeFirst(input.source, input.options.items))
-  return areas.cells.length === 0 ? [] : place(input, areas)
-}
-
 /** The sheets, for Print Options that can print (see `layOut`), into the `areas` of their layout on the sheet. */
-function place({ source, options, sheet, margins }: LayoutInput, { cells: areas, sideways }: Cells): Sheet[] {
+function place({ source, options, sheet }: LayoutInput, { cells: areas, sideways }: Cells): Sheet[] {
   const atFormat = options.layout.kind === "format"
   const forAll: PrintSizeMode = atFormat && options.printSize.kind === "percent" ? { kind: "fill" } : options.printSize
   const contents = options.items.flatMap((item, index): Content[] => {
@@ -461,7 +456,7 @@ function place({ source, options, sheet, margins }: LayoutInput, { cells: areas,
 }
 
 /**
- * How many sheets of paper a Print Job takes: the sheets of one copy, as `layout` returns them, for every copy.
+ * How many sheets of paper a Print Job takes: the sheets of one copy, as `layOut` gives them, for every copy.
  * The confirmation and the server's record of the Print Job both count here, so they can't say different numbers.
  */
 export function sheetCount(sheets: readonly Sheet[], copies: number): number {
@@ -470,11 +465,6 @@ export function sheetCount(sheets: readonly Sheet[], copies: number): number {
 
 /** The most sheets of paper one Print Job may take, copies included: a mistake can't empty the paper tray. */
 export const maxSheets = 100
-
-/** Whether a Print Job takes more than `maxSheets`. The options screen and the renderer both ask here, so they agree. */
-export function overSheetLimit(sheets: readonly Sheet[], copies: number): boolean {
-  return sheetCount(sheets, copies) > maxSheets
-}
 
 function flipped({ width, height }: Size): Size {
   return { width: height, height: width }

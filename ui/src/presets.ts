@@ -24,7 +24,7 @@ export type Preset = {
 }
 
 const fitCentre = { copies: 1, printSize: { kind: "fit" }, position: "center", layout: { kind: "grid", perSheet: 1 } } as const
-/** A document is made to be printed: it fills the sheet at its own size, and only ink in the unprintable edge is cut off (see `layout`). */
+/** A document is made to be printed: it fills the sheet at its own size, and only ink in the unprintable edge is cut off (see `layOut`). */
 const fillCentre = { ...fitCentre, printSize: { kind: "fill" } } as const
 
 /** The first one of each file type is its default until the person stars another. */
