@@ -118,6 +118,35 @@ test("Eigenes takes a width and a height in mm, and says under them what is wron
   expect(await print()).toMatchObject({ layout: { kind: "format", format: { w: 100, h: 90 }, lage: "save", gap: true, cutLines: false } })
 })
 
+test("an own size too large for the paper says the largest that fits, and Drucken is off", async () => {
+  const { user, tile, own, drucken } = await openOptions(photo, 2)
+  await user.click(tile("Eigenes"))
+
+  // A4 without the Printer's margins of 3.175 and 4.233 mm on each side: 203.65 × 288.53 mm. 300 × 90 fits neither way.
+  await own("Breite", "300")
+
+  expect(screen.getByRole("alert")).toHaveTextContent("Zu groß für A4: höchstens 203 × 288 mm.")
+  expect(drucken()).toBeDisabled()
+})
+
+test("before the Printer's margins are there, an own size under 20 mm already says so", async () => {
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json(photo, 201),
+    "GET /api/printer": () => { throw new TypeError("Failed to fetch") },
+  })
+  const user = userEvent.setup({ applyAccept: false })
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["\xff\xd8\xff"], "Strand.jpg", { type: "image/jpeg" }))
+  await user.click(within(await screen.findByRole("radiogroup", { name: "Aufteilung" })).getByRole("radio", { name: "Eigenes" }))
+
+  const width = screen.getByRole("spinbutton", { name: "Breite" })
+  await user.clear(width)
+  await user.type(width, "15")
+
+  expect(screen.getByRole("alert")).toHaveTextContent("Breite und Höhe mindestens 20 mm.")
+})
+
 test("a Preset saved at a Photo format brings back the format, the own size, the Lage and the switches", async () => {
   const first = await openOptions(photo, 2)
   await first.user.click(first.tile("Eigenes"))

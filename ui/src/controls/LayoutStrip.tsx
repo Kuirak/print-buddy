@@ -1,41 +1,39 @@
 import { For, Show } from "solid-js"
 import type { Margins } from "../../../shared/api.ts"
 import { cells, type Size } from "../../../shared/layout.ts"
-import type { FormatLayout, Layout } from "../../../shared/print-options.ts"
+import type { Layout } from "../../../shared/print-options.ts"
 import { formatNames, layoutName } from "../job-text.ts"
+import type { FormatSwitches, LayoutPick } from "../print-options-editor.ts"
 import { FadingRow } from "./FadingRow.tsx"
 
-/**
- * One tile of the strip: a layout and the short word under its sketch. `own` is the own size: drawn as "mm" and never
- * greyed out, as its inputs say what doesn't fit.
- */
-export type LayoutChoice = { layout: Layout; label: string; own?: true }
+/** One tile of the strip: the layout its sketch draws, what picking it chooses, and the short word under the sketch. */
+export type LayoutChoice = { layout: Layout; pick: LayoutPick; label: string }
 
 /** `Normal` and `2×` to `8×`: the grids, for PDFs and photos. */
 export const gridChoices: readonly LayoutChoice[] = ([1, 2, 4, 6, 8] as const).map(perSheet => {
   const layout = { kind: "grid", perSheet } as const
-  return { layout, label: layoutName(layout) }
+  return { layout, pick: layout, label: layoutName(layout) }
 })
 
 /**
  * `10×15`, `9×13`, `13×18`, `Passbild` and `Eigenes`, for photos only: each with the Lage and the switches given,
  * so that changing the format keeps them. `own` is the own size in mm.
  */
-export function formatChoices(switches: Pick<FormatLayout, "lage" | "gap" | "cutLines">, own: { w: number; h: number }): LayoutChoice[] {
+export function formatChoices(switches: FormatSwitches, own: { w: number; h: number }): LayoutChoice[] {
   return [
     ...(Object.keys(formatNames) as (keyof typeof formatNames)[]).map(format => {
       const layout = { kind: "format", format, ...switches } as const
-      return { layout, label: layoutName(layout) }
+      return { layout, pick: { kind: "format", format }, label: layoutName(layout) } as const
     }),
-    { layout: { kind: "format", format: { ...own }, ...switches }, label: "Eigenes", own: true },
+    { layout: { kind: "format", format: { ...own }, ...switches }, pick: { kind: "format", format: "own" }, label: "Eigenes" },
   ]
 }
 
-/** Whether `layout` is what a tile stands for: the same grid, or the same Photo format, whatever its Lage and switches. */
-function standsFor(tile: Layout, layout: Layout) {
-  if (tile.kind === "grid") return layout.kind === "grid" && layout.perSheet === tile.perSheet
+/** Whether `layout` is what a tile picks: the same grid, or the same Photo format, whatever its Lage and switches. */
+function standsFor(pick: LayoutPick, layout: Layout) {
+  if (pick.kind === "grid") return layout.kind === "grid" && layout.perSheet === pick.perSheet
   if (layout.kind === "grid") return false
-  return typeof tile.format === "string" ? layout.format === tile.format : typeof layout.format !== "string"
+  return pick.format === "own" ? typeof layout.format !== "string" : layout.format === pick.format
 }
 
 const noMargins: Margins = { top: 0, right: 0, bottom: 0, left: 0 }
@@ -53,28 +51,30 @@ export function LayoutStrip(props: {
   margins: Margins | undefined
   /** The grids are read the other way: see `landscapeFirst`. */
   landscape: boolean
-  onChange: (layout: Layout) => void
+  onChange: (pick: LayoutPick) => void
 }) {
   return (
     <FadingRow role="radiogroup" label="Aufteilung">
       <For each={props.choices}>
         {choice => {
+          // Eigenes is drawn as "mm" and never greyed out, as its inputs say what doesn't fit
+          const own = choice.pick.kind === "format" && choice.pick.format === "own"
           const drawn = () => cells(choice.layout, props.paper, props.margins ?? noMargins, props.landscape).cells
-          const chosen = () => standsFor(choice.layout, props.value)
+          const chosen = () => standsFor(choice.pick, props.value)
           return (
             <button
               type="button"
               role="radio"
               aria-label={choice.label}
               aria-checked={chosen() ? "true" : "false"}
-              disabled={!choice.own && drawn().length === 0}
+              disabled={!own && drawn().length === 0}
               class={`flex w-16 shrink-0 cursor-pointer flex-col items-center gap-1 rounded-lg border-2 p-1 text-xs font-semibold whitespace-nowrap disabled:cursor-default disabled:opacity-30 ${chosen() ? "border-brand" : "border-transparent"}`}
-              onClick={() => props.onChange(structuredClone(choice.layout))}
+              onClick={() => props.onChange(choice.pick)}
             >
               <svg aria-hidden="true" class="h-14" viewBox={`0 0 ${props.paper.width} ${props.paper.height}`}>
                 <rect width={props.paper.width} height={props.paper.height} fill="white" stroke="#bbb" stroke-width={props.paper.width / 40} />
                 <Show
-                  when={!choice.own}
+                  when={!own}
                   fallback={<text x={props.paper.width / 2} y={props.paper.height / 2} font-size={String(props.paper.width / 3.5)} text-anchor="middle" dominant-baseline="central" fill="#999">mm</text>}
                 >
                   <For each={drawn()}>

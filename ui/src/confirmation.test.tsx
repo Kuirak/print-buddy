@@ -328,16 +328,8 @@ test("over 100 sheets the total is the one thing that counts: the panel says the
         copies: 5, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" }, position: "center",
         layout: { kind: "grid", perSheet: 8 }, items: items(50, 50),
       }}
-      sheetsPerCopy={13}
-      sheets={65}
-      overLimit
-      maxSheets={100}
-      paper={SHEET_SIZES.A4}
-      cells={[]}
-      percent={undefined}
-      mixedSizes={false}
       // the limit wins over the cut-off warning
-      cutOff
+      numbers={{ sheetsPerCopy: 13, sheets: 65, overLimit: true, paper: SHEET_SIZES.A4, cells: [], percent: undefined, mixedSizes: false, cutOff: true }}
       onConfirm={confirmed}
       onBack={() => {}}
     />
