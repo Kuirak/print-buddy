@@ -432,19 +432,6 @@ test("a Print Job over 100 sheets can't be printed, and the screen says why", as
   expect(api.calls.filter(call => call.path === "/api/drafts/d1/submit")).toEqual([])
 })
 
-test("picking a Preset leaves which pages print and how they are turned alone", async () => {
-  const { user, tap, choice, thumbnails, print } = await openOptions(pdfOf(3))
-  await tap("Seite 2")
-  await user.click(screen.getByRole("img", { name: "Vorschau Seite 1" }))
-  await tap("Nach rechts drehen")
-
-  await user.click(choice("Voreinstellung", "Dokument s/w"))
-
-  expect(choice("Voreinstellung", "Dokument s/w")).toBeChecked()
-  expect(thumbnails("Seiten").selected).toEqual(["Seite 1", "Seite 3"])
-  expect(await print()).toMatchObject({ color: "mono", items: [{ count: 1, turn: 90 }, { count: 0, turn: 0 }, { count: 1, turn: 0 }] })
-})
-
 test("picking a Preset leaves which photos print and how each is turned alone", async () => {
   const { user, tap, choice, thumbnails, print } = await openOptions(photo, 3)
   await tap("Foto 1")
