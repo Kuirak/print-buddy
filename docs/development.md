@@ -124,7 +124,7 @@ docs/              This file, architecture.md, and the decisions in adr/.
 
 ## Tests: the three seams
 
-Tests go through one of three seams and assert on what a user or CUPS would see. They use random ports and temporary directories.
+Tests go through one of three seams, or loop over tables of cases against a pure module of the app (see Seam 3). Seam tests assert on what a user or CUPS would see. They use random ports and temporary directories.
 
 ### Seam 1: the HTTP API against a fake IPP printer
 
