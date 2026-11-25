@@ -234,6 +234,13 @@ test("an own size under 20 mm is drawn at the size typed", () => {
   expect(slot!.clip.width).toBeCloseTo(mm15)
 })
 
+test("an own size under 20 mm is over the sheet limit too when its sheets are", () => {
+  // 100 photos in slots 15 mm wide take more than one sheet a copy: over 100 sheets in 100 copies
+  const derived = derive(editing(photosOf(2), { copies: 100, items: items(50, 50), layout: format({ w: 15, h: 90 }) }), margins)
+  expect(derived.laidOut?.reason).toBe("own-size-too-small")
+  expect(derived.overLimit).toBe(true)
+})
+
 test("while the server's facts count differently for a moment, nothing is laid out", () => {
   const start = editing(photosOf(2))
   const derived = derive({ ...start, options: { ...start.options, items: items(1) } }, margins)

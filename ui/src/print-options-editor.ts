@@ -3,6 +3,7 @@
 import type { FileFacts, PaperMargins } from "../../shared/api.ts"
 import { cells, landscapeFirst, layOut, maxSheets, sheetCount, SHEET_SIZES, type Box, type LaidOut, type LayoutInput, type Sheet, type Size, type Unprintable } from "../../shared/layout.ts"
 import {
+  isOwnSide,
   maxCount,
   type FormatLayout,
   type Item,
@@ -254,13 +255,16 @@ export type Derived = {
   itemOf(ref: number): Item | undefined
   /** What the page or photo with this ref prints at: its own size, or the size for all; none of them at a percentage. */
   sizeOf(ref: number): "fill" | "fit" | undefined
-  /** The sheets from the layout module, or why the Print Options can't print. `undefined` until the margins are there. */
+  /**
+   * The sheets from the layout module, or why the Print Options can't print. Until the margins are there only an own
+   * size too small, which needs no margins to tell; `undefined` otherwise.
+   */
   laidOut: LaidOut | Unprintable | undefined
   /** The sheets the preview draws: see `derive`. */
   sheets: Sheet[] | undefined
   /** A Print Job is cut off when any of its sheets is. */
   cutOff: boolean
-  /** The Print Job takes more sheets than one may. */
+  /** The Print Job takes more sheets than one may: its sheets do, at an own size too small as well. */
   overLimit: boolean
   /** The grids are read the other way: see `landscapeFirst`. */
   landscape: boolean
@@ -286,12 +290,15 @@ export type Derived = {
  */
 export function derive({ source, options }: Editing, margins: PaperMargins | undefined): Derived {
   const paper = SHEET_SIZES[options.paper]
-  const laidOut = margins && layOut({ source, options, sheet: paper, margins: margins[options.paper] })
-  const sheets = !laidOut || laidOut.reason === "items-mismatch" ? undefined : "sheets" in laidOut ? (laidOut.sheets ?? []) : []
+  const own = ownSizeOf(options.layout)
+  const laidOut: LaidOut | Unprintable | undefined = margins
+    ? layOut({ source, options, sheet: paper, margins: margins[options.paper] })
+    : own && !(isOwnSide(own.w) && isOwnSide(own.h)) ? { reason: "own-size-too-small" } : undefined
+  const sheets = !margins || !laidOut || laidOut.reason === "items-mismatch" ? undefined : "sheets" in laidOut ? (laidOut.sheets ?? []) : []
   const refs = (source.kind === "pdf" ? source.pages : source.photos).map((_, index) => (source.kind === "pdf" ? index + 1 : index))
   const itemOf = (ref: number) => options.items[indexOf(source, ref)]
   const landscape = landscapeFirst(source, options.items)
-  const overLimit = laidOut?.reason === "over-sheet-limit"
+  const overLimit = sheets !== undefined && sheetCount(sheets, options.copies) > maxSheets
   const cutOff = sheets?.some(sheet => sheet.cutOff) ?? false
   const forAll = asSizeChoice(options.printSize)
   const used = new Set(options.items.filter(item => item.count > 0).map(item => item.size ?? forAll))

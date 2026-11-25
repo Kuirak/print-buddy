@@ -155,26 +155,14 @@ export function OptionsScreen(props: {
   /** A tile of the strip, as the editor takes it: a grid, or a Photo format by name, or Eigenes. */
   const pickOf = (layout: Layout): LayoutPick =>
     layout.kind === "grid" ? layout : { kind: "format", format: typeof layout.format === "string" ? layout.format : "own" }
-  /**
-   * Why the Print Options can't print, in German, and where it says so: under Breite and Höhe for the own size, under
-   * Drucken otherwise. Nothing printed has no sentence, Drucken itself says it; items that don't match aren't laid out yet.
-   */
-  const problem = (): { text: string; at: "own" | "drucken" } | undefined => {
+  /** What is wrong with the own size, in German, said under Breite and Höhe; `undefined` while nothing is. */
+  const ownProblem = () => {
     const known = derived().laidOut
-    if (!known) return undefined
-    const format = atFormat()?.format
-    switch (known.reason) {
-      case "own-size-too-small":
-        return { text: `Breite und Höhe mindestens ${minOwnSize} mm.`, at: "own" }
-      case "no-cells":
-        if (typeof format === "string") return { text: `${formatNames[format]} passt nicht auf ${paperNames[options().paper]}.`, at: "drucken" }
-        // too large for the Lage chosen, but it fits lying the other way: that is what to change
-        if (known.otherLage) return { text: `Passt nur mit Lage ${lageNames[known.otherLage]}.`, at: "own" }
-        return { text: `Zu groß für ${paperNames[options().paper]}: höchstens ${known.printable.w} × ${known.printable.h} mm.`, at: "own" }
-      case "over-sheet-limit":
-        return { text: `Höchstens ${maxSheets} Blätter pro Druck.`, at: "drucken" }
-    }
-    return undefined
+    if (known?.reason === "own-size-too-small") return `Breite und Höhe mindestens ${minOwnSize} mm.`
+    if (known?.reason !== "no-cells" || typeof atFormat()?.format === "string") return undefined
+    // too large for the Lage chosen, but it fits lying the other way: that is what to change
+    if (known.otherLage) return `Passt nur mit Lage ${lageNames[known.otherLage]}.`
+    return `Zu groß für ${paperNames[options().paper]}: höchstens ${known.printable.w} × ${known.printable.h} mm.`
   }
 
   /** Picks a Preset: it is marked, and the editor sets what it stores. */
@@ -195,6 +183,17 @@ export function OptionsScreen(props: {
   const pickedSize = () => derived().sizeOf(picked()!)
   /** The photos picked with "Fotos hinzufügen" were more than the Print Job has room for: none was added. */
   const [tooManyAdded, setTooManyAdded] = createSignal(false)
+  /**
+   * The one line under Drucken, in German: the sheet limit, then photos added beyond room, then a Photo format the
+   * paper can't take. Nothing printed has no line, Drucken itself says it; items that don't match aren't laid out yet.
+   */
+  const underDrucken = () => {
+    const format = atFormat()?.format
+    if (derived().overLimit) return `Höchstens ${maxSheets} Blätter pro Druck.`
+    if (tooManyAdded()) return `Höchstens ${maxPhotos} Fotos auf einmal: noch ${maxPhotos - files.length} möglich.`
+    if (derived().laidOut?.reason === "no-cells" && typeof format === "string") return `${formatNames[format]} passt nicht auf ${paperNames[options().paper]}.`
+    return undefined
+  }
 
   return (
     <>
@@ -326,7 +325,7 @@ export function OptionsScreen(props: {
             </label>
             <span>mm</span>
           </div>
-          <Show when={problem()?.at === "own" && problem()!.text}>
+          <Show when={ownProblem()}>
             {text => <p role="alert" class="text-sm font-semibold text-[#b3261e]">{text()}</p>}
           </Show>
         </div>
@@ -421,11 +420,7 @@ export function OptionsScreen(props: {
               : derived().printed.length > 0 ? "Drucken" : kind === "pdf" ? "Keine Seiten gewählt" : "Keine Fotos gewählt"}
           </button>
         </div>
-        <Show
-          when={derived().overLimit
-            ? problem()!.text
-            : tooManyAdded() ? `Höchstens ${maxPhotos} Fotos auf einmal: noch ${maxPhotos - files.length} möglich.` : problem()?.at === "drucken" && problem()!.text}
-        >
+        <Show when={underDrucken()}>
           {reason => <p role="alert" class="pt-1 text-center text-sm font-semibold text-[#b3261e]">{reason()}</p>}
         </Show>
       </div>
