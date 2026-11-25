@@ -3,6 +3,8 @@ import { FilePicker } from "../controls/FilePicker.tsx"
 import { LastJobLine } from "../controls/LastJobLine.tsx"
 import { Logo } from "../controls/Logo.tsx"
 
+declare const __APP_VERSION__: string
+
 /** `canReceiveShares`: false over plain HTTP, where the app can't be installed and "Datei auswählen" is the only way in. */
 export function StartScreen(props: { canReceiveShares: boolean; onPick: (files: File[]) => void }) {
   return (
@@ -10,6 +12,8 @@ export function StartScreen(props: { canReceiveShares: boolean; onPick: (files: 
       <section class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <Logo class="size-28 drop-shadow-md [@media(max-height:640px)]:size-20" />
         <h1 class="text-2xl font-bold">Print Buddy</h1>
+        {/* the caption of the name, where one looks to tell which app this is; out of the thumb's way at the bottom */}
+        <p class="-mt-2 text-xs text-muted tabular-nums">Version {__APP_VERSION__}</p>
         <p class="text-muted">PDFs und Fotos vom Handy drucken</p>
         <Show when={props.canReceiveShares}>
           <p class="text-muted">Teile ein PDF oder Fotos aus einer anderen App mit Print Buddy.</p>

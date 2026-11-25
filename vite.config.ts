@@ -4,6 +4,7 @@ import { createHash } from "node:crypto"
 import { join } from "node:path"
 import { build, type Plugin } from "vite"
 import { defineConfig } from "vitest/config"
+import { version } from "./server/version.ts"
 
 /**
  * Builds the service worker once the app is on disk: a second, small build of `ui/src/sw.ts` into one
@@ -44,6 +45,8 @@ function serviceWorker(): Plugin {
 export default defineConfig({
   root: "ui",
   plugins: [solid(), tailwindcss(), serviceWorker()],
+  // the version of the add-on config, built into the page so it names the app that actually runs, also from the cache
+  define: { __APP_VERSION__: JSON.stringify(version) },
   // pdf.js is most of the main chunk, hence the higher limit for Vite's size warning
   build: { outDir: "../dist/ui", emptyOutDir: true, chunkSizeWarningLimit: 700 },
   server: { proxy: { "/api": "http://127.0.0.1:9217" } },

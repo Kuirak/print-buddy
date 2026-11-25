@@ -2,6 +2,10 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
+## Unreleased
+
+- The start screen shows the Print Buddy version under its name.
+
 ## 2026.11.8
 
 - "Fotos" beside Drucken adds more photos to a print, up to 20, from wherever the screen is scrolled. They come after the photos already there, which keep their counts, turns, sizes and the layout; only the new ones are uploaded.
