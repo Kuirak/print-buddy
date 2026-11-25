@@ -758,15 +758,17 @@ test("Print Options that can't print give one reason, with what the options scre
     ["a PDF item short", pdf([200, 300], [200, 300]), { items: each(1) }, { reason: "items-mismatch" }],
     ["a photo item too many", two, { items: each(1, 1, 1) }, { reason: "items-mismatch" }],
     ["a Photo format for a PDF", pdf([200, 300]), { layout: format("10x15") }, { reason: "format-on-pdf" }],
-    ["an own size of 19 mm", one, { layout: own(19, 50) }, { reason: "own-size-too-small" }],
+    // the sheets of the size typed come with the reason, so that the preview still shows them
+    ["an own size of 19 mm", one, { layout: own(19, 50) }, { reason: "own-size-too-small", sheets: 1 }],
     ["an own size without a number, as an empty field gives it", one, { layout: own(Number.NaN, 90) }, { reason: "own-size-too-small" }],
+    ["an own size of 0 mm", one, { layout: own(0, 90) }, { reason: "own-size-too-small" }],
     ["an own size of 20 mm", one, { layout: own(20, 20) }, { sheets: 1 }],
     ["an own size that only fits lying the other way", one, { layout: own(250, 150, "landscape") }, { reason: "no-cells", otherLage: "portrait", printable: { w: 203, h: 288 } }],
     ["an own size that fits no way", one, { layout: own(300, 90) }, { reason: "no-cells", printable: { w: 203, h: 288 } }],
     ["13 × 18 on an envelope DL", one, { paper: "EnvDL", layout: format("13x18") }, { reason: "no-cells", printable: { w: 103, h: 211 } }],
     ["nothing printed", two, { items: each(0, 0) }, { reason: "nothing-printed" }],
     // the options screen says what is wrong with the layout even while nothing prints
-    ["an own size of 19 mm, nothing printed", two, { layout: own(19, 50), items: each(0, 0) }, { reason: "own-size-too-small" }],
+    ["an own size of 19 mm, nothing printed", two, { layout: own(19, 50), items: each(0, 0) }, { reason: "own-size-too-small", sheets: 0 }],
     ["13 × 18 on an envelope DL, nothing printed", two, { paper: "EnvDL", layout: format("13x18"), items: each(0, 0) }, { reason: "no-cells", printable: { w: 103, h: 211 } }],
     // the sheets come with the reason, so that the preview still shows them
     ["4 photos 25 times each, one per sheet: 100 sheets", four, { items: each(25, 25, 25, 25) }, { sheets: 100 }],

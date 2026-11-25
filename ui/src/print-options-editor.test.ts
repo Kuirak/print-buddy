@@ -1,10 +1,12 @@
 // Tests of the Print Options editor, a pure module: tables of cases against its interface, without mounting a screen.
 import { expect, test } from "vitest"
 import type { FileFacts } from "../../shared/api.ts"
+import type { Unprintable } from "../../shared/layout.ts"
 import type { FormatLayout, Item, PrintOptions } from "../../shared/print-options.ts"
-import { edit, startEditing, type Edit, type Editing, type LayoutPick, type ShowSheet } from "./print-options-editor.ts"
+import { derive, edit, startEditing, type Edit, type Editing, type LayoutPick, type ShowSheet, type SizeChoice } from "./print-options-editor.ts"
 import type { PresetValues } from "./presets.ts"
 import { items } from "./testing/options-screen.ts"
+import { printerInfo } from "./testing/printer-info.ts"
 
 /** A PDF of that many A4 pages: refs count them from 1. */
 const pdfOf = (pageCount: number): FileFacts[] =>
@@ -167,4 +169,74 @@ test.each<[string, FileFacts[], FileFacts[], Item[], ShowSheet | undefined]>([
   expect(edited.editing.options.items).toEqual(expected)
   expect(edited.editing.source).toEqual(editing(server).source)
   expect(edited.show).toEqual(show)
+})
+
+/** The Printer's margins on every paper: 9 pt left and right, 12 pt top and bottom. A4 then prints on 577.28 × 817.89 pt. */
+const { margins } = printerInfo()
+
+/** A PDF of that many pages of US Letter: a little wider and a little shorter than A4 (595.28 × 841.89 pt). */
+const letterOf = (pageCount: number): FileFacts[] =>
+  [{ kind: "pdf", pageCount, pages: Array.from({ length: pageCount }, () => ({ width: 612, height: 792 })) }]
+
+// The percentage the Print size row and the confirmation show, on the sheet in the preview.
+test.each<[string, Partial<PrintOptions>, number, number | undefined]>([
+  ["a percentage is the one given", { printSize: { kind: "percent", value: 95 } }, 0, 95],
+  // Füllen covers the whole sheet: 841.89 / 792 = 1.063
+  ["Füllen is read off the page", {}, 0, 106],
+  // Einpassen lies inside the printable area: 577.28 / 612 = 0.943
+  ["Einpassen is read off the page", { printSize: { kind: "fit" } }, 0, 94],
+  // two to a sheet, each in a Cell of 408.95 × 577.28 pt: Füllen 577.28 / 792 = 0.729, Einpassen 408.95 / 612 = 0.668
+  ["read off the first page without a size of its own", { items: [item({ size: "fit" }), item()], layout: { kind: "grid", perSheet: 2 } }, 0, 73],
+  ["read off the first page when all have one", { items: [item({ size: "fit" }), item({ size: "fill" })], layout: { kind: "grid", perSheet: 2 } }, 0, 67],
+  ["read off the sheet in the preview", { items: [item(), item({ size: "fit" })] }, 1, 94],
+  ["none with nothing on the sheet", { items: items(0, 0) }, 0, undefined],
+])("percent: %s", (_name, before, sheet, expected) => {
+  expect(derive(editing(letterOf(2), before), margins).percent(sheet)).toBe(expected)
+})
+
+// While the pages or photos that print have sizes that differ, every size in use, and none is the size for all.
+test.each<[string, Partial<PrintOptions>, SizeChoice[] | undefined]>([
+  ["all at the size for all", {}, undefined],
+  ["all the same of their own", { items: [item({ size: "fit" }), item({ size: "fit" })] }, undefined],
+  ["one at Einpassen of its own", { items: [item({ size: "fit" }), item()] }, ["fit", "fill"]],
+  ["one left out doesn't count", { items: [item({ size: "fit", count: 0 }), item()] }, undefined],
+  ["100 % for all", { printSize: { kind: "percent", value: 100 }, items: [item(), item({ size: "fill" })] }, ["100", "fill"]],
+  ["another percentage is no shortcut", { printSize: { kind: "percent", value: 95 }, items: [item(), item({ size: "fill" })] }, ["fill"]],
+])("mixed sizes: %s", (_name, before, expected) => {
+  expect(derive(editing(photosOf(2), before), margins).mixedSizes).toEqual(expected)
+})
+
+test("until the Printer's margins are there, nothing is laid out", () => {
+  const derived = derive(editing(photosOf(2)), undefined)
+  expect(derived.laidOut).toBeUndefined()
+  expect(derived.sheets).toBeUndefined()
+})
+
+/** 15 mm in points. */
+const mm15 = (15 * 72) / 25.4
+
+// Whatever the reason, the preview still draws what it can: the sheets of one copy, sized as chosen.
+test.each<[string, FileFacts[], Partial<PrintOptions>, Unprintable["reason"] | undefined, number[] | undefined]>([
+  ["Print Options that print", photosOf(3), {}, undefined, [1, 1, 1]],
+  ["an own size of 15 mm: the slots that small", photosOf(2), { layout: format({ w: 15, h: 90 }) }, "own-size-too-small", [2]],
+  ["an empty own size: no slots", photosOf(2), { layout: format({ w: Number.NaN, h: 90 }) }, "own-size-too-small", []],
+  ["13×18 on an envelope DL", photosOf(2), { paper: "EnvDL", layout: format("13x18") }, "no-cells", []],
+  ["nothing printed", photosOf(2), { items: items(0, 0) }, "nothing-printed", []],
+  ["over 100 sheets", photosOf(3), { items: items(50, 50, 1) }, "over-sheet-limit", Array<number>(101).fill(1)],
+])("the preview: %s", (_name, facts, before, reason, placements) => {
+  const derived = derive(editing(facts, before), margins)
+  expect(derived.laidOut?.reason).toBe(reason)
+  expect(derived.sheets?.map(sheet => sheet.placements.length)).toEqual(placements)
+})
+
+test("an own size under 20 mm is drawn at the size typed", () => {
+  const [slot] = derive(editing(photosOf(1), { layout: format({ w: 15, h: 90 }, "portrait") }), margins).sheets![0]!.placements
+  expect(slot!.clip.width).toBeCloseTo(mm15)
+})
+
+test("while the server's facts count differently for a moment, nothing is laid out", () => {
+  const start = editing(photosOf(2))
+  const derived = derive({ ...start, options: { ...start.options, items: items(1) } }, margins)
+  expect(derived.laidOut?.reason).toBe("items-mismatch")
+  expect(derived.sheets).toBeUndefined()
 })

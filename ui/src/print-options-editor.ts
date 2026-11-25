@@ -1,7 +1,7 @@
 // The Print Options editor: every edit of the Print Options on the options screen, and everything derived from them.
 // Plain TypeScript without Solid: the options screen keeps the result in a signal and adds the view state and the German.
-import type { FileFacts } from "../../shared/api.ts"
-import type { LayoutInput } from "../../shared/layout.ts"
+import type { FileFacts, PaperMargins } from "../../shared/api.ts"
+import { layOut, SHEET_SIZES, type LaidOut, type LayoutInput, type Sheet, type Unprintable } from "../../shared/layout.ts"
 import {
   maxCount,
   type FormatLayout,
@@ -214,4 +214,52 @@ function dropsPans(change: Edit): "all" | number | undefined {
 /** What a page or photo prints at: its own size, or the size for all; none of them at a percentage. */
 function sizeOf(options: PrintOptions, item: Item): "fill" | "fit" | undefined {
   return item.size ?? (options.printSize.kind === "percent" ? undefined : options.printSize.kind)
+}
+
+/** The shortcuts of the Print size: Einpassen, Füllen, and 100 %. */
+export type SizeChoice = "fit" | "fill" | "100"
+
+/** Which shortcut a Print size is, if any: a percentage other than 100 is none of them. */
+export const asSizeChoice = (size: PrintSizeMode): SizeChoice | undefined =>
+  size.kind === "percent" ? (size.value === 100 ? "100" : undefined) : size.kind
+
+/** Everything the options screen shows that follows from the Print Options. */
+export type Derived = {
+  /** The sheets from the layout module, or why the Print Options can't print. `undefined` until the margins are there. */
+  laidOut: LaidOut | Unprintable | undefined
+  /** The sheets the preview draws: see `derive`. */
+  sheets: Sheet[] | undefined
+  /** The sizes in use while the printed pages or photos differ, or `undefined` while they are all the same. */
+  mixedSizes: SizeChoice[] | undefined
+  /**
+   * The percentage on sheet `index` of `sheets`: the one given, or for Einpassen and Füllen read off its first page or
+   * photo that has no size of its own, else off its first one.
+   */
+  percent(index: number): number | undefined
+}
+
+/**
+ * What follows from the Print Options, on paper with these margins once the Printer gave them.
+ *
+ * `sheets` is what the preview draws: `undefined` until the margins are there and while the items don't match the
+ * pages or photos, the sheets of one copy when the Print Options print and over the sheet limit, and none for any
+ * other reason.
+ */
+export function derive({ source, options }: Editing, margins: PaperMargins | undefined): Derived {
+  const laidOut = margins && layOut({ source, options, sheet: SHEET_SIZES[options.paper], margins: margins[options.paper] })
+  const sheets = !laidOut || laidOut.reason === "items-mismatch" ? undefined : "sheets" in laidOut ? laidOut.sheets : []
+  const itemOf = (ref: number) => options.items[source.kind === "pdf" ? ref - 1 : ref]
+  const forAll = asSizeChoice(options.printSize)
+  const used = new Set(options.items.filter(item => item.count > 0).map(item => item.size ?? forAll))
+  return {
+    laidOut,
+    sheets,
+    mixedSizes: used.size > 1 ? [...used].filter(size => size !== undefined) : undefined,
+    percent(index) {
+      if (options.printSize.kind === "percent") return options.printSize.value
+      const placements = sheets?.[index]?.placements ?? []
+      const read = placements.find(placement => itemOf(placement.ref)?.size === undefined) ?? placements[0]
+      return read && Math.round(read.scale * 100)
+    },
+  }
 }

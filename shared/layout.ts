@@ -313,8 +313,11 @@ export type Unprintable =
   | { reason: "items-mismatch" }
   /** A Photo format for a PDF: formats are for photos. */
   | { reason: "format-on-pdf" }
-  /** An own size with a side under `minOwnSize`, or without a number. */
-  | { reason: "own-size-too-small" }
+  /**
+   * An own size with a side under `minOwnSize`, or without a number. While both sides are numbers above 0, its sheets
+   * at the size typed come along, for the preview.
+   */
+  | { reason: "own-size-too-small"; sheets?: Sheet[] }
   /**
    * The layout has no Cells on the sheet: a Photo format too large for it. `otherLage` is the Lage it would fit with,
    * if it fits lying the other way. `printable` is the printable area in whole mm, rounded down: the largest own size that fits.
@@ -349,7 +352,11 @@ export function layOut(input: LayoutInput): LaidOut | Unprintable {
   if (options.items.length !== (source.kind === "pdf" ? source.pages.length : source.photos.length)) return { reason: "items-mismatch" }
   if (chosen.kind === "format") {
     if (source.kind === "pdf") return { reason: "format-on-pdf" }
-    if (typeof chosen.format !== "string" && !(isOwnSide(chosen.format.w) && isOwnSide(chosen.format.h))) return { reason: "own-size-too-small" }
+    if (typeof chosen.format !== "string" && !(isOwnSide(chosen.format.w) && isOwnSide(chosen.format.h))) {
+      const { w, h } = chosen.format
+      const slots = w > 0 && h > 0 && Number.isFinite(w * h) ? cells(chosen, sheet, margins) : undefined
+      return slots?.cells.length ? { reason: "own-size-too-small", sheets: place(input, slots) } : { reason: "own-size-too-small" }
+    }
   }
   const areas = cells(chosen, sheet, margins, landscapeFirst(source, options.items))
   if (areas.cells.length === 0) {
