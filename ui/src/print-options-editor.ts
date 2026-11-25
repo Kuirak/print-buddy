@@ -1,7 +1,7 @@
 // The Print Options editor: every edit of the Print Options on the options screen, and everything derived from them.
 // Plain TypeScript without Solid: the options screen keeps the result in a signal and adds the view state and the German.
 import type { FileFacts, PaperMargins } from "../../shared/api.ts"
-import { layOut, SHEET_SIZES, type LaidOut, type LayoutInput, type Sheet, type Unprintable } from "../../shared/layout.ts"
+import { cells, landscapeFirst, layOut, maxSheets, sheetCount, SHEET_SIZES, type Box, type LaidOut, type LayoutInput, type Sheet, type Size, type Unprintable } from "../../shared/layout.ts"
 import {
   maxCount,
   type FormatLayout,
@@ -108,8 +108,13 @@ export function startEditing(facts: readonly FileFacts[], from: PresetValues & {
   return { source, options: { ...options, items: options.items ?? everyOnce(source) }, ownSize: ownSizeOf(options.layout) ?? defaultOwnSize }
 }
 
+/** Where the page or photo with this ref is in `items`: a PDF's pages count from 1, photos from 0. */
+function indexOf(source: Source, ref: number) {
+  return source.kind === "pdf" ? ref - 1 : ref
+}
+
 /** The Lage and the switches a Photo format chosen now starts with: those of the format chosen, or where a format starts. */
-export function formatSwitches(options: PrintOptions): FormatSwitches {
+function formatSwitches(options: PrintOptions): FormatSwitches {
   if (options.layout.kind === "grid") return defaultSwitches
   const { lage, gap, cutLines } = options.layout
   return { lage, gap, cutLines }
@@ -120,7 +125,7 @@ export function edit(editing: Editing, change: Edit): Edited {
   const options = structuredClone(editing.options)
   let { source, ownSize } = editing
   let show: ShowSheet | undefined
-  const itemOf = (ref: number) => options.items[editing.source.kind === "pdf" ? ref - 1 : ref]!
+  const itemOf = (ref: number) => options.items[indexOf(editing.source, ref)]!
   switch (change.kind) {
     case "repeats": {
       const item = itemOf(change.ref)
@@ -223,12 +228,43 @@ export type SizeChoice = "fit" | "fill" | "100"
 export const asSizeChoice = (size: PrintSizeMode): SizeChoice | undefined =>
   size.kind === "percent" ? (size.value === 100 ? "100" : undefined) : size.kind
 
+/** What "Jetzt drucken?" says in numbers, besides the Print Options themselves (see `Confirmation`). */
+export type ConfirmationNumbers = {
+  /** Sheets of paper for one copy, and for all copies. */
+  sheetsPerCopy: number
+  sheets: number
+  overLimit: boolean
+  maxSheets: number
+  /** The layout as a sketch: the paper and the Cells or slots on it. */
+  paper: Size
+  cells: Box[]
+  percent: number | undefined
+  mixedSizes: boolean
+  cutOff: boolean
+}
+
 /** Everything the options screen shows that follows from the Print Options. */
 export type Derived = {
+  /** Every page of the PDF, counted from 1, or every photo, counted from 0, in the order of `options.items`. */
+  refs: number[]
+  /** The pages or photos that print. */
+  printed: number[]
+  /** What is chosen for the page or photo with this ref. */
+  itemOf(ref: number): Item | undefined
+  /** What the page or photo with this ref prints at: its own size, or the size for all; none of them at a percentage. */
+  sizeOf(ref: number): "fill" | "fit" | undefined
   /** The sheets from the layout module, or why the Print Options can't print. `undefined` until the margins are there. */
   laidOut: LaidOut | Unprintable | undefined
   /** The sheets the preview draws: see `derive`. */
   sheets: Sheet[] | undefined
+  /** A Print Job is cut off when any of its sheets is. */
+  cutOff: boolean
+  /** The Print Job takes more sheets than one may. */
+  overLimit: boolean
+  /** The grids are read the other way: see `landscapeFirst`. */
+  landscape: boolean
+  /** The Lage and the switches a Photo format chosen now starts with, so the strip draws it as it will come. */
+  formatSwitches: FormatSwitches
   /** The sizes in use while the printed pages or photos differ, or `undefined` while they are all the same. */
   mixedSizes: SizeChoice[] | undefined
   /**
@@ -236,30 +272,61 @@ export type Derived = {
    * photo that has no size of its own, else off its first one.
    */
   percent(index: number): number | undefined
+  /** The confirmation's numbers while sheet `index` is in the preview; `undefined` until the sheets are laid out. */
+  confirmation(index: number): ConfirmationNumbers | undefined
 }
 
 /**
  * What follows from the Print Options, on paper with these margins once the Printer gave them.
  *
  * `sheets` is what the preview draws: `undefined` until the margins are there and while the items don't match the
- * pages or photos, the sheets of one copy when the Print Options print and over the sheet limit, and none for any
- * other reason.
+ * pages or photos; the sheets of one copy when the Print Options print, over the sheet limit and at an own size too
+ * small to print; none for any other reason.
  */
 export function derive({ source, options }: Editing, margins: PaperMargins | undefined): Derived {
-  const laidOut = margins && layOut({ source, options, sheet: SHEET_SIZES[options.paper], margins: margins[options.paper] })
-  const sheets = !laidOut || laidOut.reason === "items-mismatch" ? undefined : "sheets" in laidOut ? laidOut.sheets : []
-  const itemOf = (ref: number) => options.items[source.kind === "pdf" ? ref - 1 : ref]
+  const paper = SHEET_SIZES[options.paper]
+  const laidOut = margins && layOut({ source, options, sheet: paper, margins: margins[options.paper] })
+  const sheets = !laidOut || laidOut.reason === "items-mismatch" ? undefined : "sheets" in laidOut ? (laidOut.sheets ?? []) : []
+  const refs = (source.kind === "pdf" ? source.pages : source.photos).map((_, index) => (source.kind === "pdf" ? index + 1 : index))
+  const itemOf = (ref: number) => options.items[indexOf(source, ref)]
+  const landscape = landscapeFirst(source, options.items)
+  const overLimit = laidOut?.reason === "over-sheet-limit"
+  const cutOff = sheets?.some(sheet => sheet.cutOff) ?? false
   const forAll = asSizeChoice(options.printSize)
   const used = new Set(options.items.filter(item => item.count > 0).map(item => item.size ?? forAll))
+  const mixedSizes = used.size > 1 ? [...used].filter(size => size !== undefined) : undefined
+  function percent(index: number) {
+    if (options.printSize.kind === "percent") return options.printSize.value
+    const placements = sheets?.[index]?.placements ?? []
+    const read = placements.find(placement => itemOf(placement.ref)?.size === undefined) ?? placements[0]
+    return read && Math.round(read.scale * 100)
+  }
   return {
+    refs,
+    printed: refs.filter(ref => (itemOf(ref)?.count ?? 0) > 0),
+    itemOf,
+    sizeOf: ref => {
+      const item = itemOf(ref)
+      return item && sizeOf(options, item)
+    },
     laidOut,
     sheets,
-    mixedSizes: used.size > 1 ? [...used].filter(size => size !== undefined) : undefined,
-    percent(index) {
-      if (options.printSize.kind === "percent") return options.printSize.value
-      const placements = sheets?.[index]?.placements ?? []
-      const read = placements.find(placement => itemOf(placement.ref)?.size === undefined) ?? placements[0]
-      return read && Math.round(read.scale * 100)
+    cutOff,
+    overLimit,
+    landscape,
+    formatSwitches: formatSwitches(options),
+    mixedSizes,
+    percent,
+    confirmation: index => sheets && {
+      sheetsPerCopy: sheets.length,
+      sheets: sheetCount(sheets, options.copies),
+      overLimit,
+      maxSheets,
+      paper,
+      cells: cells(options.layout, paper, margins![options.paper], landscape).cells.map(cell => cell.box),
+      percent: percent(index),
+      mixedSizes: mixedSizes !== undefined,
+      cutOff,
     },
   }
 }

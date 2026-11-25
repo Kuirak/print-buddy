@@ -240,3 +240,55 @@ test("while the server's facts count differently for a moment, nothing is laid o
   expect(derived.laidOut?.reason).toBe("items-mismatch")
   expect(derived.sheets).toBeUndefined()
 })
+
+test.each<[string, FileFacts[], Item[], number[], number[]]>([
+  ["a PDF's pages count from 1", pdfOf(3), items(1, 0, 2), [1, 2, 3], [1, 3]],
+  ["photos count from 0", photosOf(3), items(0, 1, 1), [0, 1, 2], [1, 2]],
+])("refs and which print: %s", (_name, facts, counts, refs, printed) => {
+  const derived = derive(editing(facts, { items: counts }), margins)
+  expect(derived.refs).toEqual(refs)
+  expect(derived.printed).toEqual(printed)
+})
+
+test("a page or photo by its ref: what was chosen for it, and the size it prints at", () => {
+  const derived = derive(editing(pdfOf(2), { items: [item(), item({ turn: 90, size: "fit" })] }), margins)
+  expect(derived.itemOf(2)).toEqual(item({ turn: 90, size: "fit" }))
+  expect(derived.sizeOf(1)).toBe("fill")
+  expect(derived.sizeOf(2)).toBe("fit")
+  expect(derive(editing(pdfOf(1), { printSize: { kind: "percent", value: 95 } }), margins).sizeOf(1)).toBeUndefined()
+})
+
+test.each<[string, FileFacts[], Partial<PrintOptions>, boolean]>([
+  ["a page at Einpassen", letterOf(2), { printSize: { kind: "fit" } }, false],
+  ["only the second sheet cut off at 100 %", [{ kind: "pdf", pageCount: 2, pages: [{ width: 300, height: 300 }, { width: 900, height: 300 }] }], { printSize: { kind: "percent", value: 100 } }, true],
+  ["photos cropped to a Photo format", photosOf(2), { layout: format("10x15") }, false],
+])("cut off: %s", (_name, facts, before, cutOff) => {
+  expect(derive(editing(facts, before), margins).cutOff).toBe(cutOff)
+})
+
+test("the confirmation's numbers: sheets of one copy and of all, the sketch of the layout, the percentage, mixed sizes, cut-off and the limit", () => {
+  // 3 pages, 2 to a sheet, twice: 2 sheets a copy
+  const derived = derive(editing(pdfOf(3), { copies: 2, printSize: { kind: "fit" }, layout: { kind: "grid", perSheet: 2 } }), margins)
+  const numbers = derived.confirmation(0)!
+  // Einpassen in a Cell of 408.95 × 577.28 pt: 577.28 / 842 = 0.686
+  expect(numbers).toMatchObject({ sheetsPerCopy: 2, sheets: 4, overLimit: false, maxSheets: 100, percent: 69, mixedSizes: false, cutOff: false })
+  expect(numbers.cells).toHaveLength(2)
+
+  const over = derive(editing(photosOf(2), { copies: 5, items: items(25, 0) }), margins)
+  expect(over.overLimit).toBe(true)
+  expect(over.confirmation(0)).toMatchObject({ sheetsPerCopy: 25, sheets: 125, overLimit: true })
+  expect(derive(editing(photosOf(2)), undefined).confirmation(0)).toBeUndefined()
+})
+
+test("a landscape first page reads the grids the other way", () => {
+  const landscapePdf: FileFacts[] = [{ kind: "pdf", pageCount: 1, pages: [{ width: 842, height: 595 }] }]
+  expect(derive(editing(landscapePdf), margins).landscape).toBe(true)
+  expect(derive(editing(pdfOf(1)), margins).landscape).toBe(false)
+})
+
+test.each<[string, Partial<PrintOptions>, Pick<FormatLayout, "lage" | "gap" | "cutLines">]>([
+  ["at a grid: Platz sparen, with the gap, without cut lines", {}, { lage: "save", gap: true, cutLines: false }],
+  ["at a format: its own", { layout: format("pass", "landscape", false, true) }, { lage: "landscape", gap: false, cutLines: true }],
+])("the Photo formats on offer start %s", (_name, before, switches) => {
+  expect(derive(editing(photosOf(2), before), margins).formatSwitches).toEqual(switches)
+})

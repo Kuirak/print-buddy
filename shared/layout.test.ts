@@ -782,7 +782,7 @@ test("Print Options that can't print give one reason, with what the options scre
     await t.test(name, () => {
       const chosen = options({ items: each(1), ...changes })
       const laidOut = layOut({ source, options: chosen, sheet: SHEET_SIZES[chosen.paper], margins: edge })
-      assert.deepEqual("sheets" in laidOut ? { ...laidOut, sheets: laidOut.sheets.length } : laidOut, expected)
+      assert.deepEqual("sheets" in laidOut && laidOut.sheets ? { ...laidOut, sheets: laidOut.sheets.length } : laidOut, expected)
     })
   }
 })
