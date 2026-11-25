@@ -52,7 +52,7 @@ export default defineConfig({
   server: { proxy: { "/api": "http://127.0.0.1:9217" } },
   test: {
     environment: "happy-dom",
-    include: ["src/**/*.test.tsx"],
+    include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["src/testing/setup.ts"],
   },
 })
