@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { cells, contentPan, layout, overSheetLimit, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
+import { cells, contentPan, layOut, sheetCount, SHEET_SIZES, type LayoutInput, type Placement, type Sheet } from "./layout.ts"
 import type { FormatLayout, Item, PrintOptions } from "./print-options.ts"
 
 // A made-up sheet with round numbers: 600 × 800 pt, and a different margin on every side.
@@ -41,8 +41,15 @@ const only = (sheets: Sheet[]) => {
   return rounded(sheets[0]!.placements[0]!)
 }
 
+/** The sheets `layOut` lays out, for Print Options that can print. */
+function sheetsOf(input: LayoutInput): Sheet[] {
+  const laidOut = layOut(input)
+  if (laidOut.reason !== undefined) assert.fail(`can't print: ${laidOut.reason}`)
+  return laidOut.sheets
+}
+
 test("a PDF page at 100 % keeps its size in points and sits in the middle of the printable area", () => {
-  const placement = only(layout({ source: pdf([300, 400]), options: options(), sheet, margins }))
+  const placement = only(sheetsOf({ source: pdf([300, 400]), options: options(), sheet, margins }))
 
   assert.deepEqual(placement, {
     ref: 1,
@@ -85,7 +92,7 @@ test("Print size: Einpassen fits inside the printable area, Füllen covers the s
   ]
   for (const [name, page, printSize, expected] of cases) {
     await t.test(name, () => {
-      assert.deepEqual(box(layout({ source: pdf(page), options: options({ printSize }), sheet, margins })), expected)
+      assert.deepEqual(box(sheetsOf({ source: pdf(page), options: options({ printSize }), sheet, margins })), expected)
     })
   }
 })
@@ -108,7 +115,7 @@ test("Position aligns the content to the printable area", async t => {
   for (const [position, small, large] of cases) {
     await t.test(position, () => {
       const at = (value: number) => {
-        const { left, top } = box(layout({ source: pdf([300, 400]), options: options({ position, printSize: percent(value) }), sheet, margins }))
+        const { left, top } = box(sheetsOf({ source: pdf([300, 400]), options: options({ position, printSize: percent(value) }), sheet, margins }))
         return [left, top]
       }
       assert.deepEqual(at(100), small)
@@ -120,7 +127,7 @@ test("Position aligns the content to the printable area", async t => {
 test("an item's pan replaces Position along each axis where its content overlaps the printable area, and says how far it can move", async t => {
   // The printable area is 560 × 740 pt from (10, 20). A 300 × 400 page at 250 % is 750 × 1000: it overlaps by 190 and 260 pt.
   const panned = (pan: Item["pan"], printSize: PrintOptions["printSize"] = percent(250), position: PrintOptions["position"] = "center") =>
-    only(layout({ source: pdf([300, 400]), options: options({ printSize, position, items: [{ count: 1, turn: 0, ...(pan && { pan }) }] }), sheet, margins }))
+    only(sheetsOf({ source: pdf([300, 400]), options: options({ printSize, position, items: [{ count: 1, turn: 0, ...(pan && { pan }) }] }), sheet, margins }))
 
   await t.test("0 puts the left and top edges flush, 1 the right and bottom edges, in between lies between", () => {
     assert.deepEqual([panned({ x: 0, y: 0 }).left, panned({ x: 0, y: 0 }).top], [10, 20])
@@ -145,7 +152,7 @@ test("an item's pan replaces Position along each axis where its content overlaps
     const placement = panned({ x: 0, y: 0 }, percent(100))
     assert.deepEqual([placement.left, placement.top], [140, 190])
     assert.deepEqual(placement.pan, { x: 0.5, y: 0.5, overflowX: 0, overflowY: 0, rotation: 0 })
-    const wide = only(layout({ source: pdf([600, 100]), options: options({ items: [{ count: 1, turn: 0, pan: { x: 1, y: 0 } }] }), sheet, margins }))
+    const wide = only(sheetsOf({ source: pdf([600, 100]), options: options({ items: [{ count: 1, turn: 0, pan: { x: 1, y: 0 } }] }), sheet, margins }))
     // 600 × 100 overlaps across by 40 pt: x pans, y keeps Position (centre)
     assert.deepEqual([wide.left, wide.top], [-30, 340])
     assert.deepEqual(wide.pan, { x: 1, y: 0.5, overflowX: 40, overflowY: 0, rotation: 0 })
@@ -159,7 +166,7 @@ test("an item's pan replaces Position along each axis where its content overlaps
   await t.test("a pan is along the content's own axes: turned, it lies along the sheet's axes the other way round", () => {
     // 300 × 400 turned 90° at 250 % is 1000 × 750: it overlaps by 440 and 10 pt. Its left edge is now the top one,
     // so a pan to its left edge (x 0) puts the top edge flush, and a pan to its top edge (y 0) the right edge flush.
-    const turned = only(layout({ source: pdf([300, 400]), options: options({ printSize: percent(250), items: [{ count: 1, turn: 90, pan: { x: 0, y: 0 } }] }), sheet, margins }))
+    const turned = only(sheetsOf({ source: pdf([300, 400]), options: options({ printSize: percent(250), items: [{ count: 1, turn: 90, pan: { x: 0, y: 0 } }] }), sheet, margins }))
     assert.deepEqual([turned.left, turned.top], [-430, 20])
     assert.deepEqual(turned.pan, { x: 1, y: 0, overflowX: 440, overflowY: 10, rotation: 90 })
   })
@@ -170,7 +177,7 @@ test("an item's pan replaces Position along each axis where its content overlaps
     const save: FormatLayout = { kind: "format", format: "10x15", lage: "save", gap: true, cutLines: false }
     const items: Item[] = [{ count: 20, turn: 0, pan: { y: 0 } }]
     const source: LayoutInput["source"] = { kind: "photos", photos: [{ width: 4000, height: 3000, orientation: 1 }] }
-    const [first] = layout({ source, options: options({ layout: save, printSize: fill, items }), sheet: a4, margins: edge })
+    const [first] = sheetsOf({ source, options: options({ layout: save, printSize: fill, items }), sheet: a4, margins: edge })
     const rotations = new Set(first!.placements.map(placement => placement.pan.rotation))
     assert.ok(rotations.size > 1, "the sheet has upright and sideways slots")
     // along the photo's own axes every slot that overlaps along it lies at its top edge: y 0, whichever way the slot turned it
@@ -200,7 +207,7 @@ test("a sheet says whether content is cut off and whether part of it stays empty
   ]
   for (const [name, page, printSize, edge, expected] of cases) {
     await t.test(name, () => {
-      const [{ cutOff, emptySpace }] = layout({ source: pdf(page), options: options({ printSize }), sheet, margins: edge }) as [Sheet]
+      const [{ cutOff, emptySpace }] = sheetsOf({ source: pdf(page), options: options({ printSize }), sheet, margins: edge }) as [Sheet]
       assert.deepEqual({ cutOff, emptySpace }, expected)
     })
   }
@@ -237,7 +244,7 @@ test("Print size on each paper: an A4 page of 595 × 842 pt with the Printer's A
   ]
   for (const [paper, printSize, expected] of cases) {
     await t.test(`${paper}, ${printSize.kind === "percent" ? `${printSize.value} %` : printSize.kind}`, () => {
-      const sheets = layout({ source: pdf([595, 842]), options: options({ paper, printSize }), sheet: SHEET_SIZES[paper], margins: edge })
+      const sheets = sheetsOf({ source: pdf([595, 842]), options: options({ paper, printSize }), sheet: SHEET_SIZES[paper], margins: edge })
       assert.deepEqual(box(sheets), expected)
     })
   }
@@ -249,11 +256,10 @@ const summary = (sheets: Sheet[]) =>
 
 test("the counts decide which PDF pages appear, in the file's order, one page per sheet", () => {
   const source = pdf([300, 400], [200, 100], [100, 150])
-  const sheets = (...counts: number[]) => summary(layout({ source, options: options({ items: each(...counts), position: "top-left" }), sheet, margins }))
+  const sheets = (...counts: number[]) => summary(sheetsOf({ source, options: options({ items: each(...counts), position: "top-left" }), sheet, margins }))
 
   assert.deepEqual(sheets(1, 0, 1), [[[1, 10, 20, 300, 400]], [[3, 10, 20, 100, 150]]])
   assert.deepEqual(sheets(0, 1, 0), [[[2, 10, 20, 200, 100]]])
-  assert.deepEqual(sheets(0, 0, 0), [])
 })
 
 test("an item's turn turns a PDF page clockwise in 90° steps", async t => {
@@ -266,13 +272,13 @@ test("an item's turn turns a PDF page clockwise in 90° steps", async t => {
   ]
   for (const [turn, [width, height], matrix] of cases) {
     await t.test(`${turn}°`, () => {
-      const placement = only(layout({ source: pdf([400, 200]), options: options({ items: [{ count: 1, turn }], position: "top-left" }), sheet, margins }))
+      const placement = only(sheetsOf({ source: pdf([400, 200]), options: options({ items: [{ count: 1, turn }], position: "top-left" }), sheet, margins }))
       assert.deepEqual(placement, { ref: 1, rotation: turn, scale: 1, left: 10, top: 20, width, height, matrix, pan: { x: 0, y: 0, overflowX: 0, overflowY: 0, rotation: turn }, clip: { left: 0, top: 0, width: 600, height: 800 } })
     })
   }
 
   await t.test("Print size applies to the turned page", () => {
-    const turned = layout({ source: pdf([400, 200]), options: options({ items: [{ count: 1, turn: 90 }], printSize: fit }), sheet, margins })
+    const turned = sheetsOf({ source: pdf([400, 200]), options: options({ items: [{ count: 1, turn: 90 }], printSize: fit }), sheet, margins })
     assert.deepEqual(box(turned), { scale: 1.85, left: 105, top: 20, width: 370, height: 740 })
   })
 })
@@ -292,7 +298,7 @@ test("the natural size of a photo is its pixels at 300 dpi", async t => {
   ]
   for (const [value, expected, matrix] of cases) {
     await t.test(`${value} %`, () => {
-      const sheets = layout({ source: photos([1500, 2100]), options: options({ printSize: percent(value), position: "top-left" }), sheet, margins })
+      const sheets = sheetsOf({ source: photos([1500, 2100]), options: options({ printSize: percent(value), position: "top-left" }), sheet, margins })
       assert.deepEqual(box(sheets), expected)
       assert.deepEqual(only(sheets).matrix, matrix)
     })
@@ -301,10 +307,9 @@ test("the natural size of a photo is its pixels at 300 dpi", async t => {
 
 test("the counts decide which photos appear, in the file's order, counted from 0, one photo per sheet", () => {
   const source = photos([300, 600], [600, 900], [900, 1200])
-  const sheets = (changes: Partial<PrintOptions>) => summary(layout({ source, options: options({ position: "top-left", ...changes }), sheet, margins }))
+  const sheets = (changes: Partial<PrintOptions>) => summary(sheetsOf({ source, options: options({ position: "top-left", ...changes }), sheet, margins }))
 
   assert.deepEqual(sheets({ items: each(1, 0, 1) }), [[[0, 10, 20, 72, 144]], [[2, 10, 20, 216, 288]]])
-  assert.deepEqual(sheets({ items: each(0, 0, 0) }), [])
 })
 
 test("a photo comes out upright for each of the 8 EXIF orientations", async t => {
@@ -326,7 +331,7 @@ test("a photo comes out upright for each of the 8 EXIF orientations", async t =>
   for (const [orientation, topLeft, topRight, [width, height], matrix] of cases) {
     await t.test(`orientation ${orientation}`, () => {
       const source = photos([1000, 500, orientation])
-      const placement = only(layout({ source, options: options({ position: "top-left" }), sheet, margins }))
+      const placement = only(sheetsOf({ source, options: options({ position: "top-left" }), sheet, margins }))
       const onSheet = ([x, y]: number[]) => {
         const [a, b, c, d, e, f] = placement.matrix
         return [a * x! + c * y! + e, b * x! + d * y! + f]
@@ -364,13 +369,13 @@ test("auto-rotate turns a photo that lies across the sheet, at Einpassen and Fü
   ]
   for (const [name, source, size, printSize, expected] of cases) {
     await t.test(name, () => {
-      const { rotation, left, top, width, height } = only(layout({ source, options: options({ printSize }), sheet: size, margins }))
+      const { rotation, left, top, width, height } = only(sheetsOf({ source, options: options({ printSize }), sheet: size, margins }))
       assert.deepEqual([rotation, left, top, width, height], expected)
     })
   }
 
   await t.test("the turn is clockwise: the photo's top-left corner ends at the top right", () => {
-    const { matrix } = only(layout({ source: landscapePhoto, options: options({ printSize: fit }), sheet, margins }))
+    const { matrix } = only(sheetsOf({ source: landscapePhoto, options: options({ printSize: fit }), sheet, margins }))
     // 370 × 740 pt, from 105 pt from the left and 40 pt above the bottom edge. The stored top-left corner is (0, 120).
     assert.deepEqual(matrix, [0, -3.08, 3.08, 0, 105, 780])
   })
@@ -382,25 +387,25 @@ test("an item's turn turns its page or photo by its own amount, on top of EXIF a
   const three = photos([1000, 500], [500, 1000], [1000, 500]) // 240 × 120, 120 × 240, 240 × 120 pt
 
   await t.test("each photo has its own turn", () => {
-    const sheets = layout({ source: three, options: options({ items: turned(90, 0, 180) }), sheet, margins })
+    const sheets = sheetsOf({ source: three, options: options({ items: turned(90, 0, 180) }), sheet, margins })
     assert.deepEqual(turns(sheets), [[[0, 90, 120, 240]], [[1, 0, 120, 240]], [[2, 180, 240, 120]]])
   })
 
   await t.test("each PDF page has its own turn", () => {
-    const sheets = layout({ source: pdf([400, 200], [400, 200], [400, 200]), options: options({ items: turned(90, 0, 270) }), sheet, margins })
+    const sheets = sheetsOf({ source: pdf([400, 200], [400, 200], [400, 200]), options: options({ items: turned(90, 0, 270) }), sheet, margins })
     assert.deepEqual(turns(sheets), [[[1, 90, 200, 400]], [[2, 0, 400, 200]], [[3, 270, 200, 400]]])
   })
 
   await t.test("it adds to auto-rotate: a landscape photo at Einpassen turned once more lies across the sheet", () => {
-    const once = layout({ source: three, options: options({ printSize: fit, items: turned(90) }), sheet, margins })
+    const once = sheetsOf({ source: three, options: options({ printSize: fit, items: [...turned(90), ...each(0, 0)] }), sheet, margins })
     assert.deepEqual(turns(once), [[[0, 180, 560, 280]]])
-    const back = layout({ source: three, options: options({ printSize: fit, items: turned(270) }), sheet, margins })
+    const back = sheetsOf({ source: three, options: options({ printSize: fit, items: [...turned(270), ...each(0, 0)] }), sheet, margins })
     assert.deepEqual(turns(back), [[[0, 0, 560, 280]]])
   })
 
   await t.test("it adds to the EXIF orientation: stored on its side (EXIF 6), then turned 90°, makes half a turn", () => {
     const source = photos([1000, 500, 6])
-    const placement = only(layout({ source, options: options({ position: "top-left", items: turned(90) }), sheet, margins }))
+    const placement = only(sheetsOf({ source, options: options({ position: "top-left", items: turned(90) }), sheet, margins }))
     assert.deepEqual(placement, { ref: 0, rotation: 90, scale: 1, left: 10, top: 20, width: 240, height: 120, matrix: [-1, 0, 0, -1, 250, 780], pan: { x: 0, y: 0, overflowX: 0, overflowY: 0, rotation: 90 }, clip: { left: 0, top: 0, width: 600, height: 800 } })
   })
 })
@@ -480,7 +485,7 @@ test("the Cells of the grids divide the printable area equally, in the order the
 
 test("pages and photos in a grid: each laid out in its Cell as on a sheet of its own", async t => {
   const inGrid = (perSheet: 1 | 2 | 4 | 6 | 8, source: LayoutInput["source"], changes: Partial<PrintOptions> = {}) =>
-    layout({ source, options: options({ layout: grid(perSheet), ...changes }), sheet, margins })
+    sheetsOf({ source, options: options({ layout: grid(perSheet), ...changes }), sheet, margins })
   const placed = (sheets: Sheet[]) => rounded(sheets).map(s => s.placements.map(p => [p.ref, p.rotation, p.left, p.top, p.width, p.height]))
   const portraitPages = (n: number) => pdf(...Array.from({ length: n }, (): [number, number] => [200, 400]))
 
@@ -567,12 +572,12 @@ test("pages and photos in a grid: each laid out in its Cell as on a sheet of its
     const flags = (sheets: Sheet[]) => sheets.map(s => [s.cutOff, s.emptySpace])
     // read sideways, 370 × 560 is exactly what a Cell of 2 per sheet prints
     const exact = pdf([370, 560], [370, 560], [300, 300], [371, 560], [370, 560], [370, 560])
-    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1) })), [[false, false]])
-    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 0, 1) })), [[false, true]])
-    assert.deepEqual(flags(inGrid(2, exact, { items: each(0, 0, 0, 1, 1) })), [[true, false]])
-    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1, 0, 0, 1) })), [[false, false], [false, true]])
-    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1), printSize: fill })), [[false, false]])
-    assert.deepEqual(flags(inGrid(2, exact, { items: each(0, 0, 1), printSize: fill })), [[true, true]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1, 0, 0, 0, 0) })), [[false, false]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 0, 1, 0, 0, 0) })), [[false, true]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(0, 0, 0, 1, 1, 0) })), [[true, false]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1, 0, 0, 1, 0) })), [[false, false], [false, true]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(1, 1, 0, 0, 0, 0), printSize: fill })), [[false, false]])
+    assert.deepEqual(flags(inGrid(2, exact, { items: each(0, 0, 1, 0, 0, 0), printSize: fill })), [[true, true]])
   })
 
   await t.test("a page's turn adds to the quarter turn of a sideways sheet", () => {
@@ -631,20 +636,20 @@ test("an item's count repeats its page or photo next to itself, and a count of 0
   const threePages = pdf([200, 300], [200, 300], [200, 300])
 
   await t.test("one per sheet: a sheet for every repeat, in the file's order", () => {
-    assert.deepEqual(refs(layout({ source: threePages, options: options({ items: each(2, 0, 3) }), sheet, margins })), [[1], [1], [3], [3], [3]])
-    assert.deepEqual(refs(layout({ source: photos([900, 600], [900, 600], [900, 600]), options: options({ items: each(1, 2, 0) }), sheet, margins })), [[0], [1], [1]])
+    assert.deepEqual(refs(sheetsOf({ source: threePages, options: options({ items: each(2, 0, 3) }), sheet, margins })), [[1], [1], [3], [3], [3]])
+    assert.deepEqual(refs(sheetsOf({ source: photos([900, 600], [900, 600], [900, 600]), options: options({ items: each(1, 2, 0) }), sheet, margins })), [[0], [1], [1]])
   })
 
   await t.test("two per sheet: A A B B, and the last sheet keeps its second half empty", () => {
-    assert.deepEqual(refs(layout({ source: threePages, options: options({ items: each(2, 2, 1), layout: twoPerSheet }), sheet, margins })), [[1, 1], [2, 2], [3]])
+    assert.deepEqual(refs(sheetsOf({ source: threePages, options: options({ items: each(2, 2, 1), layout: twoPerSheet }), sheet, margins })), [[1, 1], [2, 2], [3]])
   })
 
   await t.test("repeats that don't fill a sheet go on on the next one", () => {
-    assert.deepEqual(refs(layout({ source: threePages, options: options({ items: each(3, 0, 2), layout: twoPerSheet }), sheet, margins })), [[1, 1], [1, 3], [3]])
+    assert.deepEqual(refs(sheetsOf({ source: threePages, options: options({ items: each(3, 0, 2), layout: twoPerSheet }), sheet, margins })), [[1, 1], [1, 3], [3]])
   })
 
   await t.test("each repeat is laid out in its own Cell", () => {
-    const sheets = layout({ source: threePages, options: options({ items: each(2, 0, 0), layout: grid(4), position: "top-left" }), sheet, margins })
+    const sheets = sheetsOf({ source: threePages, options: options({ items: each(2, 0, 0), layout: grid(4), position: "top-left" }), sheet, margins })
     assert.deepEqual(summary(sheets), [[[1, 10, 20, 200, 300], [1, 290, 20, 200, 300]]])
   })
 })
@@ -655,20 +660,20 @@ test("an item's size replaces the Print size for that page or photo only", async
 
   await t.test("PDF pages at 100 %: one stays, one is fitted into the printable area, one covers the sheet", () => {
     const source = pdf([300, 400], [300, 400], [300, 400])
-    const sheets = layout({ source, options: options({ items: sized(undefined, "fit", "fill") }), sheet, margins })
+    const sheets = sheetsOf({ source, options: options({ items: sized(undefined, "fit", "fill") }), sheet, margins })
     assert.deepEqual(scales(sheets), [[[1, 1, 140, 190, 300, 400]], [[2, 1.85, 12.5, 20, 555, 740]], [[3, 2, -10, -10, 600, 800]]])
     assert.deepEqual(sheets.map(s => s.cutOff), [false, false, true])
   })
 
   await t.test("Füllen for one page while the others are fitted", () => {
-    const sheets = layout({ source: pdf([300, 400], [300, 400]), options: options({ printSize: fit, items: sized("fill", undefined) }), sheet, margins })
+    const sheets = sheetsOf({ source: pdf([300, 400], [300, 400]), options: options({ printSize: fit, items: sized("fill", undefined) }), sheet, margins })
     assert.deepEqual(scales(sheets), [[[1, 2, -10, -10, 600, 800]], [[2, 1.85, 12.5, 20, 555, 740]]])
   })
 
   await t.test("a photo with a size of its own turns to the sheet, as at Einpassen and Füllen for all", () => {
     // 240 × 120 pt photos at 100 %
     const source = photos([1000, 500], [1000, 500], [1000, 500])
-    const sheets = layout({ source, options: options({ items: sized(undefined, "fit", "fill") }), sheet, margins })
+    const sheets = sheetsOf({ source, options: options({ items: sized(undefined, "fit", "fill") }), sheet, margins })
     assert.deepEqual(rounded(sheets).map(s => s.placements.map(p => [p.rotation, p.left, p.top, p.width, p.height])), [
       [[0, 170, 330, 240, 120]],
       [[90, 105, 20, 370, 740]],
@@ -677,14 +682,14 @@ test("an item's size replaces the Print size for that page or photo only", async
   })
 
   await t.test("in a grid the size applies in the item's Cell", () => {
-    const sheets = layout({ source: pdf([200, 400], [200, 400]), options: options({ layout: grid(4), printSize: fit, items: sized(undefined, "fill") }), sheet, margins })
+    const sheets = sheetsOf({ source: pdf([200, 400], [200, 400]), options: options({ layout: grid(4), printSize: fit, items: sized(undefined, "fill") }), sheet, margins })
     assert.deepEqual(summary(sheets), [[[1, 57.5, 20, 185, 370], [2, 290, -75, 280, 560]]])
   })
 })
 
 test("on A4 with the Printer's margins, two A4 pages of 595 × 842 pt print at 69 %, two per sheet", () => {
   const edge = { top: 12, right: 9, bottom: 12, left: 9 }
-  const sheets = layout({ source: pdf([595, 842], [595, 842]), options: options({ layout: twoPerSheet, items: each(1, 1), printSize: fit }), sheet: SHEET_SIZES.A4, margins: edge })
+  const sheets = sheetsOf({ source: pdf([595, 842], [595, 842]), options: options({ layout: twoPerSheet, items: each(1, 1), printSize: fit }), sheet: SHEET_SIZES.A4, margins: edge })
   assert.deepEqual(rounded(sheets), [
     {
       placements: [
@@ -704,7 +709,7 @@ test("the sheet count of a Print Job is the sheets one copy takes, times the cop
   const threePhotos = photos([900, 600], [900, 600], [900, 600])
   const count = (source: LayoutInput["source"], changes: Partial<PrintOptions>) => {
     const chosen = options(changes)
-    return sheetCount(layout({ source, options: chosen, sheet, margins }), chosen.copies)
+    return sheetCount(sheetsOf({ source, options: chosen, sheet, margins }), chosen.copies)
   }
 
   await t.test("one page per sheet: a sheet for every page that prints", () => {
@@ -734,33 +739,6 @@ test("the sheet count of a Print Job is the sheets one copy takes, times the cop
     assert.equal(count(threePhotos, { items: each(1, 1, 1) }), 3)
     assert.equal(count(threePhotos, { items: each(1, 0, 1), copies: 5 }), 10)
   })
-
-  await t.test("nothing printed takes no paper", () => {
-    assert.equal(count(fivePages, { items: each(0, 0, 0, 0, 0), copies: 3 }), 0)
-  })
-})
-
-test("a Print Job may take at most 100 sheets, copies included", async t => {
-  const over = (source: LayoutInput["source"], changes: Partial<PrintOptions>) => {
-    const chosen = options(changes)
-    return overSheetLimit(layout({ source, options: chosen, sheet, margins }), chosen.copies)
-  }
-  const twentyPhotos = photos(...Array.from({ length: 20 }, (): [number, number] => [900, 600]))
-  const fifty = Array.from({ length: 20 }, () => 50)
-
-  await t.test("100 sheets is the most: 4 photos 25 times each, one per sheet; or 25 sheets 4 times", () => {
-    const four = photos([900, 600], [900, 600], [900, 600], [900, 600])
-    assert.equal(over(four, { items: each(25, 25, 25, 25) }), false)
-    assert.equal(over(four, { items: each(25, 25, 25, 26) }), true)
-    assert.equal(over(four, { items: each(25, 0, 0, 0), copies: 4 }), false)
-    assert.equal(over(four, { items: each(25, 0, 0, 0), copies: 5 }), true)
-  })
-
-  await t.test("sharing sheets brings a job under the limit: 20 photos 50 times each are 1000 sheets, or 125 at 8 per sheet", () => {
-    assert.equal(over(twentyPhotos, { items: each(...fifty) }), true)
-    assert.equal(over(twentyPhotos, { items: each(...fifty), layout: { kind: "grid", perSheet: 8 } }), true)
-    assert.equal(over(twentyPhotos, { items: each(...fifty.map(() => 40)), layout: { kind: "grid", perSheet: 8 } }), false)
-  })
 })
 
 const format = (name: FormatLayout["format"], lage: FormatLayout["lage"] = "save", gap = true, cutLines = false): FormatLayout =>
@@ -768,6 +746,44 @@ const format = (name: FormatLayout["format"], lage: FormatLayout["lage"] = "save
 
 // The Printer's margins: 9 pt (3.175 mm) left and right, 12 pt (4.233 mm) top and bottom. On A4 that leaves 203.65 × 288.53 mm.
 const edge = { top: 12, right: 9, bottom: 12, left: 9 }
+
+test("Print Options that can't print give one reason, with what the options screen says it with", async t => {
+  const one = photos([900, 600])
+  const two = photos([900, 600], [900, 600])
+  const four = photos([900, 600], [900, 600], [900, 600], [900, 600])
+  const twenty = (count: number) => ({ source: photos(...Array.from({ length: 20 }, (): [number, number] => [900, 600])), items: each(...Array.from({ length: 20 }, () => count)) })
+  const own = (w: number, h: number, lage: FormatLayout["lage"] = "save") => format({ w, h }, lage)
+  // A4 with the Printer's margins prints on 203.65 × 288.53 mm, an envelope DL on 103.65 × 211.53 mm
+  const cases: [name: string, source: LayoutInput["source"], changes: Partial<PrintOptions>, expected: unknown][] = [
+    ["a PDF item short", pdf([200, 300], [200, 300]), { items: each(1) }, { reason: "items-mismatch" }],
+    ["a photo item too many", two, { items: each(1, 1, 1) }, { reason: "items-mismatch" }],
+    ["a Photo format for a PDF", pdf([200, 300]), { layout: format("10x15") }, { reason: "format-on-pdf" }],
+    ["an own size of 19 mm", one, { layout: own(19, 50) }, { reason: "own-size-too-small" }],
+    ["an own size without a number, as an empty field gives it", one, { layout: own(Number.NaN, 90) }, { reason: "own-size-too-small" }],
+    ["an own size of 20 mm", one, { layout: own(20, 20) }, { sheets: 1 }],
+    ["an own size that only fits lying the other way", one, { layout: own(250, 150, "landscape") }, { reason: "no-cells", otherLage: "portrait", printable: { w: 203, h: 288 } }],
+    ["an own size that fits no way", one, { layout: own(300, 90) }, { reason: "no-cells", printable: { w: 203, h: 288 } }],
+    ["13 × 18 on an envelope DL", one, { paper: "EnvDL", layout: format("13x18") }, { reason: "no-cells", printable: { w: 103, h: 211 } }],
+    ["nothing printed", two, { items: each(0, 0) }, { reason: "nothing-printed" }],
+    // the options screen says what is wrong with the layout even while nothing prints
+    ["an own size of 19 mm, nothing printed", two, { layout: own(19, 50), items: each(0, 0) }, { reason: "own-size-too-small" }],
+    ["13 × 18 on an envelope DL, nothing printed", two, { paper: "EnvDL", layout: format("13x18"), items: each(0, 0) }, { reason: "no-cells", printable: { w: 103, h: 211 } }],
+    // the sheets come with the reason, so that the preview still shows them
+    ["4 photos 25 times each, one per sheet: 100 sheets", four, { items: each(25, 25, 25, 25) }, { sheets: 100 }],
+    ["one photo more: 101 sheets", four, { items: each(25, 25, 25, 26) }, { reason: "over-sheet-limit", sheets: 101 }],
+    ["25 sheets 4 times", four, { items: each(25, 0, 0, 0), copies: 4 }, { sheets: 25 }],
+    ["25 sheets 5 times", four, { items: each(25, 0, 0, 0), copies: 5 }, { reason: "over-sheet-limit", sheets: 25 }],
+    ["20 photos 50 times each at 8 per sheet: 125 sheets", twenty(50).source, { items: twenty(50).items, layout: grid(8) }, { reason: "over-sheet-limit", sheets: 125 }],
+    ["20 photos 40 times each at 8 per sheet: 100 sheets", twenty(40).source, { items: twenty(40).items, layout: grid(8) }, { sheets: 100 }],
+  ]
+  for (const [name, source, changes, expected] of cases) {
+    await t.test(name, () => {
+      const chosen = options({ items: each(1), ...changes })
+      const laidOut = layOut({ source, options: chosen, sheet: SHEET_SIZES[chosen.paper], margins: edge })
+      assert.deepEqual("sheets" in laidOut ? { ...laidOut, sheets: laidOut.sheets.length } : laidOut, expected)
+    })
+  }
+})
 
 test("Photo formats: as many slots of the format as fit the printable area, by Lage, with and without the gap", async t => {
   const count = (paper: PrintOptions["paper"], name: FormatLayout["format"], lage: FormatLayout["lage"], gap: boolean) =>
@@ -828,7 +844,7 @@ test("Photo formats: as many slots of the format as fit the printable area, by L
 
 test("photos at a Photo format: each turns to its slot, fills it or fits into it, and is never reported cut off", async t => {
   const atFormat = (source: LayoutInput["source"], chosen: FormatLayout, changes: Partial<PrintOptions> = {}) =>
-    layout({ source, options: options({ layout: chosen, ...changes }), sheet: SHEET_SIZES.A4, margins: edge })
+    sheetsOf({ source, options: options({ layout: chosen, ...changes }), sheet: SHEET_SIZES.A4, margins: edge })
   // 3:2 photos of 720 × 480 pt, and a 4:3 one of 960 × 720 pt
   const threeTwo = photos([3000, 2000], [3000, 2000], [3000, 2000], [3000, 2000])
 
@@ -866,18 +882,13 @@ test("photos at a Photo format: each turns to its slot, fills it or fits into it
   })
 
   await t.test("cut lines: the slots that hold a photo, only with the switch on, and never in a grid", () => {
-    const lines = (chosen: PrintOptions["layout"]) => rounded(layout({ source: threeTwo, options: options({ layout: chosen, items: each(1, 1, 0, 0), printSize: fill }), sheet: SHEET_SIZES.A4, margins: edge })).map(s => s.cutLines)
+    const lines = (chosen: PrintOptions["layout"]) => rounded(sheetsOf({ source: threeTwo, options: options({ layout: chosen, items: each(1, 1, 0, 0), printSize: fill }), sheet: SHEET_SIZES.A4, margins: edge })).map(s => s.cutLines)
     assert.deepEqual(lines(format("10x15", "save", true, true)), [[
       { left: 9, top: 12, width: 283.46, height: 425.2 },
       { left: 298.13, top: 12, width: 283.46, height: 425.2 },
     ]])
     assert.deepEqual(lines(format("10x15", "save", true, false)), [[]])
     assert.deepEqual(lines({ kind: "grid", perSheet: 4 }), [[]])
-  })
-
-  await t.test("a format that doesn't fit the paper gives no sheets", () => {
-    const sheets = layout({ source: threeTwo, options: options({ layout: format("13x18"), items: each(1, 1, 1, 1) }), sheet: SHEET_SIZES.EnvDL, margins: edge })
-    assert.deepEqual(sheets, [])
   })
 })
 
@@ -887,7 +898,7 @@ const inked = (content: { left: number; top: number; right: number; bottom: numb
   pages: [{ width: size[0], height: size[1], ...(content !== undefined && { content }) }],
 })
 const fillSheet = (source: LayoutInput["source"], changes: Partial<PrintOptions> = {}) =>
-  layout({ source, options: options({ printSize: { kind: "fill" }, ...changes }), sheet, margins })[0]!.cutOff
+  sheetsOf({ source, options: options({ printSize: { kind: "fill" }, ...changes }), sheet, margins })[0]!.cutOff
 
 test("Füllen cuts off only what has ink: blank paper in the unprintable edge is no cut-off", () => {
   // The page is as large as the sheet and sits in the middle of the printable area (x 10 … 570, y 20 … 760), 10 pt above
@@ -908,19 +919,19 @@ test("what is cut off is judged on the page as placed: scaled, panned, and turne
   assert.equal(fillSheet(inked({ left: 20, top: 20, right: 280, bottom: 380 }, [300, 400])), false)
   // 100 % of the 600 × 800 page, turned a quarter clockwise: 800 wide, so 240 pt of it lies beyond each side, and the page's top is on the right.
   const turned = (content: Parameters<typeof inked>[0]) =>
-    layout({ source: inked(content), options: options({ items: [{ count: 1, turn: 90 }] }), sheet, margins })[0]!.cutOff
+    sheetsOf({ source: inked(content), options: options({ items: [{ count: 1, turn: 90 }] }), sheet, margins })[0]!.cutOff
   assert.equal(turned({ left: 100, top: 300, right: 500, bottom: 550 }), false)
   // ink along the page's top, which is now its right edge, lies beyond the printable area
   assert.equal(turned({ left: 100, top: 0, right: 500, bottom: 550 }), true)
   assert.equal(turned(undefined), true)
   // Panned to show the page's top, which lies on the right, the bottom is what falls off the left: ink at the top is kept, ink at the bottom is cut.
   const panned = (content: Parameters<typeof inked>[0], y: number) =>
-    layout({ source: inked(content), options: options({ items: [{ count: 1, turn: 90, pan: { y } }] }), sheet, margins })[0]!.cutOff
+    sheetsOf({ source: inked(content), options: options({ items: [{ count: 1, turn: 90, pan: { y } }] }), sheet, margins })[0]!.cutOff
   assert.equal(panned({ left: 100, top: 0, right: 500, bottom: 550 }, 0), false)
   assert.equal(panned({ left: 100, top: 0, right: 500, bottom: 550 }, 1), true)
 })
 
 test("a photo is cut off wherever it is larger than the printable area: it has no known ink", () => {
   const photos: LayoutInput["source"] = { kind: "photos", photos: [{ width: 2500, height: 3333, orientation: 1 }] }
-  assert.equal(layout({ source: photos, options: options({ printSize: { kind: "fill" } }), sheet, margins })[0]!.cutOff, true)
+  assert.equal(sheetsOf({ source: photos, options: options({ printSize: { kind: "fill" } }), sheet, margins })[0]!.cutOff, true)
 })

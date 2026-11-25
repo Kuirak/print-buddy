@@ -30,7 +30,7 @@ One package, no workspaces. Imports between folders are relative and end in `.ts
 ```
 shared/            Pure TypeScript for both sides. No DOM, no node: imports.
   print-options.ts   The Print Options type, with the layout and one item per page or photo. The only definition.
-  layout.ts          The layout module: the Cells or slots of a layout, where content sits in them, and how many sheets a Print Job takes.
+  layout.ts          The layout module: the Cells or slots of a layout, where content sits in them, or why the Print Options can't print, and how many sheets a Print Job takes.
   api.ts             JSON shapes of the HTTP API.
   file-header.ts     What the head of a file says: its type, and a photo's pixel size and EXIF orientation. Intake and the app both read facts with it.
   share-target.ts    The share target's path and names.
