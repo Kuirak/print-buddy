@@ -2,6 +2,7 @@ import type { JSX } from "@solidjs/web"
 import { maxCopies, type PrintOptions } from "../../../shared/print-options.ts"
 import { paperNames, qualityNames } from "../job-text.ts"
 import type { Preset, Presets } from "../presets.ts"
+import type { Details } from "../print-options-editor.ts"
 import { ChoiceGroup } from "./ChoiceGroup.tsx"
 import { Dialog } from "./Dialog.tsx"
 import { PresetActions } from "./PresetActions.tsx"
@@ -32,8 +33,8 @@ function Row(props: { label: string; children: JSX.Element }) {
 export function OptionsDrawer(props: {
   options: PrintOptions
   presets: Presets
-  /** Changes one or more of the Print Options. */
-  onChange: (changes: Partial<PrintOptions>) => void
+  /** Changes one or more of copies, colour, paper and quality. */
+  onChange: (changes: Partial<Details>) => void
   onPickPreset: (preset: Preset) => void
   onClose: () => void
 }) {

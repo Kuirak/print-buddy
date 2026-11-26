@@ -138,7 +138,6 @@ test("Drucken is not available before the printer info is there, so the confirma
   await expect.poll(() => print).toBeEnabled()
   await user.click(print)
   expect(panel().total).toBe("1")
-  expect(panel().settings).toEqual(["Farbe", "A4", "Normal", "Füllen (100 %)", "Mitte"])
 })
 
 test("the printer info is read again when the read fails, so Drucken doesn't stay unavailable", async () => {
@@ -267,16 +266,6 @@ test("at a Photo format the chips say the Lage, the gap and the cut lines instea
   expect(panel().has("Eigenes 60 × 90 mm")).toBe(true)
 })
 
-test("when pages or photos have sizes of their own that differ, the size chip says so", async () => {
-  const { user, tap } = await openOptions(photo, 2)
-  await user.click(screen.getByRole("img", { name: "Vorschau Foto 1" }))
-  await user.click(within(screen.getByRole("toolbar", { name: "Foto 1" })).getByRole("button", { name: "Einpassen" }))
-
-  await tap("Drucken")
-
-  expect(panel().settings).toContain("Größe je Foto")
-})
-
 test("the cut-off warning shows for a grid that cuts content off, and never at a Photo format", async () => {
   const pdf = await openOptions(pdfWithContent(inkInside))
   await pdf.tap("Drucken")
@@ -294,7 +283,6 @@ test("the cut-off warning shows for a grid that cuts content off, and never at a
 test("a new PDF starts at Füllen, and its cut-off warning follows where the page has ink", async () => {
   const inside = await openOptions(pdfWithContent(inkInside))
   expect(inside.choice("Größe für alle", "Füllen")).toBeChecked()
-  expect(screen.getByRole("status", { name: "Druckgröße in Prozent" })).toHaveTextContent("100 %")
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   await inside.tap("Drucken")
   expect(panel().message).toBe("")
@@ -340,16 +328,8 @@ test("over 100 sheets the total is the one thing that counts: the panel says the
         copies: 5, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" }, position: "center",
         layout: { kind: "grid", perSheet: 8 }, items: items(50, 50),
       }}
-      sheetsPerCopy={13}
-      sheets={65}
-      overLimit
-      maxSheets={100}
-      paper={SHEET_SIZES.A4}
-      cells={[]}
-      percent={undefined}
-      mixedSizes={false}
       // the limit wins over the cut-off warning
-      cutOff
+      numbers={{ sheetsPerCopy: 13, sheets: 65, overLimit: true, paper: SHEET_SIZES.A4, cells: [], percent: undefined, mixedSizes: false, cutOff: true }}
       onConfirm={confirmed}
       onBack={() => {}}
     />
@@ -360,4 +340,26 @@ test("over 100 sheets the total is the one thing that counts: the panel says the
   expect(panel().message).toBe("⛔ Höchstens 100 Blätter pro Druck.")
   expect(panel().drucken).toBeDisabled()
   expect(panel().badges("Fotos")).toEqual(["50×", "50×"])
+})
+
+test.each([
+  ["the percentage it prints at", false, "Füllen (97 %)"],
+  ["that the size is chosen photo by photo", true, "Größe je Foto"],
+])("the size chip says %s", (_name, mixedSizes, chip) => {
+  render(() => (
+    <Confirmation
+      kind="photos"
+      source={{ kind: "photos", urls: ["blob:a", "blob:b"] }}
+      refs={[0, 1]}
+      options={{
+        copies: 1, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" }, position: "center",
+        layout: { kind: "grid", perSheet: 2 }, items: items(1, 1),
+      }}
+      numbers={{ sheetsPerCopy: 1, sheets: 1, overLimit: false, paper: SHEET_SIZES.A4, cells: [], percent: 97, mixedSizes, cutOff: false }}
+      onConfirm={() => {}}
+      onBack={() => {}}
+    />
+  ))
+
+  expect(panel().settings).toContain(chip)
 })

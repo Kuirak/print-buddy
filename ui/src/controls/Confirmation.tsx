@@ -1,7 +1,8 @@
 import { For, Show } from "solid-js"
-import type { Box, Size } from "../../../shared/layout.ts"
+import { maxSheets } from "../../../shared/layout.ts"
 import type { PrintOptions } from "../../../shared/print-options.ts"
 import { counted, lageNames, layoutName, paperNames, positionNames, printSizeText, qualityNames } from "../job-text.ts"
+import type { ConfirmationNumbers } from "../print-options-editor.ts"
 import { Dialog } from "./Dialog.tsx"
 import { DisplayChip } from "./DisplayChip.tsx"
 import { PdfPage } from "./PdfPage.tsx"
@@ -23,20 +24,8 @@ export function Confirmation(props: {
   /** Every page number of the PDF (from 1) or every photo index (from 0), in the order of `options.items`. */
   refs: readonly number[]
   options: PrintOptions
-  /** Sheets of paper for one copy, and for all copies: `sheetCount()` of the layout module. */
-  sheetsPerCopy: number
-  sheets: number
-  /** The Print Job takes more sheets than one may: Drucken is unavailable. */
-  overLimit: boolean
-  maxSheets: number
-  /** The layout as a sketch: the paper and the Cells or slots on it. */
-  paper: Size
-  cells: readonly Box[]
-  /** The percentage the content is printed at, as the Print size row shows it. */
-  percent: number | undefined
-  /** Several sizes are in use: the chip says the size is chosen page by page or photo by photo. */
-  mixedSizes: boolean
-  cutOff: boolean
+  /** The sheets, the sketch of the layout, the percentage, mixed sizes, cut-off and the limit: from the editor's `derive`. */
+  numbers: ConfirmationNumbers
   onConfirm: () => void
   onBack: () => void
 }) {
@@ -49,7 +38,7 @@ export function Confirmation(props: {
       options.color === "color" ? "Farbe" : "S/W",
       paperNames[options.paper],
       qualityNames[options.quality],
-      props.mixedSizes ? (pdf() ? "Größe je Seite" : "Größe je Foto") : printSizeText(options.printSize, props.percent),
+      props.numbers.mixedSizes ? (pdf() ? "Größe je Seite" : "Größe je Foto") : printSizeText(options.printSize, props.numbers.percent),
       ...(layout.kind === "format"
         ? [lageNames[layout.lage], ...(layout.gap ? ["Abstand"] : []), ...(layout.cutLines ? ["Schnittlinien"] : [])]
         : [positionNames[options.position]]),
@@ -67,16 +56,16 @@ export function Confirmation(props: {
     <Dialog label="Jetzt drucken?" at="bottom" onClose={props.onBack}>
       <div class="flex items-center gap-4">
         <div class="w-28 shrink-0 text-center">
-          <output aria-label="Blätter insgesamt" class={`block text-5xl font-extrabold ${props.overLimit ? "text-[#b3261e]" : ""}`}>{props.sheets}</output>
-          <div class="font-semibold">{props.sheets === 1 ? "Blatt" : "Blätter"}</div>
-          <div class="text-sm text-muted">{props.options.copies > 1 ? `${props.sheetsPerCopy} × ${props.options.copies} Kopien` : "1 Kopie"}</div>
+          <output aria-label="Blätter insgesamt" class={`block text-5xl font-extrabold ${props.numbers.overLimit ? "text-[#b3261e]" : ""}`}>{props.numbers.sheets}</output>
+          <div class="font-semibold">{props.numbers.sheets === 1 ? "Blatt" : "Blätter"}</div>
+          <div class="text-sm text-muted">{props.options.copies > 1 ? `${props.numbers.sheetsPerCopy} × ${props.options.copies} Kopien` : "1 Kopie"}</div>
         </div>
         <div class="flex min-w-0 flex-1 items-center gap-3 border-l border-gray-200 pl-4">
-          <svg aria-hidden="true" class="h-24 shrink-0" viewBox={`0 0 ${props.paper.width} ${props.paper.height}`}>
-            <rect width={props.paper.width} height={props.paper.height} fill="white" stroke="#999" stroke-width={props.paper.width / 80} />
-            <For each={props.cells}>
+          <svg aria-hidden="true" class="h-24 shrink-0" viewBox={`0 0 ${props.numbers.paper.width} ${props.numbers.paper.height}`}>
+            <rect width={props.numbers.paper.width} height={props.numbers.paper.height} fill="white" stroke="#999" stroke-width={props.numbers.paper.width / 80} />
+            <For each={props.numbers.cells}>
               {cell => {
-                const inset = props.paper.width / 80
+                const inset = props.numbers.paper.width / 80
                 return <rect x={cell.left + inset} y={cell.top + inset} width={cell.width - 2 * inset} height={cell.height - 2 * inset} fill="#cfe0f7" />
               }}
             </For>
@@ -115,12 +104,12 @@ export function Confirmation(props: {
         <For each={settings()}>{setting => <li><DisplayChip text={setting} /></li>}</For>
       </ul>
       {/* one line of fixed height for the one message that matters most */}
-      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center ${props.overLimit ? "rounded-lg bg-[#fdecea] px-2 text-sm text-[#b3261e]" : props.cutOff ? "note scribble -rotate-1 bg-note-yellow" : ""}`}>
-        {props.overLimit ? `⛔ Höchstens ${props.maxSheets} Blätter pro Druck.` : props.cutOff ? "⚠ Teile des Inhalts werden abgeschnitten." : ""}
+      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center ${props.numbers.overLimit ? "rounded-lg bg-[#fdecea] px-2 text-sm text-[#b3261e]" : props.numbers.cutOff ? "note scribble -rotate-1 bg-note-yellow" : ""}`}>
+        {props.numbers.overLimit ? `⛔ Höchstens ${maxSheets} Blätter pro Druck.` : props.numbers.cutOff ? "⚠ Teile des Inhalts werden abgeschnitten." : ""}
       </p>
       <div class="flex gap-2">
         <button type="button" class="btn-secondary" onClick={props.onBack}>Abbrechen</button>
-        <button type="button" class="btn-primary" disabled={props.overLimit} onClick={props.onConfirm}>Drucken</button>
+        <button type="button" class="btn-primary" disabled={props.numbers.overLimit} onClick={props.onConfirm}>Drucken</button>
       </div>
     </Dialog>
   )

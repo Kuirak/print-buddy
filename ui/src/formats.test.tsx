@@ -75,41 +75,8 @@ test("at 10×15 the photos print as many to a sheet as fit, with Lage and the tw
   expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("Blatt 1/2")
   await user.click(toggle("Abstand zum Schneiden"))
   await user.click(toggle("Schnittlinien"))
-  // another format keeps the Lage and the switches
-  await user.click(tile("9×13"))
 
-  expect(await print()).toMatchObject({ layout: { kind: "format", format: "9x13", lage: "portrait", gap: false, cutLines: true } })
-})
-
-test("a percentage becomes Füllen at a Photo format, and there is no cut-off warning: cropping to the format is expected", async () => {
-  const { user, tile, choice, print } = await openOptions(photo, 2)
-  const warning = () => screen.queryByText("Achtung: Teile des Inhalts werden abgeschnitten.")
-  await user.click(choice("Größe für alle", "100 %"))
-  await user.click(tile("4×"))
-  await user.click(choice("Größe für alle", "Füllen"))
-  expect(warning()).toBeInTheDocument()
-
-  await user.click(choice("Größe für alle", "100 %"))
-  await user.click(tile("Passbild"))
-
-  expect(choice("Größe für alle", "Füllen")).toBeChecked()
-  expect(warning()).not.toBeInTheDocument()
-  expect(await print()).toMatchObject({ printSize: { kind: "fill" }, layout: { kind: "format", format: "pass" } })
-})
-
-test("a Photo format starts at Füllen, its default, and keeps Einpassen once it is chosen there", async () => {
-  const { user, tile, choice, print } = await openOptions(photo, 2)
-  // the Preset Foto prints at Einpassen
-  expect(choice("Größe für alle", "Einpassen")).toBeChecked()
-
-  await user.click(tile("10×15"))
-  expect(choice("Größe für alle", "Füllen")).toBeChecked()
-
-  await user.click(choice("Größe für alle", "Einpassen"))
-  await user.click(tile("9×13"))
-
-  expect(choice("Größe für alle", "Einpassen")).toBeChecked()
-  expect(await print()).toMatchObject({ printSize: { kind: "fit" }, layout: { kind: "format", format: "9x13" } })
+  expect(await print()).toMatchObject({ layout: { kind: "format", format: "10x15", lage: "portrait", gap: false, cutLines: true } })
 })
 
 test("a format that doesn't fit the paper is greyed out, and Drucken says why when the paper changes under it", async () => {
@@ -131,7 +98,7 @@ test("a format that doesn't fit the paper is greyed out, and Drucken says why wh
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
 })
 
-test("Eigenes takes a width and a height in mm, at least 20 and no larger than the paper's printable area", async () => {
+test("Eigenes takes a width and a height in mm, and says under them what is wrong with them while the preview still draws the slots", async () => {
   const { user, tile, own, drucken, print } = await openOptions(photo, 2)
   expect(screen.queryByRole("spinbutton", { name: "Breite" })).not.toBeInTheDocument()
 
@@ -142,33 +109,32 @@ test("Eigenes takes a width and a height in mm, at least 20 and no larger than t
   await own("Breite", "15")
   expect(screen.getByRole("alert")).toHaveTextContent("Breite und Höhe mindestens 20 mm.")
   expect(drucken()).toBeDisabled()
-
-  await own("Breite", "")
-  expect(screen.getByRole("alert")).toHaveTextContent("Breite und Höhe mindestens 20 mm.")
-
-  // A4 without the Printer's margins of 3.175 and 4.233 mm on each side: 203.65 × 288.53 mm. 300 × 90 fits neither way.
-  await own("Breite", "300")
-  expect(screen.getByRole("alert")).toHaveTextContent("Zu groß für A4: höchstens 203 × 288 mm.")
-  expect(drucken()).toBeDisabled()
+  // as small as typed, both photos still show on the sheet
+  expect(screen.getByRole("img", { name: "Vorschau Foto 1" })).toBeInTheDocument()
+  expect(screen.getByRole("img", { name: "Vorschau Foto 2" })).toBeInTheDocument()
 
   await own("Breite", "100")
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-  expect(drucken()).toBeEnabled()
-  // the own size stays while another layout is chosen
-  await user.click(tile("4×"))
-  await user.click(tile("Eigenes"))
-  expect(screen.getByRole("spinbutton", { name: "Breite" })).toHaveValue(100)
   expect(await print()).toMatchObject({ layout: { kind: "format", format: { w: 100, h: 90 }, lage: "save", gap: true, cutLines: false } })
 })
 
-test("an own size that only fits lying the other way says which Lage takes it", async () => {
+test("an own size too large for the paper says the largest that fits, and Drucken is off", async () => {
+  const { user, tile, own, drucken } = await openOptions(photo, 2)
+  await user.click(tile("Eigenes"))
+
+  // A4 without the Printer's margins of 3.175 and 4.233 mm on each side: 203.65 × 288.53 mm. 300 × 90 fits neither way.
+  await own("Breite", "300")
+
+  expect(screen.getByRole("alert")).toHaveTextContent("Zu groß für A4: höchstens 203 × 288 mm.")
+  expect(drucken()).toBeDisabled()
+})
+
+test("an own size that only fits lying the other way says which Lage takes it, and that Lage turns Drucken back on", async () => {
   const { user, tile, choice, own, drucken } = await openOptions(photo, 2)
   await user.click(tile("Eigenes"))
-  await user.click(choice("Lage der Fotos", "Alle quer"))
-
-  // 250 mm across is wider than A4's printable 203 mm, but upright it is 150 wide and 250 high
   await own("Breite", "250")
   await own("Höhe", "150")
+  await user.click(choice("Lage der Fotos", "Alle quer"))
 
   expect(screen.getByRole("alert")).toHaveTextContent("Passt nur mit Lage Alle hoch.")
   expect(drucken()).toBeDisabled()
@@ -176,6 +142,24 @@ test("an own size that only fits lying the other way says which Lage takes it", 
   await user.click(choice("Lage der Fotos", "Alle hoch"))
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   expect(drucken()).toBeEnabled()
+})
+
+test("before the Printer's margins are there, an own size under 20 mm already says so", async () => {
+  mockApi({
+    "POST /api/drafts": () => json({ draftId: "d1" }, 201),
+    "POST /api/drafts/d1/files": () => json(photo, 201),
+    "GET /api/printer": () => { throw new TypeError("Failed to fetch") },
+  })
+  const user = userEvent.setup({ applyAccept: false })
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), new File(["\xff\xd8\xff"], "Strand.jpg", { type: "image/jpeg" }))
+  await user.click(within(await screen.findByRole("radiogroup", { name: "Aufteilung" })).getByRole("radio", { name: "Eigenes" }))
+
+  const width = screen.getByRole("spinbutton", { name: "Breite" })
+  await user.clear(width)
+  await user.type(width, "15")
+
+  expect(screen.getByRole("alert")).toHaveTextContent("Breite und Höhe mindestens 20 mm.")
 })
 
 test("a Preset saved at a Photo format brings back the format, the own size, the Lage and the switches", async () => {

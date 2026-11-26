@@ -30,4 +30,4 @@
 
 **Repeats**: How many times a selected page or photo appears on the sheets, side by side, within one copy of the Print Job. Each page or photo has its own; two of each of four photos fill 8 Cells.
 
-**Pan**: Moving a page or photo that reaches over the edge of the printable area, to choose which part is cut off. It replaces Position for that page or photo on each axis where it overlaps, and only there. Not to be confused with Position, which is one of nine spots for all of them.
+**Pan**: Moving a page or photo that reaches over the edge of the printable area, to choose which part is cut off. It replaces Position for that page or photo on each axis where it overlaps, and only there. It stays through a turn, another layout, another paper or other Repeats, and goes when the Print size or Position it overrides is chosen again, by hand or with a Preset. Not to be confused with Position, which is one of nine spots for all of them.
