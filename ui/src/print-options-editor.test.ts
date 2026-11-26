@@ -66,8 +66,11 @@ test.each<[string, FileFacts[], Partial<PrintOptions>, Edit, Partial<PrintOption
   ["another grid", pdfOf(1), {}, { kind: "layout", layout: { kind: "grid", perSheet: 4 } }, { layout: { kind: "grid", perSheet: 4 } }],
 ])("%s", (_name, facts, before, change, changed) => {
   const start = editing(facts, before)
+  const untouched = structuredClone(start)
   const edited = edit(start, change)
-  expect(edited.editing.options).toEqual({ ...start.options, ...changed })
+  // the edit leaves what it was given alone: the screen compares the old Print Options with the new
+  expect(start).toEqual(untouched)
+  expect(edited.editing.options).toEqual({ ...untouched.options, ...changed })
 })
 
 // The Pan rule (see GLOSSARY.md): a Pan stays through a turn, another layout, another paper and other Repeats, and goes

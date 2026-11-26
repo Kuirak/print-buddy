@@ -129,6 +129,21 @@ test("an own size too large for the paper says the largest that fits, and Drucke
   expect(drucken()).toBeDisabled()
 })
 
+test("an own size that only fits lying the other way says which Lage takes it, and that Lage turns Drucken back on", async () => {
+  const { user, tile, choice, own, drucken } = await openOptions(photo, 2)
+  await user.click(tile("Eigenes"))
+  await own("Breite", "250")
+  await own("Höhe", "150")
+  await user.click(choice("Lage der Fotos", "Alle quer"))
+
+  expect(screen.getByRole("alert")).toHaveTextContent("Passt nur mit Lage Alle hoch.")
+  expect(drucken()).toBeDisabled()
+
+  await user.click(choice("Lage der Fotos", "Alle hoch"))
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  expect(drucken()).toBeEnabled()
+})
+
 test("before the Printer's margins are there, an own size under 20 mm already says so", async () => {
   mockApi({
     "POST /api/drafts": () => json({ draftId: "d1" }, 201),

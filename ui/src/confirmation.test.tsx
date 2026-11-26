@@ -341,3 +341,25 @@ test("over 100 sheets the total is the one thing that counts: the panel says the
   expect(panel().drucken).toBeDisabled()
   expect(panel().badges("Fotos")).toEqual(["50×", "50×"])
 })
+
+test.each([
+  ["the percentage it prints at", false, "Füllen (97 %)"],
+  ["that the size is chosen photo by photo", true, "Größe je Foto"],
+])("the size chip says %s", (_name, mixedSizes, chip) => {
+  render(() => (
+    <Confirmation
+      kind="photos"
+      source={{ kind: "photos", urls: ["blob:a", "blob:b"] }}
+      refs={[0, 1]}
+      options={{
+        copies: 1, color: "color", paper: "A4", quality: "normal", printSize: { kind: "fill" }, position: "center",
+        layout: { kind: "grid", perSheet: 2 }, items: items(1, 1),
+      }}
+      numbers={{ sheetsPerCopy: 1, sheets: 1, overLimit: false, paper: SHEET_SIZES.A4, cells: [], percent: 97, mixedSizes, cutOff: false }}
+      onConfirm={() => {}}
+      onBack={() => {}}
+    />
+  ))
+
+  expect(panel().settings).toContain(chip)
+})
