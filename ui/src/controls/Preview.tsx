@@ -158,7 +158,7 @@ export function Preview(props: {
     // `flex` with the paper's auto margins centres it, and still lets a zoomed sheet scroll to its every edge.
     <section
       aria-label="Vorschau"
-      class={`flex overflow-auto rounded-xl bg-gray-200 p-3 ${sheetHeights}`}
+      class={`desk flex overflow-auto rounded-2xl p-3 ${sheetHeights}`}
       style={{ height: `calc(${sheetHeight} + 24px)`, "touch-action": swipes() ? "pan-y pinch-zoom" : "auto" }}
       onPointerDown={down}
       onPointerUp={up}
@@ -166,7 +166,7 @@ export function Preview(props: {
     >
       <div
         ref={paperShown}
-        class="relative m-auto shrink-0 overflow-hidden bg-white shadow-md"
+        class="relative m-auto shrink-0 overflow-hidden bg-paper shadow-[0_8px_24px_-8px_rgb(28_43_89/0.4)]"
         style={{
           "aspect-ratio": `${shape()}`,
           width: `calc(min(100%, ${sheetHeight} * ${shape()}) * ${props.zoom})`,

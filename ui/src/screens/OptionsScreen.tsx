@@ -327,7 +327,7 @@ export function OptionsScreen(props: {
         <button type="button" class="-ml-2 min-h-11 shrink-0 cursor-pointer rounded-lg px-2 font-semibold text-brand" onClick={() => props.onBack()}>
           <span aria-hidden="true">‹ </span>Zurück
         </button>
-        <h1 class="truncate font-bold">{props.fileName}</h1>
+        <h1 class="truncate font-sans font-extrabold">{props.fileName}</h1>
       </div>
       <PresetChips presets={presets} options={options} onPick={apply} onOwn={() => setOver("details")} />
       </div>
@@ -343,7 +343,7 @@ export function OptionsScreen(props: {
           </button>
           <ViewZoom value={zoom()} onChange={setZoom} />
         </div>
-        <div data-picks>
+        <div data-picks class="relative">
           <Preview
             paper={SHEET_SIZES[options.paper]}
             margins={margins()?.[options.paper]}
@@ -359,10 +359,17 @@ export function OptionsScreen(props: {
             onPick={setPicked}
             onPan={panItem}
           />
+          {/* with nothing selected the sheet is empty; a note says how to bring a page or photo back */}
+          <Show when={printed().length === 0}>
+            <p class="note scribble pointer-events-none absolute inset-x-8 top-1/2 z-10 -translate-y-1/2 -rotate-2 bg-note-yellow text-center shadow-md">
+              {kind === "pdf" ? "Tippe unten auf eine Seite." : "Tippe unten auf ein Foto."}
+            </p>
+          </Show>
         </div>
-        {/* one row of fixed height: the bar of the picked page or photo, or the stepper; nothing to step through on a
-            single sheet, and with nothing selected it says so. Whichever shows, nothing below it moves. */}
-        <div data-picks class="flex h-14 items-center justify-center">
+        {/* one row of fixed height: the bar of the picked page or photo, or the stepper, at the bottom; nothing to step
+            through on a single sheet. The strip above them stays free for the note on what is cut off. Whichever shows,
+            nothing below it moves. */}
+        <div data-picks class="relative flex h-16 items-end justify-center">
           <Show
             when={picked() !== undefined}
             fallback={
@@ -379,12 +386,26 @@ export function OptionsScreen(props: {
               onClose={() => setPicked(undefined)}
             />
           </Show>
+          {/* what is cut off: a small sticky note centred in the white between the preview and the stepper, covering
+              neither. The strip is the row's free top plus the gap above the row. The bar of a picked page or photo is
+              taller and takes the strip, so the note waits until it is closed. */}
+          <Show when={cutOff() && picked() === undefined}>
+            <div class="pointer-events-none absolute inset-x-0 -top-2 flex h-8 items-center justify-center">
+              <p role="alert" class="flex w-fit max-w-full -rotate-[0.5deg] items-center gap-1.5 rounded-sm bg-note-yellow px-2 py-0.5 text-[11px] leading-snug font-bold text-ink shadow-sm">
+                <svg aria-hidden="true" viewBox="0 0 24 24" class="size-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M12 3 2.5 20h19L12 3Z" />
+                  <path d="M12 10v4.5M12 17.5v.01" />
+                </svg>
+                Achtung: Teile des Inhalts werden abgeschnitten.
+              </p>
+            </div>
+          </Show>
         </div>
       </div>
       <div class="flex min-w-0 flex-1 flex-col gap-3 lg:col-start-2 lg:row-start-2 lg:self-stretch">
       {/* Größe für alle and Position side by side, right under the preview: on a phone the sheet stays on the screen
           while they change it, which only the preview shows */}
-      <div class="flex items-start justify-between gap-3">
+      <div class="note flex items-start justify-between gap-3 bg-note-sky">
         <div class="flex min-w-0 flex-col gap-1">
           <span class="text-xs font-semibold text-muted">Größe für alle</span>
           <PrintSize
@@ -408,9 +429,6 @@ export function OptionsScreen(props: {
           />
         </div>
       </div>
-      <Show when={cutOff()}>
-        <p role="alert" class="rounded-lg bg-[#fff1d6] px-3 py-2 text-sm text-[#7a4b00]">Achtung: Teile des Inhalts werden abgeschnitten.</p>
-      </Show>
       <LayoutStrip
         choices={layoutChoices()}
         value={options.layout}

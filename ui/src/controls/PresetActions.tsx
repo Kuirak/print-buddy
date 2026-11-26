@@ -64,6 +64,7 @@ export function PresetActions(props: { presets: Presets; options: PresetValues; 
         )}
       </Match>
       <Match when={true}>
+        <>
         <div class="flex flex-wrap gap-2">
           <button type="button" class={action} onClick={() => setAsking("name")}>Als Voreinstellung speichern …</button>
           <Show when={active()}>
@@ -82,6 +83,10 @@ export function PresetActions(props: { presets: Presets; options: PresetValues; 
             )}
           </Show>
         </div>
+        <Show when={active() && props.presets.starred().id !== active()!.id}>
+          <p class="note scribble -rotate-1 bg-note-yellow">Mit dem Standard startet jede neue Datei.</p>
+        </Show>
+        </>
       </Match>
     </Switch>
   )

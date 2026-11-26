@@ -20,9 +20,13 @@ export function ToggleChip(props: {
       onClick={() => props.onChange(!on())}
     >
       <span aria-hidden="true" class={`chip-circle ${on() ? "border-white bg-white text-brand" : "border-gray-400"}`}>
-        {on() ? <span class="text-xs">✓</span> : props.state === "mixed" ? <span class="chip-mixed-dot" /> : null}
+        {on() ? (
+          <svg viewBox="0 0 24 24" class="size-3" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m5 12.5 4.5 4.5L19 7.5" />
+          </svg>
+        ) : props.state === "mixed" ? <span class="chip-mixed-dot" /> : null}
       </span>
-      {props.label}
+      <span class="chip-label">{props.label}</span>
     </button>
   )
 }

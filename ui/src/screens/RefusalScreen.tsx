@@ -23,6 +23,7 @@ export function RefusalScreen(props: { refusal: Refusal; file: File; onPick: (fi
   return (
     <ThumbScreen actions={<FilePicker onPick={props.onPick} />}>
       <h1 class="text-xl font-bold">{message(props.refusal)}</h1>
+      <p class="note scribble -rotate-1 bg-note-yellow">Es wurde nichts gedruckt. Such dir eine andere Datei aus.</p>
       <ReportButton subject={{ happened: `Die Datei wurde abgelehnt: ${message(props.refusal)}`, files: () => [props.file] }} />
     </ThumbScreen>
   )

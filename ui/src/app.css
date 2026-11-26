@@ -1,8 +1,36 @@
 @import "tailwindcss";
 
+/* Nunito for everything that is read, Permanent Marker for the big headings, Caveat for the handwritten notes only:
+   self-hosted, so that they also come from the cache. German needs only the latin subset. */
+@font-face { font-family: "Nunito"; font-weight: 200 1000; font-display: swap; src: url("fonts/nunito-latin.woff2") format("woff2"); }
+@font-face { font-family: "Caveat"; font-weight: 500; font-display: swap; src: url("fonts/caveat-500-latin.woff2") format("woff2"); }
+@font-face { font-family: "Permanent Marker"; font-weight: 400; font-display: swap; src: url("fonts/permanent-marker-400-latin.woff2") format("woff2"); }
+
 @theme {
-  --color-brand: #1a73e8;
-  --color-muted: #6b7480;
+  --font-sans: "Nunito", ui-rounded, system-ui, sans-serif;
+  --font-marker: "Permanent Marker", "Nunito", ui-rounded, sans-serif;
+  --font-hand: "Caveat", "Nunito", ui-rounded, sans-serif;
+  /* Ballpoint blue on paper: the friendly blue of before, a little deeper so that it reads as text on the paper */
+  --color-brand: #1757c4;
+  /* the tick on a mint note: a pen colour that reads as "done" without being a state colour */
+  --color-tick: #1d7a3a;
+  --color-ink: #1c2b59;
+  --color-muted: #55618a;
+  /* the ground is paper; the sheet in the preview stays the white of real paper */
+  --color-white: #fbf8f0;
+  --color-paper: #ffffff;
+  /* the greys are ink thinned out, so that every border is a pen line */
+  --color-gray-50: #f1f3fa;
+  --color-gray-100: #e8ecf7;
+  --color-gray-200: #d6dcee;
+  --color-gray-300: #b4bfdc;
+  --color-gray-400: #8393c0;
+  --color-gray-500: #5a6a9c;
+  --color-gray-900: #1c2b59;
+  /* sticky notes: the colours that sit on the fridge. None is red; red is for errors only */
+  --color-note-yellow: #fff1a8;
+  --color-note-sky: #d4e9ff;
+  --color-note-mint: #d5f2dd;
   /* the Print Buddy on the status screen while the Printer works: a small lift and settle, like a printer running */
   --animate-hum: hum 1.6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 
@@ -13,18 +41,80 @@
   }
 }
 
+@layer base {
+  html {
+    color: var(--color-ink);
+    accent-color: var(--color-brand);
+    caret-color: var(--color-brand);
+    scrollbar-color: var(--color-gray-300) transparent;
+    /* the marker and the hand have one weight each and must not get a fake bold */
+    font-synthesis: none;
+  }
+  h1, h2 { font-family: var(--font-marker); font-weight: 400; letter-spacing: 0.01em; }
+  ::selection { background: var(--color-note-yellow); color: var(--color-ink); }
+  :focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+}
+
+/* The page: lined inlay paper, faint ballpoint-blue rules. */
+@utility ruled {
+  background-image: repeating-linear-gradient(transparent 0 31px, rgb(23 87 196 / 0.09) 31px 32px);
+}
+
+/* A sticky note: a panel that sits on the paper. Pair with a note colour. */
+@utility note {
+  @apply rounded-md p-3 shadow-sm;
+}
+
+/* What is written on a note, in pen. Caveat runs small, hence the size. */
+@utility scribble {
+  @apply font-hand text-2xl leading-tight font-medium;
+}
+
+/* A strip of tape across the top edge of what it holds. */
+@utility tape {
+  position: relative;
+  &::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    top: var(--tape-top, -9px);
+    left: 50%;
+    z-index: 1;
+    width: 64px;
+    height: 18px;
+    translate: -50% 0;
+    rotate: -3deg;
+    background: rgb(255 226 120 / 0.8);
+  }
+}
+
+/* What the sheet in the preview lies on: a pale desk with a dotted grid, so that the paper reads as something lifted off it. */
+@utility desk {
+  background-color: var(--color-gray-100);
+  background-image: radial-gradient(rgb(23 87 196 / 0.2) 1px, transparent 1.5px);
+  background-size: 16px 16px;
+}
+
 @utility btn-primary {
-  @apply block w-full cursor-pointer rounded-lg bg-brand px-4 py-3 text-center font-semibold text-white disabled:opacity-50;
+  @apply block w-full cursor-pointer rounded-xl bg-brand px-4 py-3 text-center text-lg font-extrabold text-white shadow-md active:translate-y-px disabled:opacity-50;
 }
 
 @utility btn-secondary {
-  @apply block w-full cursor-pointer rounded-lg border border-brand px-4 py-3 text-center font-semibold text-brand disabled:opacity-50;
+  @apply block w-full cursor-pointer rounded-xl border-2 border-brand bg-white px-4 py-3 text-center font-bold text-brand disabled:opacity-50;
 }
 
-/* A chip to tap: a one-of choice or an on/off switch. 13 px text and a 20 px circle, so that the Print size
-   choices fit beside the Position on a narrow phone and the papers keep to two rows in the detailed controls. */
+/* A chip to tap: a one-of choice or an on/off switch. 13 px text and a 20 px circle. The circle sits as far from the
+   left end as from the top and bottom (10 px in a 40 px chip), so that it is concentric with the rounded end. */
 @utility chip {
-  @apply inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border py-1 pr-2.5 pl-1.5 text-[13px] font-semibold whitespace-nowrap;
+  @apply inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border py-1 pr-3.5 pl-2.5 text-[13px] font-semibold whitespace-nowrap;
+}
+
+/* The words of a chip, trimmed to the height of capitals: the circle is then centred on the letters, whatever the
+   font's own ascent and descent make of the line box. Without text-box support the line box centres it as before. */
+@utility chip-label {
+  @supports (text-box: trim-both cap alphabetic) {
+    text-box: trim-both cap alphabetic;
+  }
 }
 
 /* The circle such a chip starts with: a radio dot or a tick goes inside. */

@@ -48,7 +48,7 @@ export function Thumbnails(props: {
   return (
     <section class="flex flex-col gap-2" aria-label="Wie oft">
       <div class="flex items-center justify-between gap-2">
-        <h2 class="font-semibold">Wie oft</h2>
+        <h2 class="font-sans font-extrabold">Wie oft</h2>
         <div class="flex items-center gap-1 text-sm">
           Alle gleich
           <button type="button" class={step} aria-label="Alle seltener" disabled={printed().length === 0 || common() === 1} onClick={() => stepAll(-1)}>−</button>
@@ -78,7 +78,7 @@ export function Thumbnails(props: {
             return (
               <div
                 ref={card}
-                class={`relative flex shrink-0 flex-col overflow-hidden rounded-lg border-2 bg-white ${props.onOffOnly ? "w-[62px]" : "w-[84px]"} ${count() > 0 ? "border-brand" : "border-gray-200"}`}
+                class={`relative flex shrink-0 flex-col overflow-hidden rounded-lg border-2 bg-paper ${props.onOffOnly ? "w-[62px]" : "w-[84px]"} ${count() > 0 ? "border-brand" : "border-gray-200"}`}
               >
                 <button
                   type="button"
@@ -105,7 +105,7 @@ export function Thumbnails(props: {
                 </button>
                 <output
                   aria-label={`Wie oft ${name()}`}
-                  class="pointer-events-none absolute top-1 right-1 rounded-full bg-white/90 px-1.5 text-xs font-bold"
+                  class="pointer-events-none absolute top-1 right-1 rounded-full bg-ink px-2 py-px text-sm font-extrabold text-white ring-2 ring-white"
                 >
                   {countText(count())}
                 </output>

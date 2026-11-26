@@ -35,7 +35,7 @@ export function ChoiceGroup<T extends string | number>(props: {
               <span class={`chip-circle ${chosen() ? "border-brand" : "border-gray-400"}`}>
                 {chosen() ? <span class="size-2.5 rounded-full bg-brand" /> : inUse() ? <span class="chip-mixed-dot" /> : null}
               </span>
-              {choice.label}
+              <span class="chip-label">{choice.label}</span>
             </button>
           )
         }}

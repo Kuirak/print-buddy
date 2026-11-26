@@ -9,6 +9,7 @@ export function ShareAgainScreen(props: { onPick: (files: File[]) => void }) {
   return (
     <ThumbScreen actions={<FilePicker onPick={props.onPick} />}>
       <h1 class="text-xl font-bold">Bitte nochmal teilen</h1>
+      <p class="note scribble -rotate-1 bg-note-yellow">Es wurde nichts gedruckt. Teile die Datei nochmal oder wähle sie hier aus.</p>
     </ThumbScreen>
   )
 }

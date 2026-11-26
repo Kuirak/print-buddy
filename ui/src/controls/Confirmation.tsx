@@ -103,7 +103,7 @@ export function Confirmation(props: {
                       {photos => <img class="block size-full object-cover" src={photos().urls[ref]} alt="" />}
                     </Show>
                   </div>
-                  <span class="absolute top-0.5 right-0.5 rounded-full bg-white/90 px-1 text-[11px] font-bold">{count() > 0 ? `${count()}×` : "aus"}</span>
+                  <span class="absolute top-0.5 right-0.5 rounded-full bg-ink px-1.5 text-xs font-extrabold text-white ring-1 ring-white">{count() > 0 ? `${count()}×` : "aus"}</span>
                 </li>
               )
             }}
@@ -115,7 +115,7 @@ export function Confirmation(props: {
         <For each={settings()}>{setting => <li><DisplayChip text={setting} /></li>}</For>
       </ul>
       {/* one line of fixed height for the one message that matters most */}
-      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center rounded-lg px-2 text-sm ${props.overLimit ? "bg-[#fdecea] text-[#b3261e]" : "text-[#a05a00]"}`}>
+      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center ${props.overLimit ? "rounded-lg bg-[#fdecea] px-2 text-sm text-[#b3261e]" : props.cutOff ? "note scribble -rotate-1 bg-note-yellow" : ""}`}>
         {props.overLimit ? `⛔ Höchstens ${props.maxSheets} Blätter pro Druck.` : props.cutOff ? "⚠ Teile des Inhalts werden abgeschnitten." : ""}
       </p>
       <div class="flex gap-2">

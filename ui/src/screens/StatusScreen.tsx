@@ -146,7 +146,19 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
       <section class="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <Logo class={`mb-2 size-24 drop-shadow-md [@media(max-height:640px)]:size-16 ${state() === "printing" ? "motion-safe:animate-hum" : ""}`} />
         <h1 class="text-2xl font-bold">{stateWords[state()]}</h1>
-        <Show when={stateLines[state()]}>{line => <p>{line()}</p>}</Show>
+        <Show when={stateLines[state()]}>
+          {line => (
+            <p class={`scribble ${state() === "done" ? "note -rotate-1 flex items-center gap-2 bg-note-mint" : ""}`}>
+              {/* a pen-drawn tick, on the note for the good news */}
+              <Show when={state() === "done"}>
+                <svg aria-hidden="true" viewBox="0 0 24 24" class="size-7 shrink-0 text-tick" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M3 13c3 2 4 4 6 7C13 12 17 7 22 3" />
+                </svg>
+              </Show>
+              {line()}
+            </p>
+          )}
+        </Show>
         <Show when={status()?.reason}>{reason => <p>{reason()}</p>}</Show>
         {/* what is printing: never a file name, which Print Buddy doesn't keep */}
         <Show when={status()}>
@@ -164,7 +176,7 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
         </Show>
       </section>
       <Show when={state() === "waiting" && elapsed() >= hintAfterSeconds}>
-        <p class="rounded-lg bg-[#fff1d6] p-3 text-[#7a4b00]">Schläft der Drucker oder ist er aus? Der Auftrag wartet weiter.</p>
+        <p class="note scribble -rotate-1 bg-note-yellow text-ink">Schläft der Drucker oder ist er aus? Der Auftrag wartet weiter.</p>
       </Show>
       <Show when={state() === "error" && status()}>
         {failed => (
