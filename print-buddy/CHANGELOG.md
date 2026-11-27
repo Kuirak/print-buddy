@@ -5,6 +5,13 @@ Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts a
 ## Unreleased
 
 - The start screen shows the Print Buddy version under its name.
+- A new look, same screens and same behaviour: cream lined paper, buttons and chips in ballpoint blue, one rounded face for the text, a marker face for the big headings, and a handwritten face on sticky notes. The faces are part of the app, so they show from the cache and without a network too. The sheet in the preview lies on a pale desk with a faint dot grid, and the "1×", "2×" badges on photos are readable on any picture, light or dark.
+- Hints are sticky notes: "Fertig" has a tick on a green note; the empty sheet says "Tippe unten auf eine Seite." (or "ein Foto") when nothing is chosen to print; a refused file and "Bitte nochmal teilen" say that nothing was printed; "Als Standard festlegen" says "Mit dem Standard startet jede neue Datei."; and "Schläft der Drucker oder ist er aus?" is a note too.
+- "Teile des Inhalts werden abgeschnitten." is a small note between the preview and the page buttons, so nothing below it moves when it shows or goes. It is hidden while a page or photo is picked, because the bar of the picked item takes its place, and is back when the bar closes. "Jetzt drucken?" shows the same note, on a line that keeps its height.
+- The app says when it was updated: after the update reloads the page, a green note at the top reads "Print Buddy wurde aktualisiert." once. While a print is open and a new version is ready, a yellow note says "Neue Version bereit. Sie wird nach diesem Auftrag geladen." The page is never reloaded in the middle of a print. The first update to this version shows no note, because the old page does the reloading.
+- The warning, stop, star and pencil signs are drawn, not letters from the font, which some phones show as an empty box. The star on the default Preset is also read out as "Standard" by screen readers.
+- The circle of a choice chip sits centred on its letters, and the tick of a switch chip is drawn.
+- The installed app's launch screen and status bar use the cream of the paper instead of white.
 
 ## 2026.11.8
 
