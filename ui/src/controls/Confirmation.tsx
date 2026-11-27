@@ -5,6 +5,7 @@ import { counted, lageNames, layoutName, paperNames, positionNames, printSizeTex
 import type { ConfirmationNumbers } from "../print-options-editor.ts"
 import { Dialog } from "./Dialog.tsx"
 import { DisplayChip } from "./DisplayChip.tsx"
+import { StopIcon, WarningIcon } from "./Icons.tsx"
 import { PdfPage } from "./PdfPage.tsx"
 import type { PreviewSource } from "./Preview.tsx"
 
@@ -104,8 +105,18 @@ export function Confirmation(props: {
         <For each={settings()}>{setting => <li><DisplayChip text={setting} /></li>}</For>
       </ul>
       {/* one line of fixed height for the one message that matters most */}
-      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center ${props.numbers.overLimit ? "rounded-lg bg-[#fdecea] px-2 text-sm text-[#b3261e]" : props.numbers.cutOff ? "note scribble -rotate-1 bg-note-yellow" : ""}`}>
-        {props.numbers.overLimit ? `⛔ Höchstens ${maxSheets} Blätter pro Druck.` : props.numbers.cutOff ? "⚠ Teile des Inhalts werden abgeschnitten." : ""}
+      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center gap-1.5 ${props.numbers.overLimit ? "rounded-lg bg-[#fdecea] px-2 text-sm text-[#b3261e]" : props.numbers.cutOff ? "note -rotate-1 bg-note-yellow font-hand text-xl leading-tight font-medium" : ""}`}>
+        {props.numbers.overLimit ? (
+          <>
+            <StopIcon class="size-4 shrink-0" />
+            {`Höchstens ${maxSheets} Blätter pro Druck.`}
+          </>
+        ) : props.numbers.cutOff ? (
+          <>
+            <WarningIcon class="size-5 shrink-0" />
+            Teile des Inhalts werden abgeschnitten.
+          </>
+        ) : ""}
       </p>
       <div class="flex gap-2">
         <button type="button" class="btn-secondary" onClick={props.onBack}>Abbrechen</button>

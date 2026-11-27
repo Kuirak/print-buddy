@@ -80,7 +80,7 @@ test("the summary line under the preview is gone; the detailed controls are behi
   for (const group of ["Farbe", "Papier", "Qualität"]) expect(details.getByRole("radiogroup", { name: group })).toBeInTheDocument()
   expect(details.getByRole("status", { name: "Kopien" })).toHaveTextContent("1")
   expect(details.getByRole("button", { name: "Als Voreinstellung speichern …" })).toBeInTheDocument()
-  expect(details.getByRole("button", { name: "★ Standard" })).toBeInTheDocument()
+  expect(details.getByRole("button", { name: "Standard" })).toBeInTheDocument()
   expect(choice("Papier", "A4")).toBeChecked()
 
   await closeDetails(user)
@@ -97,7 +97,7 @@ test("the Eigene chip opens the detailed controls", async () => {
   await user.click(choice("Qualität", "Toner sparen"))
   await closeDetails(user)
 
-  await user.click(choice("Voreinstellung", "✎ Eigene"))
+  await user.click(choice("Voreinstellung", "Eigene"))
   expect(choice("Qualität", "Toner sparen")).toBeChecked()
 })
 
@@ -170,7 +170,7 @@ test("Abbrechen in the confirmation returns to the options screen with nothing c
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   expect(submits()).toHaveLength(0)
   expect(screen.getByRole("status", { name: "Blatt in der Vorschau" })).toHaveTextContent("Seite 3 · 2/2")
-  expect(choice("Voreinstellung", "✎ Eigene")).toBeChecked()
+  expect(choice("Voreinstellung", "Eigene")).toBeChecked()
   expect(await shownSettings(user)).toEqual({ copies: "2", color: "Farbe", paper: "A5", quality: "Normal" })
 
   await printAndConfirm(user)
@@ -276,7 +276,7 @@ test("the cut-off warning shows for a grid that cuts content off, and never at a
   for (let i = 0; i < 3; i++) await pdf.tap("Größer drucken")
   expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
   await pdf.tap("Drucken")
-  expect(panel().message).toBe("⚠ Teile des Inhalts werden abgeschnitten.")
+  expect(panel().message).toBe("Teile des Inhalts werden abgeschnitten.")
   expect(panel().drucken).toBeEnabled()
 })
 
@@ -293,7 +293,7 @@ test("a new PDF starts at Füllen, and its cut-off warning follows where the pag
   expect(edge.choice("Größe für alle", "Füllen")).toBeChecked()
   expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
   await edge.tap("Drucken")
-  expect(panel().message).toBe("⚠ Teile des Inhalts werden abgeschnitten.")
+  expect(panel().message).toBe("Teile des Inhalts werden abgeschnitten.")
 })
 
 test("the cut-off warning stays away at a Photo format, cropped as the photos are", async () => {
@@ -314,7 +314,7 @@ test("the confirmation warns when only a later sheet is cut off", async () => {
 
   await tap("Drucken")
 
-  expect(panel().message).toBe("⚠ Teile des Inhalts werden abgeschnitten.")
+  expect(panel().message).toBe("Teile des Inhalts werden abgeschnitten.")
 })
 
 test("over 100 sheets the total is the one thing that counts: the panel says the limit and Drucken is unavailable", async () => {
@@ -337,7 +337,7 @@ test("over 100 sheets the total is the one thing that counts: the panel says the
 
   expect(panel().total).toBe("65")
   expect(panel().has("13 × 5 Kopien")).toBe(true)
-  expect(panel().message).toBe("⛔ Höchstens 100 Blätter pro Druck.")
+  expect(panel().message).toBe("Höchstens 100 Blätter pro Druck.")
   expect(panel().drucken).toBeDisabled()
   expect(panel().badges("Fotos")).toEqual(["50×", "50×"])
 })

@@ -5,6 +5,7 @@ import { maxCount, minOwnSize, type FormatLayout, type PrintOptions } from "../.
 import { isLoginExpired, readPrinter } from "../api.ts"
 import { ChoiceGroup } from "../controls/ChoiceGroup.tsx"
 import { Confirmation } from "../controls/Confirmation.tsx"
+import { WarningIcon } from "../controls/Icons.tsx"
 import { ItemBar } from "../controls/ItemBar.tsx"
 import { formatChoices, gridChoices, LayoutStrip } from "../controls/LayoutStrip.tsx"
 import { OptionsDrawer } from "../controls/OptionsDrawer.tsx"
@@ -272,10 +273,7 @@ export function OptionsScreen(props: {
           <Show when={derived().cutOff && picked() === undefined}>
             <div class="pointer-events-none absolute inset-x-0 -top-2 flex h-8 items-center justify-center">
               <p role="alert" class="flex w-fit max-w-full -rotate-[0.5deg] items-center gap-1.5 rounded-sm bg-note-yellow px-2 py-0.5 text-[11px] leading-snug font-bold text-ink shadow-sm">
-                <svg aria-hidden="true" viewBox="0 0 24 24" class="size-3.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M12 3 2.5 20h19L12 3Z" />
-                  <path d="M12 10v4.5M12 17.5v.01" />
-                </svg>
+                <WarningIcon class="size-3.5 shrink-0" />
                 Achtung: Teile des Inhalts werden abgeschnitten.
               </p>
             </div>

@@ -1,5 +1,6 @@
 import { createSignal, Match, Show, Switch } from "solid-js"
 import { isBuiltIn, type Preset, type Presets, type PresetValues } from "../presets.ts"
+import { StarIcon } from "./Icons.tsx"
 
 /**
  * Save the current Print Options as an own Preset, star the Preset they match, or delete it.
@@ -72,7 +73,7 @@ export function PresetActions(props: { presets: Presets; options: PresetValues; 
               <>
                 <Show
                   when={props.presets.starred().id !== preset().id}
-                  fallback={<button type="button" class={action} disabled>★ Standard</button>}
+                  fallback={<button type="button" class={`${action} inline-flex items-center gap-1.5`} disabled><StarIcon class="size-4 shrink-0" />Standard</button>}
                 >
                   <button type="button" class={action} onClick={() => props.presets.star(preset())}>Als Standard festlegen</button>
                 </Show>

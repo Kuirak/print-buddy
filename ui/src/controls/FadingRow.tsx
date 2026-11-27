@@ -25,7 +25,7 @@ export function FadingRow(props: {
     // the row is the entries' offset parent, so this centres the marked one; the browser keeps it within the row
     if (marked) row.scrollLeft = marked.offsetLeft - (row.clientWidth - marked.offsetWidth) / 2
     measure()
-    // entries come and go, and get longer ("✎ Eigene"): the content's size changes, not the row's
+    // entries come and go, and get longer (the pencil of "Eigene"): the content's size changes, not the row's
     const resized = new ResizeObserver(measure)
     resized.observe(row)
     resized.observe(content)
