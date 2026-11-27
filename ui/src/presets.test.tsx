@@ -46,11 +46,18 @@ async function openOptions(kind: FileKind = "pdf") {
   /** A choice in the detailed controls, which have to be open, or a chip. */
   const choice = (group: string, name: string) => within(screen.getByRole("radiogroup", { name: group })).getByRole("radio", { name })
   const chip = (name: string) => choice("Voreinstellung", name)
-  /** The chips' words in order. The star is a picture, so the one that carries it is written with "★ " in front, from its description. */
+  /**
+   * The chips' words in order. The star is a picture, so the chip that carries it is written with "★ " in front, read from
+   * its description. The pictures have to be there too: a star on the starred chip, a pencil on "Eigene", none on the rest.
+   */
   const chips = () =>
     within(screen.getByRole("radiogroup", { name: "Voreinstellung" }))
       .getAllByRole("radio")
-      .map(chip => (chip.getAttribute("aria-description") === "Standard" ? "★ " : "") + chip.textContent)
+      .map(chip => {
+        const starred = chip.getAttribute("aria-description") === "Standard"
+        expect(chip.querySelector("svg") !== null, `the picture on "${chip.textContent}"`).toBe(starred || chip.textContent === "Eigene")
+        return (starred ? "★ " : "") + chip.textContent
+      })
   /** Taps a Preset chip on the options screen. */
   async function pick(name: string) {
     await overview()
@@ -293,6 +300,7 @@ test("a starred Preset is what new PDFs start from, also after reopening the app
   const first = await openOptions()
   await first.details()
   expect(screen.getByRole("button", { name: "Standard" })).toBeDisabled()
+  expect(screen.getByRole("button", { name: "Standard" }).querySelector("svg")).not.toBeNull()
 
   await first.pick("Dokument s/w")
   await first.tap("Als Standard festlegen")

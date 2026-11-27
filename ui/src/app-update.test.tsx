@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
-import { expect, test, vi } from "vitest"
+import { expect, onTestFinished, test, vi } from "vitest"
 import { App } from "./App.tsx"
 import { fakeServiceWorker } from "./testing/fake-service-worker.ts"
 import { jobStatus, sentAt } from "./testing/job-status.ts"
@@ -40,7 +40,7 @@ test("a new version that waits takes over when the app opens on the Start screen
   expect(reload).toHaveBeenCalledOnce()
 })
 
-test("a new version that finishes installing while the Start screen shows takes over", async () => {
+test("a new version that finishes installing while the Start screen shows takes over, without saying that it waits", async () => {
   mockApi({})
   const worker = fakeServiceWorker()
   render(() => <App />)
@@ -50,6 +50,7 @@ test("a new version that finishes installing while the Start screen shows takes 
   worker.newVersionInstalled()
 
   expect(worker.messages).toEqual(["take-over"])
+  expect(updateNote()).not.toBeInTheDocument()
 })
 
 test("a new version does not take over while a job is in progress: from Datei auswählen through Drucken", async () => {
@@ -203,14 +204,38 @@ test("a new version that is ready during a job says that it loads after the job,
   expect(worker.messages).toEqual([])
 })
 
-test("a new version that is ready while Start shows takes over without saying that it waits", async () => {
-  mockApi({})
-  const worker = fakeServiceWorker()
+test("the app's first install finishing during a job is no update: no note, and nothing for the new worker to take over", async () => {
+  mockApi(pdfRoutes)
+  // nothing older is running yet, so the worker that installs activates by itself
+  const worker = fakeServiceWorker({ firstInstall: true })
+  const user = userEvent.setup()
   render(() => <App />)
-  await expect.poll(() => worker.registered).toHaveLength(1)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf())
+  await screen.findByText("Rechnung.pdf")
 
   worker.newVersionInstalled()
+  await settle()
 
-  expect(worker.messages).toEqual(["take-over"])
   expect(updateNote()).not.toBeInTheDocument()
+  expect(worker.messages).toEqual([])
+})
+
+test("a note goes by itself after 6 s", async () => {
+  mockApi(pdfRoutes)
+  const timeouts = vi.spyOn(globalThis, "setTimeout")
+  onTestFinished(() => { timeouts.mockRestore() })
+  const worker = fakeServiceWorker()
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf())
+  await screen.findByText("Rechnung.pdf")
+  worker.newVersionInstalled()
+  await screen.findByRole("status", { name: "Hinweis zur App" })
+
+  // the note's own timer: the one that waits 6 s
+  const goAway = timeouts.mock.calls.find(([, delay]) => delay === 6_000)?.[0] as (() => void) | undefined
+  expect(goAway).toBeDefined()
+  goAway!()
+
+  await expect.poll(updateNote).toBeNull()
 })

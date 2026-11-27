@@ -104,8 +104,8 @@ export function Confirmation(props: {
       <ul aria-label="Einstellungen" class="flex min-h-[62px] flex-wrap content-start gap-1.5">
         <For each={settings()}>{setting => <li><DisplayChip text={setting} /></li>}</For>
       </ul>
-      {/* one line of fixed height for the one message that matters most */}
-      <p role="status" aria-label="Hinweis" class={`flex min-h-10 items-center gap-1.5 ${props.numbers.overLimit ? "rounded-lg bg-[#fdecea] px-2 text-sm text-[#b3261e]" : props.numbers.cutOff ? "note -rotate-1 bg-note-yellow font-hand text-xl leading-tight font-medium" : ""}`}>
+      {/* one line of fixed height for the one message that matters most: 40 px whether it is empty, a limit or a note */}
+      <p role="status" aria-label="Hinweis" class={`flex h-10 items-center gap-1.5 ${props.numbers.overLimit ? "rounded-lg bg-[#fdecea] px-2 text-sm text-[#b3261e]" : props.numbers.cutOff ? "note scribble-sm -rotate-1 bg-note-yellow px-3 py-1 whitespace-nowrap" : ""}`}>
         {props.numbers.overLimit ? (
           <>
             <StopIcon class="size-4 shrink-0" />

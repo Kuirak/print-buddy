@@ -125,7 +125,7 @@ test("the Print size stops at 10 %", async () => {
 
 test("a warning shows while content is cut off, and goes away when it no longer is", async () => {
   const { user, tap, size, percent } = await openOptions()
-  const warning = () => screen.queryByText("Achtung: Teile des Inhalts werden abgeschnitten.")
+  const warning = () => screen.queryByText("Teile des Inhalts werden abgeschnitten.")
   await percent()
   // Füllen covers the whole sheet, so the unprintable edge takes some of the content
   expect(warning()).toBeInTheDocument()

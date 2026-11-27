@@ -60,6 +60,8 @@ function panel() {
     total: dialog.getByRole("status", { name: "Blätter insgesamt" }).textContent,
     settings: within(dialog.getByRole("list", { name: "Einstellungen" })).getAllByRole("listitem").map(chip => chip.textContent),
     message: dialog.getByRole("status", { name: "Hinweis" }).textContent,
+    /** The hint carries a picture, the triangle or the stop sign, which its words don't show. */
+    icon: dialog.getByRole("status", { name: "Hinweis" }).querySelector("svg") !== null,
     has: (text: string) => dialog.queryAllByText(text).length > 0,
     /** The badges of the pages or photos, in order. */
     badges: (group: "Seiten" | "Fotos") => within(dialog.getByRole("list", { name: group })).getAllByRole("listitem").map(item => item.textContent),
@@ -274,9 +276,10 @@ test("the cut-off warning shows for a grid that cuts content off, and never at a
 
   // printed larger than the sheet, the ink reaches over the edge
   for (let i = 0; i < 3; i++) await pdf.tap("Größer drucken")
-  expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
+  expect(screen.getByRole("alert")).toHaveTextContent("Teile des Inhalts werden abgeschnitten.")
   await pdf.tap("Drucken")
   expect(panel().message).toBe("Teile des Inhalts werden abgeschnitten.")
+  expect(panel().icon).toBe(true)
   expect(panel().drucken).toBeEnabled()
 })
 
@@ -291,9 +294,10 @@ test("a new PDF starts at Füllen, and its cut-off warning follows where the pag
   // the same page with ink in the unprintable edge
   const edge = await openOptions(pdfWithContent({ ...inkInside, left: 2 }))
   expect(edge.choice("Größe für alle", "Füllen")).toBeChecked()
-  expect(screen.getByRole("alert")).toHaveTextContent("Achtung: Teile des Inhalts werden abgeschnitten.")
+  expect(screen.getByRole("alert")).toHaveTextContent("Teile des Inhalts werden abgeschnitten.")
   await edge.tap("Drucken")
   expect(panel().message).toBe("Teile des Inhalts werden abgeschnitten.")
+  expect(panel().icon).toBe(true)
 })
 
 test("the cut-off warning stays away at a Photo format, cropped as the photos are", async () => {
@@ -315,6 +319,7 @@ test("the confirmation warns when only a later sheet is cut off", async () => {
   await tap("Drucken")
 
   expect(panel().message).toBe("Teile des Inhalts werden abgeschnitten.")
+  expect(panel().icon).toBe(true)
 })
 
 test("over 100 sheets the total is the one thing that counts: the panel says the limit and Drucken is unavailable", async () => {
@@ -338,6 +343,7 @@ test("over 100 sheets the total is the one thing that counts: the panel says the
   expect(panel().total).toBe("65")
   expect(panel().has("13 × 5 Kopien")).toBe(true)
   expect(panel().message).toBe("Höchstens 100 Blätter pro Druck.")
+  expect(panel().icon).toBe(true)
   expect(panel().drucken).toBeDisabled()
   expect(panel().badges("Fotos")).toEqual(["50×", "50×"])
 })

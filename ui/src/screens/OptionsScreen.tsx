@@ -269,12 +269,14 @@ export function OptionsScreen(props: {
           </Show>
           {/* what is cut off: a small sticky note centred in the white between the preview and the stepper, covering
               neither. The strip is the row's free top plus the gap above the row. The bar of a picked page or photo is
-              taller and takes the strip, so the note waits until it is closed. */}
-          <Show when={derived().cutOff && picked() === undefined}>
-            <div class="pointer-events-none absolute inset-x-0 -top-2 flex h-8 items-center justify-center">
-              <p role="alert" class="flex w-fit max-w-full -rotate-[0.5deg] items-center gap-1.5 rounded-sm bg-note-yellow px-2 py-0.5 text-[11px] leading-snug font-bold text-ink shadow-sm">
+              taller and takes the strip, so the note is only made see-through then: it stays in the page, and a screen
+              reader hears it when the cut-off begins, not again when the bar closes. The sentence is short enough for
+              one line from 320 px up; the icon says "Achtung". */}
+          <Show when={derived().cutOff}>
+            <div class={`pointer-events-none absolute inset-x-0 -top-2 flex h-8 items-center justify-center ${picked() === undefined ? "" : "opacity-0"}`}>
+              <p role="alert" class="flex w-fit max-w-full -rotate-[0.5deg] items-center gap-1.5 rounded-sm bg-note-yellow px-2 py-0.5 text-[11px] leading-tight font-bold text-ink shadow-sm">
                 <WarningIcon class="size-3.5 shrink-0" />
-                Achtung: Teile des Inhalts werden abgeschnitten.
+                Teile des Inhalts werden abgeschnitten.
               </p>
             </div>
           </Show>

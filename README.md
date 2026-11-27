@@ -55,7 +55,7 @@ No test covers the installed app on a phone. The install, the share sheet and th
 - [ ] **Share photos.** In the gallery, select three photos and share them to Print Buddy. The options screen opens with "3 Fotos". They print in the order they were selected, one per sheet.
 - [ ] **Refused shares.** Share 21 photos, and the app shows "Höchstens 20 Fotos auf einmal". Share two PDFs, and it shows "Bitte jeweils nur eine Datei teilen". Share a PDF together with a photo, and it shows "Bitte PDF und Fotos getrennt teilen". All three screens offer "Datei auswählen", and nothing prints.
 - [ ] **Print again from the phone's copy.** After "Fertig", tap "Nochmal drucken". A second Print Job prints without sharing again. Then tap "Schließen".
-- [ ] **Update after a new version.** Install a newer add-on version in Home Assistant. Open Print Buddy on the phone and wait a few seconds on the Start screen. The app reloads once by itself into the new version, and a mint note at the top says "Print Buddy wurde aktualisiert." It goes away after a few seconds, and a second open says nothing. Check this with whatever the release changed on screen.
+- [ ] **Update after a new version.** Install a newer add-on version in Home Assistant. Open Print Buddy on the phone and wait a few seconds on the Start screen. The app reloads once by itself into the new version, and a mint note at the top says "Print Buddy wurde aktualisiert." It goes away after a few seconds, and a second open says nothing. Not so on the first update into a release that has this note: that take-over still runs in the old page, which leaves no mark, so no note shows then. Check this with whatever the release changed on screen.
 - [ ] **No update in the middle of a Print Job.** Install a newer add-on version, then share a PDF and stay on the options screen for half a minute. The screen must not reload. A yellow note at the top says "Neue Version bereit. Sie wird nach diesem Auftrag geladen." and goes away after a few seconds. Print and tap "Schließen". Now the app reloads into the new version, with the mint note.
 - [ ] **A share that arrives empty.** A share may open Print Buddy on "Bitte nochmal teilen" instead of the options screen. Then either that phone's Chrome delivers shares without their files, or the share went to the server because the app's service worker was not running yet. The first case is a known Chrome bug on Chrome 153 with Android 17. "Datei auswählen" still works. Share once more, and if it happens again, note the Chrome version.
 
@@ -113,7 +113,7 @@ Tests measure the layout in points, but only paper and a ruler show what the Pri
 
 ## Development
 
-Development needs Node 26 and pnpm 12. Run `pnpm install` once. Then run `pnpm dev` for the app with hot reload against a fake printer on http://localhost:5173, and run `pnpm test`.
+Development needs Node 26 and pnpm 12. Run `pnpm install` once. Then run `pnpm dev` for the app with hot reload against a fake printer on http://localhost:5173, or the address Vite prints when that port is taken, and run `pnpm test`.
 
 - `docs/development.md` has the commands, where the files are, the rules, and how to test.
 - `docs/architecture.md` explains how each part works, by area.

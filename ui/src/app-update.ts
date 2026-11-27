@@ -17,26 +17,17 @@ interface AppUpdate {
 }
 
 /** What the take-over leaves in `localStorage` for the page it reloads into. */
-const updatedMark = "print-buddy-updated"
+const updatedMark = "print-buddy.updated"
 
 /** Whether the take-over reloaded this page. The mark goes with the answer, so that the next page load says nothing. */
 function takeUpdatedMark(): boolean {
-  try {
-    const marked = localStorage.getItem(updatedMark) !== null
-    localStorage.removeItem(updatedMark)
-    return marked
-  } catch {
-    // no storage, as in some private windows: the person simply isn't told
-    return false
-  }
+  const marked = localStorage.getItem(updatedMark) !== null
+  localStorage.removeItem(updatedMark)
+  return marked
 }
 
 function leaveUpdatedMark() {
-  try {
-    localStorage.setItem(updatedMark, "1")
-  } catch {
-    // see takeUpdatedMark
-  }
+  localStorage.setItem(updatedMark, "1")
 }
 
 /**
@@ -53,7 +44,8 @@ export function startAppUpdate(onHeldBack?: () => void): AppUpdate {
 
   const letWaitingTakeOver = () => {
     const waiting = registration?.waiting
-    if (!waiting) return
+    // A first install waits for a moment too, but there is no older version to take over from: it activates by itself
+    if (!waiting || !registration?.active) return
     if (!jobInProgress) waiting.postMessage(takeOverMessage)
     else if (!saidHeldBack) {
       saidHeldBack = true

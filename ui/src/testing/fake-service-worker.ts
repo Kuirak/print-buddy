@@ -7,6 +7,8 @@ export interface FakeServiceWorkerOptions {
   waiting?: boolean
   /** Registering fails, as it does where /sw.js is not served. */
   unavailable?: boolean
+  /** The app is installed for the first time: no older version is running, so the one that installs is no update. */
+  firstInstall?: boolean
 }
 
 /** Installs the stand-in for the running test. Call it before rendering the app. */
@@ -18,6 +20,7 @@ export function fakeServiceWorker(opts: FakeServiceWorkerOptions = {}) {
 
   const registration = Object.assign(new EventTarget(), {
     installing: null as ReturnType<typeof worker> | null,
+    active: opts.firstInstall ? null : worker("activated"),
     waiting: opts.waiting ? worker("installed") : null,
   })
   const container = Object.assign(new EventTarget(), {

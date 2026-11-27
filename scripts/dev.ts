@@ -26,7 +26,7 @@ const config = await loadConfig({
   PRINT_BUDDY_DELL_ENGINE: process.env.PRINT_BUDDY_DELL_ENGINE,
   PRINT_BUDDY_CUPS: printer.cups,
 })
-await startServer(config)
+const server = await startServer(config)
 
 // The fake printer moves a job only when a test tells it to. Here it prints like a quick real one: Wartet for 5 s,
 // so that "Abbrechen" can still be tried, then Wird gedruckt for 5 s, then Fertig.
@@ -41,12 +41,12 @@ setInterval(() => {
 }, 1000)
 
 if (process.argv.includes("--built")) {
-  console.log(`Print Buddy: http://localhost:${config.port}`)
+  console.log(`Print Buddy: ${server.url}`)
 } else {
   const vite = await createServer({
     configFile: fileURLToPath(new URL("../vite.config.ts", import.meta.url)),
-    // the fake printer's server may listen elsewhere than the port vite.config.ts proxies to
-    server: { proxy: { "/api": `http://127.0.0.1:${config.port}` } },
+    // the server may listen elsewhere than the port vite.config.ts proxies to: PRINT_BUDDY_PORT, or 0 for a free one
+    server: { proxy: { "/api": server.url } },
   })
   await vite.listen()
   console.log("Print Buddy with hot reload:")

@@ -148,7 +148,7 @@ export function StatusScreen(props: { job: JobSubmitted; since?: number; onClose
         <h1 class="text-2xl font-bold">{stateWords[state()]}</h1>
         <Show when={stateLines[state()]}>
           {line => (
-            <p class={`scribble ${state() === "done" ? "note -rotate-1 flex items-center gap-2 bg-note-mint" : ""}`}>
+            <p class={state() === "done" ? "note scribble -rotate-1 flex items-center gap-2 bg-note-mint" : ""}>
               {/* a pen-drawn tick, on the note for the good news */}
               <Show when={state() === "done"}>
                 <svg aria-hidden="true" viewBox="0 0 24 24" class="size-7 shrink-0 text-tick" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
