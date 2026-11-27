@@ -1,4 +1,4 @@
-import { render, screen } from "@solidjs/testing-library"
+import { cleanup, render, screen } from "@solidjs/testing-library"
 import { userEvent } from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 import { App } from "./App.tsx"
@@ -163,4 +163,54 @@ test("a new version that waited through a job takes over once the person taps Sc
   await expect.poll(() => worker.messages).toEqual(["take-over"])
   worker.takeOver()
   expect(reload).toHaveBeenCalledOnce()
+})
+
+const updateNote = () => screen.queryByRole("status", { name: "Hinweis zur App" })
+
+test("the page a take-over reloads into says that the app was updated, and only that once", async () => {
+  mockApi({})
+  vi.spyOn(location, "reload").mockImplementation(() => {})
+  const worker = fakeServiceWorker({ waiting: true })
+  render(() => <App />)
+  await expect.poll(() => worker.messages).toEqual(["take-over"])
+  expect(updateNote()).not.toBeInTheDocument()
+
+  worker.takeOver()
+  // the reload opens the app again
+  cleanup()
+  render(() => <App />)
+  expect(updateNote()).toHaveTextContent("Print Buddy wurde aktualisiert.")
+
+  // and a later open, with no take-over in between, says nothing
+  cleanup()
+  render(() => <App />)
+  expect(await screen.findByLabelText("Datei auswählen")).toBeInTheDocument()
+  expect(updateNote()).not.toBeInTheDocument()
+})
+
+test("a new version that is ready during a job says that it loads after the job, and does not take over", async () => {
+  mockApi(pdfRoutes)
+  const worker = fakeServiceWorker()
+  const user = userEvent.setup()
+  render(() => <App />)
+  await user.upload(screen.getByLabelText("Datei auswählen"), pdf())
+  await screen.findByText("Rechnung.pdf")
+  expect(updateNote()).not.toBeInTheDocument()
+
+  worker.newVersionInstalled()
+
+  expect(await screen.findByRole("status", { name: "Hinweis zur App" })).toHaveTextContent("Neue Version bereit. Sie wird nach diesem Auftrag geladen.")
+  expect(worker.messages).toEqual([])
+})
+
+test("a new version that is ready while Start shows takes over without saying that it waits", async () => {
+  mockApi({})
+  const worker = fakeServiceWorker()
+  render(() => <App />)
+  await expect.poll(() => worker.registered).toHaveLength(1)
+
+  worker.newVersionInstalled()
+
+  expect(worker.messages).toEqual(["take-over"])
+  expect(updateNote()).not.toBeInTheDocument()
 })

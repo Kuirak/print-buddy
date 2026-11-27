@@ -1,10 +1,11 @@
-import { createSignal, Match, onSettled, Switch } from "solid-js"
+import { createSignal, Match, onSettled, Show, Switch } from "solid-js"
 import type { FileFacts, JobSubmitted, Refusal } from "../../shared/api.ts"
 import { loggedInParam } from "../../shared/login.ts"
 import type { PrintOptions } from "../../shared/print-options.ts"
 import { lostShare, sharedParam } from "../../shared/share-target.ts"
 import { checkSession, failedWith, isLoginExpired, onLoginExpired, submitDraft } from "./api.ts"
 import { startAppUpdate } from "./app-update.ts"
+import { UpdateNote } from "./controls/UpdateNote.tsx"
 import { readFacts } from "./file-facts.ts"
 import { interruptedJob } from "./interrupted-job.ts"
 import { lastJob } from "./last-job.ts"
@@ -75,8 +76,10 @@ export function App() {
     const current = screen()
     return current.name === name ? (current as Extract<Screen, { name: N }>) : undefined
   }
+  // a new version that has to wait for the job to end: the person is told once
+  const [heldBack, setHeldBack] = createSignal(false)
   // a share opens the app in the middle of a job; from Start, a job begins with "Datei auswählen"
-  const update = startAppUpdate()
+  const update = startAppUpdate(() => setHeldBack(true))
   update.setJobInProgress(opensInJob)
   /**
    * The phone holds the files of a job the person can come back to after a login. Not what `update` is
@@ -266,6 +269,13 @@ export function App() {
   return (
     // the options screen grows with the screen: one wider column on a tablet, two columns from 1024 px
     <div class={`ruled mx-auto min-h-dvh bg-white ${screen().name === "options" && !loginExpired() ? "max-w-[480px] md:max-w-xl lg:max-w-6xl" : "max-w-[480px]"}`}>
+      {/* about the app, not the job: it sits over whatever screen shows, and taps pass through it */}
+      <Show when={update.updated}>
+        <UpdateNote tone="done" text="Print Buddy wurde aktualisiert." />
+      </Show>
+      <Show when={heldBack()}>
+        <UpdateNote tone="info" text="Neue Version bereit. Sie wird nach diesem Auftrag geladen." />
+      </Show>
       <Switch>
         {/* first, so that it covers whatever screen the person was on */}
         <Match when={loginExpired()}>

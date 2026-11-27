@@ -68,7 +68,7 @@ ui/                Vite root.
   src/phone-files.ts The phone's copy of the files of the job in progress.
   src/interrupted-job.ts  What else of a job survives the page load of the login.
   src/share-target.ts  Which requests the service worker answers itself, and what it does with a share.
-  src/app-update.ts  When a new version of the installed app may take over.
+  src/app-update.ts  When a new version of the installed app may take over, and when the person is told about it.
   src/report.ts      The report builder: the plain text behind "Bericht kopieren".
   src/last-job.ts    The last Print Job from this phone, for the line on Start.
   src/job-text.ts    The German words for the Print Options, as the confirmation and "Nochmal drucken?" say them.
