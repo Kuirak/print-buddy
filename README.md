@@ -113,7 +113,7 @@ Tests measure the layout in points, but only paper and a ruler show what the Pri
 
 ## Development
 
-Development needs Node 26 and pnpm 12. Run `pnpm install` once. Then run `pnpm dev` for the app against a fake printer on http://localhost:9217, and run `pnpm test`.
+Development needs Node 26 and pnpm 12. Run `pnpm install` once. Then run `pnpm dev` for the app with hot reload against a fake printer on http://localhost:5173, and run `pnpm test`.
 
 - `docs/development.md` has the commands, where the files are, the rules, and how to test.
 - `docs/architecture.md` explains how each part works, by area.

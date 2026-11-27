@@ -9,8 +9,8 @@
   },
   "scripts": {
     "start": "node server/main.ts",
-    "dev": "pnpm build && node scripts/dev.ts",
-    "dev:ui": "node scripts/pdfjs-assets.ts && vite",
+    "dev": "node scripts/dev.ts",
+    "dev:built": "pnpm build && node scripts/dev.ts --built",
     "build": "node scripts/pdfjs-assets.ts && vite build",
     "typecheck": "tsc --noEmit",
     "test": "pnpm test:server && pnpm test:ui",

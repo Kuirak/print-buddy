@@ -1,8 +1,13 @@
-// Local development: Print Buddy on http://localhost:9217 against the fake IPP printer,
-// with a temporary jobs directory. Nothing reaches a real printer.
+// Local development against the fake IPP printer, with a temporary jobs directory. Nothing reaches a real printer.
+// By default the page comes from Vite's dev server with hot reload, and the server only answers /api. With `--built`
+// the server serves the built app from dist/ui on http://localhost:9217, with its service worker, as the add-on does.
 import { mkdtemp, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { createServer } from "vite"
+// pdf.js's fetched files, which Vite serves from ui/public (a build runs this too, so with `--built` it only repeats)
+import "./pdfjs-assets.ts"
 import { loadConfig } from "../server/config.ts"
 import { JobState } from "../server/printer/ipp-codec.ts"
 import { startServer } from "../server/server.ts"
@@ -35,6 +40,17 @@ setInterval(() => {
   }
 }, 1000)
 
-console.log(`Print Buddy: http://localhost:${config.port}`)
+if (process.argv.includes("--built")) {
+  console.log(`Print Buddy: http://localhost:${config.port}`)
+} else {
+  const vite = await createServer({
+    configFile: fileURLToPath(new URL("../vite.config.ts", import.meta.url)),
+    // the fake printer's server may listen elsewhere than the port vite.config.ts proxies to
+    server: { proxy: { "/api": `http://127.0.0.1:${config.port}` } },
+  })
+  await vite.listen()
+  console.log("Print Buddy with hot reload:")
+  vite.printUrls()
+}
 console.log(`Fake printer: ${printer.uri}`)
 console.log(`Jobs directory: ${config.jobsDir}`)
