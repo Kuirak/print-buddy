@@ -2,7 +2,7 @@
 
 Newest first. Versions are `YYYY.MM.N`: year, month, and a counter that starts at 0 each month. Changes collect under "Unreleased" until the next release gives them a version.
 
-## Unreleased
+## 2026.11.9
 
 - The start screen shows the Print Buddy version under its name.
 - A new look, same screens and same behaviour: cream lined paper, buttons and chips in ballpoint blue, one rounded face for the text, a marker face for the big headings, and a handwritten face on sticky notes. The faces are part of the app, so they show from the cache and without a network too. The sheet in the preview lies on a pale desk with a faint dot grid, and the "1×", "2×" badges on photos are readable on any picture, light or dark.
